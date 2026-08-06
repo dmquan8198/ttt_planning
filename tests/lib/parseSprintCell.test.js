@@ -20,3 +20,12 @@ test('parses a legacy Date-object cell as a same-day, sprint-less range', () => 
 test('returns null for an unrecognized string', () => {
   assert.equal(parseSprintCell('not a sprint'), null);
 });
+
+test('returns null when a date token inside the parens is malformed', () => {
+  assert.equal(parseSprintCell('S15 (0308 - 1408)'), null);
+});
+
+test('returns null for an empty or undefined cell', () => {
+  assert.equal(parseSprintCell(''), null);
+  assert.equal(parseSprintCell(undefined), null);
+});

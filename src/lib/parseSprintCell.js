@@ -4,6 +4,12 @@ function toISODate(raw) {
     const [d, mo, y] = parts;
     return `20${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
+  if (parts.length !== 2) {
+    return null;
+  }
+  // 2-part dd/mm dates omit the year; the source sheet only ever uses this
+  // for 2026 dates (cross-year sprints use an explicit dd/mm/yy end date,
+  // e.g. S25's "01/01/27"). Re-verify if the sheet is reused for another year.
   const [d, mo] = parts;
   return `2026-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
 }
@@ -23,7 +29,10 @@ function parseSprintCell(cell) {
   const m = String(cell).match(/^(S\d+)\s*\(([\d/]+)\s*-\s*([\d/]+)\)$/);
   if (!m) return null;
   const [, code, startRaw, endRaw] = m;
-  return { code, start: toISODate(startRaw), end: toISODate(endRaw), legacy: false };
+  const start = toISODate(startRaw);
+  const end = toISODate(endRaw);
+  if (start === null || end === null) return null;
+  return { code, start, end, legacy: false };
 }
 
 module.exports = { parseSprintCell, toISODate };
