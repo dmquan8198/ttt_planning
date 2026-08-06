@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const phasesRouter = require('./routes/phases');
+const sprintsRouter = require('./routes/sprints');
 
 function createApp(pool) {
   const app = express();
@@ -9,6 +10,8 @@ function createApp(pool) {
   app.get('/api/health', (req, res) => res.json({ ok: true }));
 
   app.use('/api/phases', phasesRouter(pool));
+
+  app.use('/api/sprints', sprintsRouter(pool));
 
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
