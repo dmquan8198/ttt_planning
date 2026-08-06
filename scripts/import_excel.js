@@ -8,7 +8,7 @@ const path = require('path');
 const XLSX = require('xlsx');
 const { Pool } = require('pg');
 const { parseSprintCell } = require('../src/lib/parseSprintCell');
-const { mapExcelStatus } = require('../src/lib/statusCodes');
+const { mapExcelStatus, EXCEL_STATUS_MAP } = require('../src/lib/statusCodes');
 
 const SHEET_NAME = 'Nghiệp vụ';
 const HEADER_RANGE = 7; // 0-indexed row of the header (1-indexed row 8 is first data row)
@@ -46,20 +46,6 @@ const NOTE_COLUMNS = [
   { index: COL.NOTE_1, createdAt: '2026-08-03' },
   { index: COL.NOTE_2, createdAt: '2026-07-06' }
 ];
-
-// Mirrors the raw Excel status strings that src/lib/statusCodes.js's
-// EXCEL_STATUS_MAP recognizes. mapExcelStatus() itself is the source of truth
-// for the actual mapping (imported above, not reimplemented here) — this list
-// exists only so the importer can tell "legitimately mapped to backlog" apart
-// from "fell back to backlog because the raw string was unrecognized" for the
-// observability warnings below. Keep in sync with statusCodes.js if it changes.
-const KNOWN_EXCEL_STATUS_RAW = new Set([
-  '0. backlog',
-  '1. Ready for Dev',
-  '2. inTest',
-  '3. Ready for Staging',
-  '4. Done'
-]);
 
 function isNonEmpty(v) {
   return v !== undefined && v !== null && String(v).trim() !== '';
@@ -142,55 +128,70 @@ function resolveSprintAndDates(rawSprint, sprintIdByCode, warnings, rowLabel) {
 
 function resolveStatus(rawStatus, warnings, rowLabel) {
   const status = mapExcelStatus(rawStatus);
-  if (isNonEmpty(rawStatus) && !KNOWN_EXCEL_STATUS_RAW.has(rawStatus)) {
+  const isKnownStatus = Object.prototype.hasOwnProperty.call(EXCEL_STATUS_MAP, rawStatus);
+  if (isNonEmpty(rawStatus) && !isKnownStatus) {
     warnings.push(`Row ${rowLabel}: unrecognized status "${rawStatus}", defaulted to backlog`);
   }
   return status;
 }
 
+// Runs the whole per-row task/log insert loop as a single transaction on one
+// checked-out client, so a mid-import failure (e.g. row 80 of 108) rolls back
+// cleanly instead of leaving partial data committed — important since this
+// script isn't safe to blindly re-run (tasks/activity_logs aren't upserts).
 async function insertTasksAndLogs(pool, rows, phaseIdByCode, sprintIdByCode, warnings) {
+  const client = await pool.connect();
   let taskCount = 0;
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const name = row[COL.NAME];
-    if (!isNonEmpty(name)) continue;
+  try {
+    await client.query('BEGIN');
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const name = row[COL.NAME];
+      if (!isNonEmpty(name)) continue;
 
-    const sttRaw = row[COL.STT];
-    const stt = isNonEmpty(sttRaw) && Number.isFinite(Number(sttRaw)) ? Number(sttRaw) : null;
-    const rowLabel = stt !== null ? stt : `index ${i}`;
+      const sttRaw = row[COL.STT];
+      const stt = isNonEmpty(sttRaw) && Number.isFinite(Number(sttRaw)) ? Number(sttRaw) : null;
+      const rowLabel = stt !== null ? stt : `index ${i}`;
 
-    const category = row[COL.CATEGORY];
-    const platform = row[COL.PLATFORM];
+      const category = row[COL.CATEGORY];
+      const platform = row[COL.PLATFORM];
 
-    const phaseId = resolvePhaseId(row[COL.PHASE], phaseIdByCode, warnings, rowLabel);
-    const { sprintId, startDate, dueDate, dateOverridden } = resolveSprintAndDates(
-      row[COL.SPRINT], sprintIdByCode, warnings, rowLabel
-    );
-    const status = resolveStatus(row[COL.STATUS], warnings, rowLabel);
-
-    const { rows: inserted } = await pool.query(
-      `INSERT INTO tasks
-         (stt, category, name, platform, phase_id, sprint_id, status,
-          done_analyst, done_dev, done_uat, done_staging, start_date, due_date, date_overridden)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-       RETURNING id`,
-      [
-        stt, category, String(name).trim(), platform, phaseId, sprintId, status,
-        !!row[COL.DONE_ANALYST], !!row[COL.DONE_DEV], !!row[COL.DONE_UAT], !!row[COL.DONE_STAGING],
-        startDate, dueDate, dateOverridden
-      ]
-    );
-    const taskId = inserted[0].id;
-    taskCount++;
-
-    for (const { index, createdAt } of NOTE_COLUMNS) {
-      const rawNote = row[index];
-      if (!isNonEmpty(rawNote)) continue;
-      await pool.query(
-        `INSERT INTO activity_logs (task_id, note, created_at) VALUES ($1, $2, $3)`,
-        [taskId, String(rawNote).trim(), createdAt]
+      const phaseId = resolvePhaseId(row[COL.PHASE], phaseIdByCode, warnings, rowLabel);
+      const { sprintId, startDate, dueDate, dateOverridden } = resolveSprintAndDates(
+        row[COL.SPRINT], sprintIdByCode, warnings, rowLabel
       );
+      const status = resolveStatus(row[COL.STATUS], warnings, rowLabel);
+
+      const { rows: inserted } = await client.query(
+        `INSERT INTO tasks
+           (stt, category, name, platform, phase_id, sprint_id, status,
+            done_analyst, done_dev, done_uat, done_staging, start_date, due_date, date_overridden)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         RETURNING id`,
+        [
+          stt, category, String(name).trim(), platform, phaseId, sprintId, status,
+          !!row[COL.DONE_ANALYST], !!row[COL.DONE_DEV], !!row[COL.DONE_UAT], !!row[COL.DONE_STAGING],
+          startDate, dueDate, dateOverridden
+        ]
+      );
+      const taskId = inserted[0].id;
+      taskCount++;
+
+      for (const { index, createdAt } of NOTE_COLUMNS) {
+        const rawNote = row[index];
+        if (!isNonEmpty(rawNote)) continue;
+        await client.query(
+          `INSERT INTO activity_logs (task_id, note, created_at) VALUES ($1, $2, $3)`,
+          [taskId, String(rawNote).trim(), createdAt]
+        );
+      }
     }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
   return taskCount;
 }

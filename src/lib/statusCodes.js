@@ -20,4 +20,4 @@ function mapExcelStatus(raw) {
   return EXCEL_STATUS_MAP[raw] || '0.backlog';
 }
 
-module.exports = { STATUS_CODES, STATUS_LABELS, mapExcelStatus };
+module.exports = { STATUS_CODES, STATUS_LABELS, mapExcelStatus, EXCEL_STATUS_MAP };
