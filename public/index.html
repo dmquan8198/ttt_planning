@@ -128,27 +128,33 @@
     </div>
     <div class="field">
       <label>Phase</label>
-      <select id="f-phase"><option>P1: Lived 10/08</option><option selected>P2: Rollout 01/09</option><option>P3: Convert 01/11</option><option>P4: Booming 01/01</option></select>
+      <select id="f-phase"></select>
     </div>
   </div>
   <div class="field-row">
     <div class="field">
       <label>Sprint</label>
-      <select id="f-sprint"><option>S14 (20/07–31/07)</option><option selected>S15 (03/08–14/08)</option><option>S16 (17/08–28/08)</option><option>S17 (31/08–11/09)</option></select>
+      <select id="f-sprint"></select>
     </div>
     <div class="field">
       <label>Status</label>
-      <select id="f-status"><option>0. Backlog</option><option selected>1. Ready for Dev</option><option>2. In Test</option><option>3. Ready for Staging</option><option>4. Done</option></select>
+      <select id="f-status">
+        <option value="0.backlog">0. Backlog</option>
+        <option value="1.ready_for_dev">1. Ready for Dev</option>
+        <option value="2.in_test">2. In Test</option>
+        <option value="3.ready_for_staging">3. Ready for Staging</option>
+        <option value="4.done">4. Done</option>
+      </select>
     </div>
   </div>
   <div class="field-row">
     <div class="field">
       <label>Start (mặc định = đầu Sprint)</label>
-      <input id="f-start" type="date" value="2026-08-03">
+      <input id="f-start" type="date">
     </div>
     <div class="field">
       <label>Due (mặc định = cuối Sprint)</label>
-      <input id="f-due" type="date" value="2026-08-14">
+      <input id="f-due" type="date">
     </div>
   </div>
   <div class="field">
@@ -157,13 +163,15 @@
   </div>
 
   <button class="save-btn" id="saveBtn">Lưu nghiệp vụ</button>
+  <button class="save-btn" id="deleteBtn" style="background:var(--red-ink); display:none;">Xoá nghiệp vụ</button>
 
   <div class="field" id="logField" style="margin-top:22px;">
     <label>Activity log (thay cho cột Note theo ngày)</label>
-    <div class="log-preview" id="logPreview">
-      <div class="log-item"><span class="log-date">03/08/2026</span>Chuyển sang Ready for Dev, giao cho BE.</div>
-      <div class="log-item"><span class="log-date">30/07/2026</span>Chốt scope với chị Hoa, chờ review UI.</div>
+    <div class="field-row" style="margin-bottom:8px;">
+      <input id="f-newlog" type="text" placeholder="Ghi chú mới...">
+      <button class="save-btn" id="addLogBtn" style="width:auto; padding:8px 14px;">Thêm</button>
     </div>
+    <div class="log-preview" id="logPreview"></div>
   </div>
 </div>
 

@@ -13,6 +13,7 @@ function computePhaseRollup(phase, tasks, todayISO) {
   );
 
   return {
+    id: phase.id,
     code: phase.code,
     name: phase.name,
     target_date: phase.target_date,

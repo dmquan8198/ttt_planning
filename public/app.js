@@ -11,8 +11,6 @@ document.querySelectorAll('.nav-item').forEach(function(el){
 // ---- drawer: shared by "create" and "edit" ----
 var overlay = document.getElementById('overlay'), drawer = document.getElementById('drawer');
 var statusLabel = {0:'0. Backlog', 1:'1. Ready for Dev', 2:'2. In Test', 3:'3. Ready for Staging', 4:'4. Done'};
-var phaseLabel = {P1:'P1: Lived 10/08', P2:'P2: Rollout 01/09', P3:'P3: Convert 01/11', P4:'P4: Booming 01/01'};
-var sprintRangeLabel = {S14:'S14 (20/07–31/07)', S15:'S15 (03/08–14/08)', S16:'S16 (17/08–28/08)', S17:'S17 (31/08–11/09)'};
 
 // dotted status string (from the real API) -> numeric suffix used by the
 // existing .pill.st-N / .bar.st-N CSS classes and the statusLabel map above.
@@ -26,10 +24,45 @@ function escapeHtml(str){
   });
 }
 
-function setSelect(id, text){
-  var el = document.getElementById(id);
-  if(!text){ return; }
-  for(var i=0;i<el.options.length;i++){ if(el.options[i].text === text){ el.selectedIndex = i; return; } }
+// id of the task currently being edited, or null when the drawer is in "create" mode
+var editingTaskId = null;
+// becomes true once the user hand-edits #f-start/#f-due since the last time we
+// auto-filled them from a sprint change (or since the drawer was opened)
+var manualDateEdit = false;
+
+function populateSelectOptions(selectEl, items, labelFn, noneLabel){
+  var previousValue = selectEl.value;
+  selectEl.innerHTML = '';
+  var noneOpt = document.createElement('option');
+  noneOpt.value = '';
+  noneOpt.textContent = noneLabel;
+  selectEl.appendChild(noneOpt);
+  items.forEach(function(item){
+    var opt = document.createElement('option');
+    opt.value = item.id;
+    opt.textContent = labelFn(item);
+    selectEl.appendChild(opt);
+  });
+  return previousValue;
+}
+
+function fetchAndRenderLogs(taskId){
+  var preview = document.getElementById('logPreview');
+  preview.innerHTML = '<div class="view-sub">Đang tải...</div>';
+  return fetchJSON('/api/tasks/' + taskId + '/logs')
+    .then(function(logs){
+      if (logs.length === 0){
+        preview.innerHTML = '<div class="view-sub">Chưa có ghi chú nào.</div>';
+        return;
+      }
+      preview.innerHTML = logs.map(function(l){
+        return '<div class="log-item"><span class="log-date">' + fmtDMY(String(l.created_at).slice(0,10)) + '</span>' + escapeHtml(l.note) + '</div>';
+      }).join('');
+    })
+    .catch(function(err){
+      console.error('Failed to load activity log', err);
+      preview.innerHTML = '<div class="view-sub">Không tải được nhật ký.</div>';
+    });
 }
 
 function openDrawer(mode, t){
@@ -40,19 +73,53 @@ function openDrawer(mode, t){
     ? 'Cập nhật thông tin cho nghiệp vụ này'
     : 'Các trường giữ nguyên như sheet Nghiệp vụ hiện tại';
   document.getElementById('saveBtn').textContent = isEdit ? 'Lưu thay đổi' : 'Lưu nghiệp vụ';
-  document.getElementById('f-name').value = t.name || '';
-  setSelect('f-cat', t.cat);
-  setSelect('f-platform', t.platform);
-  setSelect('f-phase', t.phase ? phaseLabel[t.phase] : null);
-  var sp = t.sprint ? sprintRangeLabel[t.sprint] : null;
-  setSelect('f-sprint', sp);
-  setSelect('f-status', t.st !== undefined ? statusLabel[t.st] : null);
-  if(t.sprint && sprintOf(t.sprint)){
-    var sObj = sprintOf(t.sprint);
-    document.getElementById('f-start').value = sObj.start.toISOString().slice(0,10);
-    document.getElementById('f-due').value = sObj.end.toISOString().slice(0,10);
-  }
+  document.getElementById('deleteBtn').style.display = isEdit ? 'block' : 'none';
   document.getElementById('logField').style.display = isEdit ? 'block' : 'none';
+  document.getElementById('f-notes').value = '';
+  document.getElementById('f-newlog').value = '';
+  manualDateEdit = false;
+
+  Promise.all([loadPhasesList(), loadSprints(), isEdit ? loadTasks() : Promise.resolve(null)])
+    .then(function(results){
+      var phases = results[0], sprints = results[1], allTasks = results[2];
+
+      populateSelectOptions(document.getElementById('f-phase'), phases, function(p){
+        return p.code + ': ' + p.name + ' (' + fmtDMY(p.target_date) + ')';
+      }, '— không có —');
+      populateSelectOptions(document.getElementById('f-sprint'), sprints, function(s){
+        return s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')';
+      }, '— không có —');
+
+      if (isEdit){
+        var full = (allTasks || []).filter(function(x){ return x.id === t.id; })[0] || t;
+        editingTaskId = full.id;
+        document.getElementById('f-name').value = full.name || '';
+        document.getElementById('f-cat').value = full.category || '';
+        document.getElementById('f-platform').value = full.platform || '';
+        document.getElementById('f-status').value = full.status || STATUS_ORDER[0];
+        document.getElementById('f-phase').value = full.phase_id != null ? String(full.phase_id) : '';
+        document.getElementById('f-sprint').value = full.sprint_id != null ? String(full.sprint_id) : '';
+        document.getElementById('f-start').value = full.start_date || '';
+        document.getElementById('f-due').value = full.due_date || '';
+        fetchAndRenderLogs(full.id);
+      } else {
+        editingTaskId = null;
+        document.getElementById('f-name').value = '';
+        document.getElementById('f-cat').selectedIndex = 0;
+        document.getElementById('f-platform').selectedIndex = 0;
+        document.getElementById('f-status').value = STATUS_ORDER[0];
+        document.getElementById('f-phase').value = '';
+        document.getElementById('f-sprint').value = '';
+        document.getElementById('f-start').value = '';
+        document.getElementById('f-due').value = '';
+        document.getElementById('logPreview').innerHTML = '';
+      }
+    })
+    .catch(function(err){
+      console.error('Failed to load drawer reference data', err);
+      alert('Không tải được dữ liệu cho form (Phase/Sprint). Thử tải lại trang.');
+    });
+
   overlay.classList.add('show'); drawer.classList.add('show');
 }
 
@@ -60,6 +127,23 @@ document.getElementById('openDrawer').addEventListener('click', function(){ open
 document.getElementById('closeDrawer').addEventListener('click', close);
 overlay.addEventListener('click', close);
 function close(){ overlay.classList.remove('show'); drawer.classList.remove('show'); }
+
+// hybrid date UX: picking a sprint auto-fills start/due unless the user has
+// already hand-edited the dates since the last time we auto-filled them
+document.getElementById('f-sprint').addEventListener('change', function(){
+  var sprintId = this.value;
+  if (!sprintId || manualDateEdit) return;
+  loadSprints().then(function(sprints){
+    var s = sprints.filter(function(x){ return String(x.id) === String(sprintId); })[0];
+    if (!s) return;
+    document.getElementById('f-start').value = s.start_date;
+    document.getElementById('f-due').value = s.end_date;
+    manualDateEdit = false;
+  });
+});
+['f-start', 'f-due'].forEach(function(id){
+  document.getElementById(id).addEventListener('input', function(){ manualDateEdit = true; });
+});
 
 // ---- shared fetch helper: throws on network failure AND non-2xx responses ----
 function fetchJSON(url){
@@ -160,6 +244,15 @@ function loadPhases(){
       console.error('Failed to load /api/phases', err);
       row.innerHTML = '<div class="view-sub">Không tải được dữ liệu Phase. Thử tải lại trang.</div>';
     });
+}
+
+// ---- drawer's Phase <select>: id/code/name/target_date never change from this
+// task (only tasks are mutated), so this list is cached separately from the
+// always-fresh /api/phases fetch loadPhases() uses to refresh rollup counts.
+var _phasesListPromise = null;
+function loadPhasesList(){
+  if (!_phasesListPromise) _phasesListPromise = fetchJSON('/api/phases');
+  return _phasesListPromise;
 }
 
 // ---- sprint view: current + next (fetched from /api/sprints/current-next) ----
@@ -374,3 +467,115 @@ function loadBoardView(){
 
 loadTimelineView();
 loadBoardView();
+
+// ---- drawer: create / update / delete / activity log wiring ----
+// after any task mutation, invalidate the shared tasks cache and re-run every
+// loader that could be affected by it (phase rollups, sprint panel, timeline, board)
+function refreshAllViews(){
+  _tasksPromise = null;
+  loadPhases();
+  loadSprintView();
+  loadTimelineView();
+  loadBoardView();
+}
+
+document.getElementById('saveBtn').addEventListener('click', function(){
+  var name = document.getElementById('f-name').value.trim();
+  var category = document.getElementById('f-cat').value;
+  var platform = document.getElementById('f-platform').value;
+  var status = document.getElementById('f-status').value;
+  var phaseVal = document.getElementById('f-phase').value;
+  var sprintVal = document.getElementById('f-sprint').value;
+  var startVal = document.getElementById('f-start').value || null;
+  var dueVal = document.getElementById('f-due').value || null;
+
+  if (!name || !category || !platform || !status){
+    alert('Vui lòng nhập đầy đủ Tên nghiệp vụ, Category, Platform và Status.');
+    return;
+  }
+
+  // date_overridden: the user hand-edited the dates since the last sprint-driven
+  // autofill, OR there is no sprint selected but dates were entered manually.
+  var dateOverridden = manualDateEdit || (!sprintVal && !!(startVal || dueVal));
+
+  var body = {
+    category: category,
+    name: name,
+    platform: platform,
+    status: status,
+    phase_id: phaseVal ? Number(phaseVal) : null,
+    sprint_id: sprintVal ? Number(sprintVal) : null,
+    date_overridden: dateOverridden,
+    start_date: dateOverridden ? startVal : null,
+    due_date: dateOverridden ? dueVal : null
+  };
+
+  var url = editingTaskId ? ('/api/tasks/' + editingTaskId) : '/api/tasks';
+  var method = editingTaskId ? 'PUT' : 'POST';
+
+  fetch(url, {
+    method: method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+    return res.json();
+  }).then(function(){
+    close();
+    refreshAllViews();
+  }).catch(function(err){
+    console.error('Save task failed', err);
+    alert('Không lưu được nghiệp vụ: ' + err.message);
+  });
+});
+
+document.getElementById('deleteBtn').addEventListener('click', function(){
+  if (!editingTaskId) return;
+  if (!confirm('Xoá nghiệp vụ này? Không thể hoàn tác.')) return;
+
+  fetch('/api/tasks/' + editingTaskId, { method: 'DELETE' })
+    .then(function(res){
+      if (!res.ok){
+        return res.json().catch(function(){ return {}; }).then(function(errBody){
+          throw new Error(errBody.error || ('HTTP ' + res.status));
+        });
+      }
+    })
+    .then(function(){
+      close();
+      refreshAllViews();
+    })
+    .catch(function(err){
+      console.error('Delete task failed', err);
+      alert('Không xoá được nghiệp vụ: ' + err.message);
+    });
+});
+
+document.getElementById('addLogBtn').addEventListener('click', function(){
+  var input = document.getElementById('f-newlog');
+  var note = input.value.trim();
+  if (!note || !editingTaskId) return;
+
+  fetch('/api/tasks/' + editingTaskId + '/logs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: note })
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+    return res.json();
+  }).then(function(){
+    input.value = '';
+    return fetchAndRenderLogs(editingTaskId);
+  }).catch(function(err){
+    console.error('Add log failed', err);
+    alert('Không thêm được ghi chú: ' + err.message);
+  });
+});
