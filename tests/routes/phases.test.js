@@ -35,6 +35,7 @@ test('GET /api/phases returns rollup per phase', async () => {
 
   assert.equal(res.status, 200);
   const p1Result = res.body.find((p) => p.code === 'P1');
+  assert.equal(p1Result.target_date, '2026-08-10');
   assert.equal(p1Result.total, 2);
   assert.equal(p1Result.done_analyst, 2);
   assert.equal(p1Result.done_dev, 1);
