@@ -23,6 +23,7 @@ test('GET /api/sprints lists every sprint ordered by start date', async () => {
   const res = await request(app).get('/api/sprints');
   assert.equal(res.status, 200);
   assert.deepEqual(res.body.map((s) => s.code), ['S15', 'S16']);
+  assert.equal(res.body[0].start_date, '2026-08-03');
 });
 
 test('GET /api/sprints/current-next returns current sprint tasks and next sprint tasks', async () => {
