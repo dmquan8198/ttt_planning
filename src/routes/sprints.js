@@ -3,6 +3,10 @@ const { pickCurrentAndNextSprint } = require('../lib/pickCurrentAndNextSprint');
 const { asyncHandler } = require('../lib/asyncHandler');
 const { normalizeDate } = require('../lib/normalizeDate');
 
+function normalizeSprint(s) {
+  return { ...s, start_date: normalizeDate(s.start_date), end_date: normalizeDate(s.end_date) };
+}
+
 function sprintsRouter(pool) {
   const router = Router();
 
@@ -10,12 +14,7 @@ function sprintsRouter(pool) {
     const { rows } = await pool.query(
       'SELECT id, code, start_date, end_date FROM sprints ORDER BY start_date'
     );
-    const sprints = rows.map((s) => ({
-      ...s,
-      start_date: normalizeDate(s.start_date),
-      end_date: normalizeDate(s.end_date)
-    }));
-    res.json(sprints);
+    res.json(rows.map(normalizeSprint));
   }));
 
   router.get('/current-next', asyncHandler(async (req, res) => {
@@ -23,11 +22,7 @@ function sprintsRouter(pool) {
       'SELECT id, code, start_date, end_date FROM sprints ORDER BY start_date'
     );
     const today = req.query.today || new Date().toISOString().slice(0, 10);
-    const normalizedSprints = sprints.map((s) => ({
-      ...s,
-      start_date: normalizeDate(s.start_date),
-      end_date: normalizeDate(s.end_date)
-    }));
+    const normalizedSprints = sprints.map(normalizeSprint);
     const { current, next } = pickCurrentAndNextSprint(normalizedSprints, today);
 
     const result = { current: null, next: null };
