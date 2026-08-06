@@ -26,6 +26,12 @@ function escapeHtml(str){
 
 // id of the task currently being edited, or null when the drawer is in "create" mode
 var editingTaskId = null;
+// the Analyst/Dev/UAT/Staging completion flags of the task currently being edited.
+// These have no form fields in this drawer (they come from the Excel import and
+// are tracked separately from the Kanban `status`) — we must pass them straight
+// through on save or the PUT handler's `!!b.done_analyst` (etc.) will wipe them
+// to false. null while in "create" mode, where a brand-new task has none yet.
+var editingTaskDoneFlags = null;
 // becomes true once the user hand-edits #f-start/#f-due since the last time we
 // auto-filled them from a sprint change (or since the drawer was opened)
 var manualDateEdit = false;
@@ -93,6 +99,12 @@ function openDrawer(mode, t){
       if (isEdit){
         var full = (allTasks || []).filter(function(x){ return x.id === t.id; })[0] || t;
         editingTaskId = full.id;
+        editingTaskDoneFlags = {
+          done_analyst: !!full.done_analyst,
+          done_dev: !!full.done_dev,
+          done_uat: !!full.done_uat,
+          done_staging: !!full.done_staging
+        };
         document.getElementById('f-name').value = full.name || '';
         document.getElementById('f-cat').value = full.category || '';
         document.getElementById('f-platform').value = full.platform || '';
@@ -104,6 +116,7 @@ function openDrawer(mode, t){
         fetchAndRenderLogs(full.id);
       } else {
         editingTaskId = null;
+        editingTaskDoneFlags = null;
         document.getElementById('f-name').value = '';
         document.getElementById('f-cat').selectedIndex = 0;
         document.getElementById('f-platform').selectedIndex = 0;
@@ -510,8 +523,21 @@ document.getElementById('saveBtn').addEventListener('click', function(){
     due_date: dateOverridden ? dueVal : null
   };
 
-  var url = editingTaskId ? ('/api/tasks/' + editingTaskId) : '/api/tasks';
-  var method = editingTaskId ? 'PUT' : 'POST';
+  // this form has no Analyst/Dev/UAT/Staging fields (they're tracked separately
+  // from the Kanban status and come from the Excel import) — on edit, pass the
+  // task's existing flags straight through so the PUT handler's `!!b.done_x`
+  // doesn't silently wipe them to false. On create there is nothing to preserve.
+  if (editingTaskId && editingTaskDoneFlags){
+    body.done_analyst = editingTaskDoneFlags.done_analyst;
+    body.done_dev = editingTaskDoneFlags.done_dev;
+    body.done_uat = editingTaskDoneFlags.done_uat;
+    body.done_staging = editingTaskDoneFlags.done_staging;
+  }
+
+  var isCreate = !editingTaskId;
+  var url = isCreate ? '/api/tasks' : ('/api/tasks/' + editingTaskId);
+  var method = isCreate ? 'POST' : 'PUT';
+  var notesValue = document.getElementById('f-notes').value.trim();
 
   fetch(url, {
     method: method,
@@ -524,6 +550,21 @@ document.getElementById('saveBtn').addEventListener('click', function(){
       });
     }
     return res.json();
+  }).then(function(savedTask){
+    // spec requires an optional initial note on CREATE only; best-effort — a
+    // failure here shouldn't block the drawer from closing, the task itself
+    // was already created successfully.
+    if (isCreate && notesValue && savedTask && savedTask.id){
+      return fetch('/api/tasks/' + savedTask.id + '/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: notesValue })
+      }).then(function(logRes){
+        if (!logRes.ok) console.error('Failed to save initial note: HTTP ' + logRes.status);
+      }).catch(function(err){
+        console.error('Failed to save initial note', err);
+      });
+    }
   }).then(function(){
     close();
     refreshAllViews();
