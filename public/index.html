@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TTT New — Quản lý dự án</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app-frame">
+  <div class="titlebar">
+    <div class="dots"><span></span><span></span><span></span></div>
+    <div class="path">ttt-timeline / Nghiệp vụ</div>
+  </div>
+  <div class="body-wrap">
+    <nav class="rail">
+      <div class="brand">TTT New<small>Quản lý dự án</small></div>
+      <div class="nav-group">
+        <div class="nav-item active" data-view="roadmap">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 15h3l2-5 3 8 2-11 2 6h4"/></svg>
+          Roadmap
+        </div>
+        <div class="nav-item" data-view="sprint">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6.5" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="13.5" cy="10" r="1.1" fill="currentColor" stroke="none"/><rect x="2.5" y="4" width="15" height="13" rx="1.5"/><path d="M2.5 7.5h15"/></svg>
+          Sprint
+        </div>
+        <div class="nav-item" data-view="timeline">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="13" rx="1.5"/><path d="M2.5 8h15M7 2.5v3M13 2.5v3"/></svg>
+          Timeline
+        </div>
+        <div class="nav-item" data-view="board">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M7.5 3v14M12.5 3v14"/></svg>
+          Board
+        </div>
+      </div>
+      <div class="rail-footer">
+        <button class="btn-new" id="openDrawer">+ Nghiệp vụ mới</button>
+        <div class="today-chip">Thứ Năm, 06/08/2026</div>
+      </div>
+    </nav>
+
+    <main class="main">
+      <!-- ROADMAP -->
+      <section class="view active" id="view-roadmap">
+        <div class="view-head">
+          <div>
+            <div class="view-title">Roadmap theo Phase</div>
+            <div class="view-sub">Tổng thể dự án đang ở đâu so với từng mốc go-live</div>
+          </div>
+        </div>
+
+        <div class="phase-row" id="phaseRow"></div>
+
+        <div class="axis-wrap">
+          <div class="axis-label">Trục thời gian toàn dự án · 06/2026 → 01/2027</div>
+          <div class="axis" id="masterAxis"></div>
+        </div>
+      </section>
+
+      <!-- SPRINT -->
+      <section class="view" id="view-sprint">
+        <div class="view-head">
+          <div>
+            <div class="view-title">Sprint hiện tại &amp; sprint tiếp theo</div>
+            <div class="view-sub">Biết ngay tuần này đang làm gì, tuần sau sắp tới gì — bấm vào 1 nghiệp vụ để sửa</div>
+          </div>
+        </div>
+        <div class="sprint-columns" id="sprintColumns"></div>
+      </section>
+
+      <!-- TIMELINE -->
+      <section class="view" id="view-timeline">
+        <div class="view-head">
+          <div>
+            <div class="view-title">Timeline theo ngày</div>
+            <div class="view-sub">Sprint 14 → Sprint 17 · mỗi thanh là một nghiệp vụ trong dải sprint của nó, bấm để sửa</div>
+          </div>
+        </div>
+
+        <div class="filters">
+          <select><option>Tất cả Phase</option><option>P1: Lived</option><option selected>P2: Rollout</option><option>P3: Convert</option></select>
+          <select><option selected>Tất cả Category</option><option>Product Foundation</option><option>Cross Service Integration</option><option>Internal features</option></select>
+          <select><option selected>Tất cả Platform</option><option>Web</option><option>App</option><option>BE</option></select>
+        </div>
+
+        <div class="gantt">
+          <div class="gantt-header">
+            <div class="gantt-corner">TASKS</div>
+            <div class="gantt-days" id="sprintBands"></div>
+          </div>
+          <div class="gantt-body" id="ganttBody"></div>
+        </div>
+      </section>
+
+      <!-- BOARD -->
+      <section class="view" id="view-board">
+        <div class="view-head">
+          <div>
+            <div class="view-title">Board theo trạng thái</div>
+            <div class="view-sub">108 nghiệp vụ · toàn bộ dự án</div>
+          </div>
+        </div>
+        <div class="board" id="board"></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div class="overlay" id="overlay"></div>
+<div class="drawer" id="drawer">
+  <button class="drawer-close" id="closeDrawer">&#10005;</button>
+  <h3 id="drawerTitle">Nghiệp vụ mới</h3>
+  <div class="drawer-sub" id="drawerSub">Các trường giữ nguyên như sheet Nghiệp vụ hiện tại</div>
+
+  <div class="field">
+    <label>Category</label>
+    <select id="f-cat"><option>Product Foundation</option><option>Cross Service Integration</option><option>Internal features</option><option>Convert &amp; Scale</option></select>
+  </div>
+  <div class="field">
+    <label>Tên nghiệp vụ</label>
+    <input id="f-name" type="text" placeholder="Vd: Xóa hợp đồng ủy thác đầu tư">
+  </div>
+  <div class="field-row">
+    <div class="field">
+      <label>Platform</label>
+      <select id="f-platform"><option>Web</option><option>App</option><option>BE</option><option>App/Auto</option></select>
+    </div>
+    <div class="field">
+      <label>Phase</label>
+      <select id="f-phase"><option>P1: Lived 10/08</option><option selected>P2: Rollout 01/09</option><option>P3: Convert 01/11</option><option>P4: Booming 01/01</option></select>
+    </div>
+  </div>
+  <div class="field-row">
+    <div class="field">
+      <label>Sprint</label>
+      <select id="f-sprint"><option>S14 (20/07–31/07)</option><option selected>S15 (03/08–14/08)</option><option>S16 (17/08–28/08)</option><option>S17 (31/08–11/09)</option></select>
+    </div>
+    <div class="field">
+      <label>Status</label>
+      <select id="f-status"><option>0. Backlog</option><option selected>1. Ready for Dev</option><option>2. In Test</option><option>3. Ready for Staging</option><option>4. Done</option></select>
+    </div>
+  </div>
+  <div class="field-row">
+    <div class="field">
+      <label>Start (mặc định = đầu Sprint)</label>
+      <input id="f-start" type="date" value="2026-08-03">
+    </div>
+    <div class="field">
+      <label>Due (mặc định = cuối Sprint)</label>
+      <input id="f-due" type="date" value="2026-08-14">
+    </div>
+  </div>
+  <div class="field">
+    <label>Ghi chú</label>
+    <textarea id="f-notes" placeholder="Thêm ghi chú cập nhật..."></textarea>
+  </div>
+
+  <button class="save-btn" id="saveBtn">Lưu nghiệp vụ</button>
+
+  <div class="field" id="logField" style="margin-top:22px;">
+    <label>Activity log (thay cho cột Note theo ngày)</label>
+    <div class="log-preview" id="logPreview">
+      <div class="log-item"><span class="log-date">03/08/2026</span>Chuyển sang Ready for Dev, giao cho BE.</div>
+      <div class="log-item"><span class="log-date">30/07/2026</span>Chốt scope với chị Hoa, chờ review UI.</div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
