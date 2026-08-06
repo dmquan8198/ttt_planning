@@ -61,6 +61,16 @@ document.getElementById('closeDrawer').addEventListener('click', close);
 overlay.addEventListener('click', close);
 function close(){ overlay.classList.remove('show'); drawer.classList.remove('show'); }
 
+// ---- shared fetch helper: throws on network failure AND non-2xx responses ----
+function fetchJSON(url){
+  return fetch(url).then(function(res){
+    if (!res.ok) {
+      throw new Error(url + ' → HTTP ' + res.status);
+    }
+    return res.json();
+  });
+}
+
 // ---- date formatting helpers (API always returns plain 'YYYY-MM-DD' strings) ----
 function ddmm(iso){ var p = iso.split('-'); return p[2] + '/' + p[1]; }
 function fmtDMY(iso){ var p = iso.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
@@ -78,9 +88,14 @@ function analystLine(count, total){
   return '<div>Analyst <span class="n">' + count + '/' + total + '</span></div>';
 }
 
-function renderPhaseCard(phase){
+function isCurrentPhase(phase, allPhases){
+  var firstInProgress = allPhases.find(function(p){ return p.pct_complete !== null && p.pct_complete < 100; });
+  return firstInProgress ? phase.code === firstInProgress.code : false;
+}
+
+function renderPhaseCard(phase, allPhases){
   var card = document.createElement('div');
-  card.className = 'phase-card';
+  card.className = 'phase-card' + (isCurrentPhase(phase, allPhases) ? ' is-current' : '');
 
   var pctText = phase.pct_complete === null ? '—' : Math.round(phase.pct_complete) + '%';
   var barWidth = phase.pct_complete === null ? 0 : phase.pct_complete;
@@ -88,9 +103,12 @@ function renderPhaseCard(phase){
     ? 'transparent'
     : (phase.pct_complete === 100 ? 'var(--green-ink)' : 'var(--accent-ink)');
 
+  var daysText = phase.days_remaining >= 0
+    ? 'còn ' + phase.days_remaining + ' ngày'
+    : 'đã qua ' + (-phase.days_remaining) + ' ngày';
   var daysHtml = phase.total === 0
-    ? 'còn ' + phase.days_remaining + ' ngày<br>chưa lên nghiệp vụ'
-    : 'còn ' + phase.days_remaining + ' ngày<br>' + phase.done_analyst + '/' + phase.total + ' nghiệp vụ';
+    ? daysText + '<br>chưa lên nghiệp vụ'
+    : daysText + '<br>' + phase.done_analyst + '/' + phase.total + ' nghiệp vụ';
 
   card.innerHTML =
     '<div class="phase-name">' + escapeHtml(phase.code) + ' · ' + escapeHtml(phase.name) + '</div>' +
@@ -131,15 +149,17 @@ function renderMasterAxis(phases){
 }
 
 function loadPhases(){
-  return fetch('/api/phases')
-    .then(function(res){ return res.json(); })
+  var row = document.getElementById('phaseRow');
+  return fetchJSON('/api/phases')
     .then(function(phases){
-      var row = document.getElementById('phaseRow');
       row.innerHTML = '';
-      phases.forEach(function(phase){ row.appendChild(renderPhaseCard(phase)); });
+      phases.forEach(function(phase){ row.appendChild(renderPhaseCard(phase, phases)); });
       renderMasterAxis(phases);
     })
-    .catch(function(err){ console.error('Failed to load /api/phases', err); });
+    .catch(function(err){
+      console.error('Failed to load /api/phases', err);
+      row.innerHTML = '<div class="view-sub">Không tải được dữ liệu Phase. Thử tải lại trang.</div>';
+    });
 }
 
 // ---- sprint view: current + next (fetched from /api/sprints/current-next) ----
@@ -184,15 +204,17 @@ function renderSprintPanel(sprint, isCurrent){
 }
 
 function loadSprintView(){
-  return fetch('/api/sprints/current-next')
-    .then(function(res){ return res.json(); })
+  var col = document.getElementById('sprintColumns');
+  return fetchJSON('/api/sprints/current-next')
     .then(function(data){
-      var col = document.getElementById('sprintColumns');
       col.innerHTML = '';
       col.appendChild(renderSprintPanel(data.current, true));
       col.appendChild(renderSprintPanel(data.next, false));
     })
-    .catch(function(err){ console.error('Failed to load /api/sprints/current-next', err); });
+    .catch(function(err){
+      console.error('Failed to load /api/sprints/current-next', err);
+      col.innerHTML = '<div class="view-sub">Không tải được dữ liệu Sprint. Thử tải lại trang.</div>';
+    });
 }
 
 loadPhases();
