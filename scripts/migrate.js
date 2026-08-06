@@ -8,10 +8,13 @@ async function migrate() {
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
-  const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', '001_init.sql'), 'utf8');
-  await pool.query(sql);
-  console.log('Migration applied.');
-  await pool.end();
+  try {
+    const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', '001_init.sql'), 'utf8');
+    await pool.query(sql);
+    console.log('Migration applied.');
+  } finally {
+    await pool.end();
+  }
 }
 
 migrate().catch((err) => {
