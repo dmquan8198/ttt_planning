@@ -56,3 +56,18 @@ test('POST a log for a non-existent taskId returns 400 (foreign key violation), 
   const res = await request(app).post('/api/tasks/9999/logs').send({ note: 'test' });
   assert.equal(res.status, 400);
 });
+
+test('deleting a task cascades to delete its activity logs', async () => {
+  const pool = makeTestPool();
+  const created = await pool.query(
+    "INSERT INTO tasks (category, name, platform) VALUES ('Product Foundation','Task A','Web') RETURNING id"
+  );
+  const taskId = created.rows[0].id;
+  const app = createApp(pool);
+
+  await request(app).post(`/api/tasks/${taskId}/logs`).send({ note: 'A log entry' });
+  await request(app).delete(`/api/tasks/${taskId}`);
+
+  const { rows } = await pool.query('SELECT * FROM activity_logs WHERE task_id = $1', [taskId]);
+  assert.equal(rows.length, 0);
+});
