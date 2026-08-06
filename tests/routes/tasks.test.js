@@ -73,6 +73,22 @@ test('PUT /api/tasks/:id rejects a request missing required fields', async () =>
   assert.equal(res.status, 400);
 });
 
+test('PUT /api/tasks/:id with a non-numeric id returns 400', async () => {
+  const app = createApp(makeTestPool());
+  const res = await request(app)
+    .put('/api/tasks/abc')
+    .send({ name: 'X', category: 'Product Foundation', platform: 'Web', status: '0.backlog' });
+  assert.equal(res.status, 400);
+});
+
+test('POST /api/tasks with a non-existent phase_id returns 400, not 500', async () => {
+  const app = createApp(makeTestPool());
+  const res = await request(app)
+    .post('/api/tasks')
+    .send({ name: 'X', category: 'Product Foundation', platform: 'Web', phase_id: 9999 });
+  assert.equal(res.status, 400);
+});
+
 test('GET /api/tasks normalizes date fields to plain YYYY-MM-DD strings', async () => {
   const pool = makeTestPool();
   await pool.query(

@@ -3,6 +3,14 @@ const { STATUS_CODES } = require('../lib/statusCodes');
 const { normalizeDate } = require('../lib/normalizeDate');
 const { asyncHandler } = require('../lib/asyncHandler');
 
+// Real Postgres reports a foreign-key violation with SQLSTATE code '23503'.
+// pg-mem (test-only) raises the same violation but never populates `.code`
+// for it, so we fall back to matching the (identical wording, both engines)
+// "violates foreign key constraint" message text.
+function isForeignKeyViolation(err) {
+  return err.code === '23503' || /violates foreign key constraint/.test(err.message || '');
+}
+
 function normalizeTaskDates(t) {
   return {
     ...t,
@@ -36,23 +44,33 @@ function tasksRouter(pool) {
     if (b.status && !STATUS_CODES.includes(b.status)) {
       return res.status(400).json({ error: 'status không hợp lệ' });
     }
-    const { rows } = await pool.query(
-      `INSERT INTO tasks
-         (stt, category, name, platform, phase_id, sprint_id, status,
-          done_analyst, done_dev, done_uat, done_staging, start_date, due_date, date_overridden)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-       RETURNING *`,
-      [
-        b.stt || null, b.category, b.name, b.platform, b.phase_id || null, b.sprint_id || null,
-        b.status || STATUS_CODES[0], !!b.done_analyst, !!b.done_dev, !!b.done_uat, !!b.done_staging,
-        b.start_date || null, b.due_date || null, !!b.date_overridden
-      ]
-    );
-    res.status(201).json(normalizeTaskDates(rows[0]));
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO tasks
+           (stt, category, name, platform, phase_id, sprint_id, status,
+            done_analyst, done_dev, done_uat, done_staging, start_date, due_date, date_overridden)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         RETURNING *`,
+        [
+          b.stt || null, b.category, b.name, b.platform, b.phase_id || null, b.sprint_id || null,
+          b.status || STATUS_CODES[0], !!b.done_analyst, !!b.done_dev, !!b.done_uat, !!b.done_staging,
+          b.start_date || null, b.due_date || null, !!b.date_overridden
+        ]
+      );
+      res.status(201).json(normalizeTaskDates(rows[0]));
+    } catch (err) {
+      if (isForeignKeyViolation(err)) {
+        return res.status(400).json({ error: 'phase_id hoặc sprint_id không tồn tại' });
+      }
+      throw err;
+    }
   }));
 
   router.put('/:id', asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'id không hợp lệ' });
+    }
     const b = req.body;
     if (!b.name || !b.category || !b.platform || !b.status) {
       return res.status(400).json({ error: 'name, category, platform, status là bắt buộc' });
@@ -60,27 +78,37 @@ function tasksRouter(pool) {
     if (!STATUS_CODES.includes(b.status)) {
       return res.status(400).json({ error: 'status không hợp lệ' });
     }
-    const { rows } = await pool.query(
-      `UPDATE tasks SET
-         category=$1, name=$2, platform=$3, phase_id=$4, sprint_id=$5, status=$6,
-         done_analyst=$7, done_dev=$8, done_uat=$9, done_staging=$10,
-         start_date=$11, due_date=$12, date_overridden=$13, updated_at=now()
-       WHERE id=$14
-       RETURNING *`,
-      [
-        b.category, b.name, b.platform, b.phase_id || null, b.sprint_id || null, b.status,
-        !!b.done_analyst, !!b.done_dev, !!b.done_uat, !!b.done_staging,
-        b.start_date || null, b.due_date || null, !!b.date_overridden, id
-      ]
-    );
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'không tìm thấy nghiệp vụ' });
+    try {
+      const { rows } = await pool.query(
+        `UPDATE tasks SET
+           category=$1, name=$2, platform=$3, phase_id=$4, sprint_id=$5, status=$6,
+           done_analyst=$7, done_dev=$8, done_uat=$9, done_staging=$10,
+           start_date=$11, due_date=$12, date_overridden=$13, updated_at=now()
+         WHERE id=$14
+         RETURNING *`,
+        [
+          b.category, b.name, b.platform, b.phase_id || null, b.sprint_id || null, b.status,
+          !!b.done_analyst, !!b.done_dev, !!b.done_uat, !!b.done_staging,
+          b.start_date || null, b.due_date || null, !!b.date_overridden, id
+        ]
+      );
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'không tìm thấy nghiệp vụ' });
+      }
+      res.json(normalizeTaskDates(rows[0]));
+    } catch (err) {
+      if (isForeignKeyViolation(err)) {
+        return res.status(400).json({ error: 'phase_id hoặc sprint_id không tồn tại' });
+      }
+      throw err;
     }
-    res.json(normalizeTaskDates(rows[0]));
   }));
 
   router.delete('/:id', asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'id không hợp lệ' });
+    }
     const { rowCount } = await pool.query('DELETE FROM tasks WHERE id=$1', [id]);
     if (rowCount === 0) {
       return res.status(404).json({ error: 'không tìm thấy nghiệp vụ' });
