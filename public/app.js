@@ -74,6 +74,17 @@ function fetchAndRenderLogs(taskId){
 function openDrawer(mode, t){
   t = t || {};
   var isEdit = mode === 'edit';
+
+  // Bind editingTaskId synchronously, to the id we're actually opening for,
+  // BEFORE any async load starts — never wait for the Promise.all below to
+  // resolve before this is set. Otherwise, if the user closes this drawer and
+  // reopens for a different task while a previous open's load is still the
+  // last one to have resolved, Save/Delete could act on the wrong (stale)
+  // task. editingTaskDoneFlags is only ever trustworthy once the load below
+  // actually succeeds, so it's cleared here and (re)populated only on success.
+  editingTaskId = isEdit ? (t && typeof t === 'object' ? t.id : t) : null;
+  editingTaskDoneFlags = null;
+
   document.getElementById('drawerTitle').textContent = isEdit ? 'Sửa nghiệp vụ' : 'Nghiệp vụ mới';
   document.getElementById('drawerSub').textContent = isEdit
     ? 'Cập nhật thông tin cho nghiệp vụ này'
@@ -84,6 +95,8 @@ function openDrawer(mode, t){
   document.getElementById('f-notes').value = '';
   document.getElementById('f-newlog').value = '';
   manualDateEdit = false;
+
+  overlay.classList.add('show'); drawer.classList.add('show');
 
   Promise.all([loadPhasesList(), loadSprints(), isEdit ? loadTasks() : Promise.resolve(null)])
     .then(function(results){
@@ -97,8 +110,7 @@ function openDrawer(mode, t){
       }, '— không có —');
 
       if (isEdit){
-        var full = (allTasks || []).filter(function(x){ return x.id === t.id; })[0] || t;
-        editingTaskId = full.id;
+        var full = (allTasks || []).filter(function(x){ return x.id === editingTaskId; })[0] || t;
         editingTaskDoneFlags = {
           done_analyst: !!full.done_analyst,
           done_dev: !!full.done_dev,
@@ -115,8 +127,6 @@ function openDrawer(mode, t){
         document.getElementById('f-due').value = full.due_date || '';
         fetchAndRenderLogs(full.id);
       } else {
-        editingTaskId = null;
-        editingTaskDoneFlags = null;
         document.getElementById('f-name').value = '';
         document.getElementById('f-cat').selectedIndex = 0;
         document.getElementById('f-platform').selectedIndex = 0;
@@ -130,10 +140,14 @@ function openDrawer(mode, t){
     })
     .catch(function(err){
       console.error('Failed to load drawer reference data', err);
-      alert('Không tải được dữ liệu cho form (Phase/Sprint). Thử tải lại trang.');
+      alert('Không tải được nghiệp vụ. Vui lòng thử lại.');
+      // a failed load must never leave a drawer open bound to a stale
+      // editingTaskId/editingTaskDoneFlags — close it outright rather than
+      // risk Save/Delete silently acting on the wrong (or no) task.
+      editingTaskId = null;
+      editingTaskDoneFlags = null;
+      close();
     });
-
-  overlay.classList.add('show'); drawer.classList.add('show');
 }
 
 document.getElementById('openDrawer').addEventListener('click', function(){ openDrawer('create'); });
