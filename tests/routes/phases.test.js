@@ -26,6 +26,9 @@ test('GET /api/phases returns rollup per phase', async () => {
             ('Product Foundation','Task B','Web',$1,true,false,false)`,
     [p1.id]
   );
+  await pool.query(
+    "INSERT INTO tasks (category, name, platform) VALUES ('Product Foundation','Unassigned Task','Web')"
+  );
 
   const app = createApp(pool);
   const res = await request(app).get('/api/phases');
