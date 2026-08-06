@@ -44,3 +44,14 @@ test('works when sprints are passed out of order', () => {
   assert.equal(current.code, 'S15');
   assert.equal(next.code, 'S16');
 });
+
+test('today on the exact boundary (end date) counts as current', () => {
+  const { current } = pickCurrentAndNextSprint(SPRINTS, '2026-08-14');
+  assert.equal(current.code, 'S15');
+});
+
+test('current sprint is the last in the list: next is null', () => {
+  const { current, next } = pickCurrentAndNextSprint(SPRINTS, '2026-09-05');
+  assert.equal(current.code, 'S17');
+  assert.equal(next, null);
+});
