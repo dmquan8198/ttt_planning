@@ -220,153 +220,157 @@ function loadSprintView(){
 loadPhases();
 loadSprintView();
 
+// ---- shared data cache: both Timeline and Board read /api/tasks; fetch it once ----
+var _tasksPromise = null;
+function loadTasks(){
+  if (!_tasksPromise) _tasksPromise = fetchJSON('/api/tasks');
+  return _tasksPromise;
+}
+var _sprintsPromise = null;
+function loadSprints(){
+  if (!_sprintsPromise) _sprintsPromise = fetchJSON('/api/sprints');
+  return _sprintsPromise;
+}
+
 // ---- timeline / gantt ----
-var sprints = [
-  {code:'S14', label:'S14 · 20/07–31/07', start:new Date('2026-07-20'), end:new Date('2026-07-31')},
-  {code:'S15', label:'S15 · 03/08–14/08', start:new Date('2026-08-03'), end:new Date('2026-08-14')},
-  {code:'S16', label:'S16 · 17/08–28/08', start:new Date('2026-08-17'), end:new Date('2026-08-28')},
-  {code:'S17', label:'S17 · 31/08–11/09', start:new Date('2026-08-31'), end:new Date('2026-09-11')}
-];
-var axisStart = sprints[0].start, axisEnd = sprints[sprints.length-1].end;
-var axisSpan = axisEnd - axisStart;
+// Effective date range for a task per the hybrid rule: overridden tasks use their
+// own start/due dates, otherwise the task inherits its sprint's date range.
+// Returns null (task should be skipped from the Gantt) when neither is available.
+function effectiveRange(t){
+  if (t.date_overridden) {
+    if (!t.start_date || !t.due_date) return null;
+    return { start: new Date(t.start_date), end: new Date(t.due_date) };
+  }
+  if (t.sprint_start && t.sprint_end) {
+    return { start: new Date(t.sprint_start), end: new Date(t.sprint_end) };
+  }
+  return null;
+}
 
-var tasks = [
-  {cat:'Product Foundation', name:'Thông kết nối API — MoMo call VCB', platform:'BE', phase:'P1', sprint:'S15', st:3},
-  {cat:'Product Foundation', name:'Thông kết nối API — VCB call MoMo', platform:'BE', phase:'P1', sprint:'S15', st:3},
-  {cat:'Product Foundation', name:'Mở kết nối leasedline', platform:'BE', phase:'P1', sprint:'S15', st:4},
-  {cat:'Product Foundation', name:'CD nhận lãi hoặc đáo hạn', platform:'BE', phase:'P1', sprint:'S15', st:2},
-  {cat:'Product Foundation', name:'Sửa thông tin TCPH', platform:'Web', phase:'P2', sprint:'S15', st:2},
-  {cat:'Product Foundation', name:'Tích hợp SMS – OTP', platform:'BE', phase:'P2', sprint:'S15', st:1},
-  {cat:'Product Foundation', name:'Tích hợp HSM', platform:'BE', phase:'P2', sprint:'S15', st:1},
-  {cat:'Product Foundation', name:'Xóa hợp đồng ủy thác đầu tư', platform:'Web', phase:'P2', sprint:'S16', st:1},
-  {cat:'Product Foundation', name:'Lịch sử nạp / rút kho', platform:'Web', phase:'P2', sprint:'S16', st:2},
-  {cat:'Product Foundation', name:'Lịch sử mua bán tài sản giữa Kho và TCPH', platform:'Web', phase:'P2', sprint:'S16', st:2},
-  {cat:'Product Foundation', name:'Quản lý thanh khoản của TVAM', platform:'Web', phase:'P2', sprint:'S16', st:1},
-  {cat:'Product Foundation', name:'Build tool đối soát tự động MoMo x TVAM/ Finsight', platform:'BE', phase:'P2', sprint:'S16', st:0},
-  {cat:'Product Foundation', name:'Sửa thông tin tài sản', platform:'Web', phase:'P2', sprint:'S17', st:0},
-  {cat:'Cross Service Integration', name:'Hiển thị số dư ở Home MoMo, Finhub', platform:'App', phase:'P2', sprint:'S15', st:2},
-  {cat:'Cross Service Integration', name:'Thanh toán bằng Túi', platform:'App', phase:'P2', sprint:'S16', st:2},
-  {cat:'Cross Service Integration', name:'Chuyển tiền bằng Túi', platform:'App', phase:'P2', sprint:'S16', st:2},
-  {cat:'Cross Service Integration', name:'Luồng QR thanh toán', platform:'BE', phase:'P2', sprint:'S16', st:0},
-  {cat:'Cross Service Integration', name:'Auto receive', platform:'App', phase:'P2', sprint:'S17', st:0},
-  {cat:'Cross Service Integration', name:'Nạp tiền ở CICO', platform:'App', phase:'P2', sprint:'S17', st:0},
-  {cat:'Internal features', name:'Bảo trì Túi New', platform:'App', phase:'P2', sprint:'S16', st:0},
-  {cat:'Internal features', name:'Chuyển khoản Virtual Account Sacombank', platform:'App', phase:'P2', sprint:'S17', st:0},
-  {cat:'Convert & Scale', name:'Trial game "Tiền lời nhân đôi" (Phase 1)', platform:'App', phase:'P2', sprint:'S16', st:0}
-];
+function renderGantt(tasks, sprints){
+  var bandsEl = document.getElementById('sprintBands');
+  var body = document.getElementById('ganttBody');
+  bandsEl.innerHTML = '';
+  body.innerHTML = '';
+  var oldOverlay = document.querySelector('.gantt-track-overlay');
+  if (oldOverlay) oldOverlay.parentNode.removeChild(oldOverlay);
 
-function sprintOf(code){ return sprints.find(function(s){ return s.code===code; }); }
-function pctPos(d){ return (d - axisStart) / axisSpan * 100; }
+  if (sprints.length === 0){
+    body.innerHTML = '<div class="view-sub">Chưa có sprint nào để hiển thị Timeline.</div>';
+    return;
+  }
 
-// header bands
-var bandsEl = document.getElementById('sprintBands');
-sprints.forEach(function(s){
-  var w = (s.end - s.start) / axisSpan * 100;
-  var band = document.createElement('div');
-  band.className = 'sprint-band';
-  band.style.width = w + '%';
-  band.innerHTML = '<span class="lbl">' + s.code + '</span>' + s.label.split('· ')[1];
-  bandsEl.appendChild(band);
-});
+  var axisStart = new Date(sprints[0].start_date);
+  var axisEnd = new Date(sprints[sprints.length - 1].end_date);
+  var axisSpan = (axisEnd - axisStart) || 1; // guard against a zero-length axis
+  function pctPos(d){ return (d - axisStart) / axisSpan * 100; }
 
-// body grouped by category — first column shows the task name ("TASKS")
-var body = document.getElementById('ganttBody');
-var cats = [];
-tasks.forEach(function(t){ if(cats.indexOf(t.cat) === -1) cats.push(t.cat); });
-cats.forEach(function(cat){
-  var group = document.createElement('div'); group.className = 'cat-group';
-  var divider = document.createElement('div'); divider.className = 'cat-divider';
-  divider.textContent = cat;
-  group.appendChild(divider);
-  tasks.filter(function(t){ return t.cat === cat; }).forEach(function(t){
-    var row = document.createElement('div'); row.className = 'task-row';
-    var label = document.createElement('div'); label.className = 'task-label';
-    label.textContent = t.name;
-    var track = document.createElement('div'); track.className = 'task-track';
-    var sp = sprintOf(t.sprint);
-    var left = pctPos(sp.start), width = pctPos(sp.end) - left;
-    var bar = document.createElement('div');
-    bar.className = 'bar st-' + t.st;
-    bar.style.left = left + '%'; bar.style.width = width + '%';
-    bar.textContent = t.sprint;
-    bar.addEventListener('click', function(){ openDrawer('edit', t); });
-    track.appendChild(bar);
-    row.appendChild(label); row.appendChild(track);
-    group.appendChild(row);
+  // header bands, sized proportionally along the full min/max sprint date range
+  sprints.forEach(function(s){
+    var w = (new Date(s.end_date) - new Date(s.start_date)) / axisSpan * 100;
+    var band = document.createElement('div');
+    band.className = 'sprint-band';
+    band.style.width = w + '%';
+    band.innerHTML = '<span class="lbl">' + escapeHtml(s.code) + '</span>' + fmtRange(s.start_date, s.end_date);
+    bandsEl.appendChild(band);
   });
-  body.appendChild(group);
-});
-// today line across full gantt (overlay sits over the track region only, skipping the 186px label column)
-var todayLeft = pctPos(new Date('2026-08-06'));
-var overlay2 = document.createElement('div');
-overlay2.className = 'gantt-track-overlay';
-var line = document.createElement('div');
-line.className = 'gantt-today-line';
-line.style.left = todayLeft + '%';
-overlay2.appendChild(line);
-document.querySelector('.gantt').style.position = 'relative';
-document.querySelector('.gantt').appendChild(overlay2);
+
+  // body grouped by category — one .cat-divider per category, one .task-row per task
+  var cats = [];
+  tasks.forEach(function(t){ if (cats.indexOf(t.category) === -1) cats.push(t.category); });
+
+  cats.forEach(function(cat){
+    var group = document.createElement('div'); group.className = 'cat-group';
+    var divider = document.createElement('div'); divider.className = 'cat-divider';
+    divider.textContent = cat;
+    group.appendChild(divider);
+
+    tasks.filter(function(t){ return t.category === cat; }).forEach(function(t){
+      var range = effectiveRange(t);
+      if (!range) return; // no sprint and not overridden — skip rather than crash
+
+      var row = document.createElement('div'); row.className = 'task-row';
+      var label = document.createElement('div'); label.className = 'task-label';
+      label.textContent = t.name;
+      var track = document.createElement('div'); track.className = 'task-track';
+
+      var left = pctPos(range.start);
+      var width = Math.max(pctPos(range.end) - left, 0.6); // keep a visible sliver for short/zero-width ranges
+      var n = statusDotToNum(t.status);
+      var bar = document.createElement('div');
+      bar.className = 'bar st-' + n;
+      bar.style.left = left + '%';
+      bar.style.width = width + '%';
+      bar.textContent = t.sprint_code || '';
+      bar.addEventListener('click', function(){ openDrawer('edit', t); });
+      track.appendChild(bar);
+      row.appendChild(label); row.appendChild(track);
+      group.appendChild(row);
+    });
+    body.appendChild(group);
+  });
+
+  // today line — real current date, drawn only if it falls within the sprint axis range
+  var todayPct = pctPos(new Date());
+  if (todayPct >= 0 && todayPct <= 100){
+    var overlayEl = document.createElement('div');
+    overlayEl.className = 'gantt-track-overlay';
+    var line = document.createElement('div');
+    line.className = 'gantt-today-line';
+    line.style.left = todayPct + '%';
+    overlayEl.appendChild(line);
+    document.querySelector('.gantt').style.position = 'relative';
+    document.querySelector('.gantt').appendChild(overlayEl);
+  }
+}
+
+function loadTimelineView(){
+  var bandsEl = document.getElementById('sprintBands');
+  var body = document.getElementById('ganttBody');
+  return Promise.all([loadTasks(), loadSprints()])
+    .then(function(results){
+      renderGantt(results[0], results[1]);
+    })
+    .catch(function(err){
+      console.error('Failed to load Timeline data', err);
+      bandsEl.innerHTML = '';
+      body.innerHTML = '<div class="view-sub">Không tải được dữ liệu Timeline. Thử tải lại trang.</div>';
+    });
+}
 
 // ---- board ----
-var statusDefs = [
-  {key:0, label:'Backlog', count:46},
-  {key:1, label:'Ready for Dev', count:8},
-  {key:2, label:'In Test', count:13},
-  {key:3, label:'Ready for Staging', count:40},
-  {key:4, label:'Done', count:1}
-];
-var cardData = {
-  0: [
-    {n:'Trial game "Tiền lời nhân đôi" (Phase 1)', c:'Convert & Scale', p:'App'},
-    {n:'Bảo trì Túi New', c:'Internal features', p:'App'},
-    {n:'Luồng QR thanh toán', c:'Cross Service Integration', p:'BE'},
-    {n:'Build tool đối soát tự động MoMo x TVAM', c:'Product Foundation', p:'BE'},
-    {n:'Sửa thông tin tài sản', c:'Product Foundation', p:'Web'},
-    {n:'Merchant nhận doanh thu về Túi New', c:'Cross Service Integration', p:'App'}
-  ],
-  1: [
-    {n:'Tích hợp SMS – OTP', c:'Product Foundation', p:'BE'},
-    {n:'Tích hợp HSM', c:'Product Foundation', p:'BE'},
-    {n:'Xóa hợp đồng ủy thác đầu tư', c:'Product Foundation', p:'Web'},
-    {n:'Quản lý thanh khoản của TVAM', c:'Product Foundation', p:'Web'}
-  ],
-  2: [
-    {n:'CD nhận lãi hoặc đáo hạn', c:'Product Foundation', p:'BE'},
-    {n:'Sửa thông tin TCPH', c:'Product Foundation', p:'Web'},
-    {n:'Hiển thị số dư ở Home MoMo, Finhub', c:'Cross Service Integration', p:'App'},
-    {n:'Thanh toán bằng Túi', c:'Cross Service Integration', p:'App'},
-    {n:'Lịch sử nạp / rút kho', c:'Product Foundation', p:'Web'}
-  ],
-  3: [
-    {n:'Thông kết nối API — MoMo call VCB', c:'Product Foundation', p:'BE'},
-    {n:'Khai báo TCPH', c:'Product Foundation', p:'Web'},
-    {n:'Khai báo tài sản với NHLK', c:'Product Foundation', p:'Web'},
-    {n:'Cập nhật lãi suất thả nổi', c:'Product Foundation', p:'Web'},
-    {n:'Phân bổ và đối chiếu thực hiện quyền', c:'Product Foundation', p:'BE'}
-  ],
-  4: [
-    {n:'Mở kết nối leasedline', c:'Product Foundation', p:'BE'}
-  ]
-};
-var boardEl = document.getElementById('board');
-statusDefs.forEach(function(s){
-  var col = document.createElement('div'); col.className = 'col';
-  var head = document.createElement('div'); head.className = 'col-head';
-  head.innerHTML = '<span class="pill st-' + s.key + '">' + s.label + '</span><span class="col-count">' + s.count + '</span>';
-  col.appendChild(head);
-  var shown = cardData[s.key] || [];
-  shown.forEach(function(t){
-    var card = document.createElement('div'); card.className = 'card';
-    card.innerHTML = t.n + '<div class="card-tags"><span class="tag">' + t.c + '</span><span class="tag">' + t.p + '</span></div>';
-    card.addEventListener('click', function(){
-      openDrawer('edit', {name:t.n, cat:t.c, platform:t.p, st:s.key});
+function renderBoard(tasks){
+  var boardEl = document.getElementById('board');
+  boardEl.innerHTML = '';
+  STATUS_ORDER.forEach(function(status, idx){
+    var col = document.createElement('div'); col.className = 'col';
+    var head = document.createElement('div'); head.className = 'col-head';
+    var label = statusLabel[idx].replace(/^\d+\.\s*/, '');
+    var tasksInCol = tasks.filter(function(t){ return t.status === status; });
+    head.innerHTML = '<span class="pill st-' + idx + '">' + escapeHtml(label) + '</span><span class="col-count">' + tasksInCol.length + '</span>';
+    col.appendChild(head);
+    tasksInCol.forEach(function(t){
+      var card = document.createElement('div'); card.className = 'card';
+      card.innerHTML = escapeHtml(t.name) +
+        '<div class="card-tags"><span class="tag">' + escapeHtml(t.category) + '</span><span class="tag">' + escapeHtml(t.platform) + '</span></div>';
+      card.addEventListener('click', function(){ openDrawer('edit', t); });
+      col.appendChild(card);
     });
-    col.appendChild(card);
+    boardEl.appendChild(col);
   });
-  if(s.count > shown.length){
-    var more = document.createElement('div'); more.className = 'col-more';
-    more.textContent = '+ ' + (s.count - shown.length) + ' khác';
-    col.appendChild(more);
-  }
-  boardEl.appendChild(col);
-});
+}
+
+function loadBoardView(){
+  var boardEl = document.getElementById('board');
+  return loadTasks()
+    .then(function(tasks){
+      renderBoard(tasks);
+    })
+    .catch(function(err){
+      console.error('Failed to load Board data', err);
+      boardEl.innerHTML = '<div class="view-sub">Không tải được dữ liệu Board. Thử tải lại trang.</div>';
+    });
+}
+
+loadTimelineView();
+loadBoardView();
