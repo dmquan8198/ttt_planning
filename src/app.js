@@ -3,6 +3,7 @@ const path = require('path');
 const phasesRouter = require('./routes/phases');
 const sprintsRouter = require('./routes/sprints');
 const tasksRouter = require('./routes/tasks');
+const logsRouter = require('./routes/logs');
 
 function createApp(pool) {
   const app = express();
@@ -13,6 +14,8 @@ function createApp(pool) {
   app.use('/api/phases', phasesRouter(pool));
 
   app.use('/api/sprints', sprintsRouter(pool));
+
+  app.use('/api/tasks/:taskId/logs', logsRouter(pool));
 
   app.use('/api/tasks', tasksRouter(pool));
 
