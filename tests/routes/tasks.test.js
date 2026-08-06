@@ -62,6 +62,17 @@ test('PUT on a non-existent task returns 404', async () => {
   assert.equal(res.status, 404);
 });
 
+test('PUT /api/tasks/:id rejects a request missing required fields', async () => {
+  const app = createApp(makeTestPool());
+  const created = await request(app)
+    .post('/api/tasks')
+    .send({ name: 'Task A', category: 'Product Foundation', platform: 'Web' });
+  const res = await request(app)
+    .put(`/api/tasks/${created.body.id}`)
+    .send({ name: 'Task A', category: 'Product Foundation', platform: 'Web' }); // no status
+  assert.equal(res.status, 400);
+});
+
 test('GET /api/tasks normalizes date fields to plain YYYY-MM-DD strings', async () => {
   const pool = makeTestPool();
   await pool.query(

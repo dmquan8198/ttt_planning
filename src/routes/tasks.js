@@ -54,7 +54,10 @@ function tasksRouter(pool) {
   router.put('/:id', asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const b = req.body;
-    if (b.status && !STATUS_CODES.includes(b.status)) {
+    if (!b.name || !b.category || !b.platform || !b.status) {
+      return res.status(400).json({ error: 'name, category, platform, status là bắt buộc' });
+    }
+    if (!STATUS_CODES.includes(b.status)) {
       return res.status(400).json({ error: 'status không hợp lệ' });
     }
     const { rows } = await pool.query(
