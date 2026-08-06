@@ -31,6 +31,9 @@ test('P2 rollup matches the sheet: 18/28 analyst = 64.3%, 26 days to 01/09', () 
   const tasks = makeTasks(28, { analyst: 18, dev: 11, uat: 2 });
   const rollup = computePhaseRollup(phase, tasks, '2026-08-06');
   assert.equal(rollup.total, 28);
+  assert.equal(rollup.done_analyst, 18);
+  assert.equal(rollup.done_dev, 11);
+  assert.equal(rollup.done_uat, 2);
   assert.equal(rollup.pct_complete, 64.3);
   assert.equal(rollup.days_remaining, 26);
 });
