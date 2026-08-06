@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: ttt-project-manager
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run dev
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: PORT
+        value: 3000
