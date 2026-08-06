@@ -2,6 +2,7 @@ const { Router } = require('express');
 const { computePhaseRollup } = require('../lib/phaseRollup');
 const { asyncHandler } = require('../lib/asyncHandler');
 const { normalizeDate } = require('../lib/normalizeDate');
+const { getTodayVN } = require('../lib/today');
 
 function phasesRouter(pool) {
   const router = Router();
@@ -14,7 +15,7 @@ function phasesRouter(pool) {
     const { rows: tasks } = await pool.query(
       'SELECT phase_id, done_analyst, done_dev, done_uat FROM tasks'
     );
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getTodayVN();
 
     const result = phases.map((phase) => {
       const phaseTasks = tasks.filter((t) => t.phase_id === phase.id);

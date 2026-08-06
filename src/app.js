@@ -7,6 +7,7 @@ const logsRouter = require('./routes/logs');
 
 function createApp(pool) {
   const app = express();
+  app.disable('x-powered-by');
   app.use(express.json());
 
   app.get('/api/health', (req, res) => res.json({ ok: true }));

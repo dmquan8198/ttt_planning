@@ -2,6 +2,7 @@ const { Router } = require('express');
 const { pickCurrentAndNextSprint } = require('../lib/pickCurrentAndNextSprint');
 const { asyncHandler } = require('../lib/asyncHandler');
 const { normalizeDate } = require('../lib/normalizeDate');
+const { getTodayVN } = require('../lib/today');
 
 function normalizeSprint(s) {
   return { ...s, start_date: normalizeDate(s.start_date), end_date: normalizeDate(s.end_date) };
@@ -21,7 +22,7 @@ function sprintsRouter(pool) {
     const { rows: sprints } = await pool.query(
       'SELECT id, code, start_date, end_date FROM sprints ORDER BY start_date'
     );
-    const today = req.query.today || new Date().toISOString().slice(0, 10);
+    const today = req.query.today || getTodayVN();
     const normalizedSprints = sprints.map(normalizeSprint);
     const { current, next } = pickCurrentAndNextSprint(normalizedSprints, today);
 

@@ -8,6 +8,18 @@ document.querySelectorAll('.nav-item').forEach(function(el){
   });
 });
 
+// ---- sidebar "today" chip: real current date, not a frozen literal ----
+(function renderTodayChip(){
+  var chip = document.getElementById('todayChip');
+  if (!chip) return;
+  var weekdayNames = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+  var now = new Date();
+  var dd = String(now.getDate()).padStart(2, '0');
+  var mm = String(now.getMonth() + 1).padStart(2, '0');
+  var yyyy = now.getFullYear();
+  chip.textContent = weekdayNames[now.getDay()] + ', ' + dd + '/' + mm + '/' + yyyy;
+})();
+
 // ---- drawer: shared by "create" and "edit" ----
 var overlay = document.getElementById('overlay'), drawer = document.getElementById('drawer');
 var statusLabel = {0:'0. Backlog', 1:'1. Ready for Dev', 2:'2. In Test', 3:'3. Ready for Staging', 4:'4. Done'};
@@ -32,6 +44,13 @@ var editingTaskId = null;
 // through on save or the PUT handler's `!!b.done_analyst` (etc.) will wipe them
 // to false. null while in "create" mode, where a brand-new task has none yet.
 var editingTaskDoneFlags = null;
+// whether the task currently being edited already had date_overridden=true when
+// loaded. manualDateEdit alone can't detect this — it only tracks hand-edits
+// made THIS drawer session, so it resets to false on every open and can't see
+// an existing override from a previous save. Without this, editing a task that
+// has both a sprint AND hand-set override dates (so !sprintVal is false) would
+// compute date_overridden=false on save and silently wipe the override's dates.
+var editingTaskWasOverridden = false;
 // becomes true once the user hand-edits #f-start/#f-due since the last time we
 // auto-filled them from a sprint change (or since the drawer was opened)
 var manualDateEdit = false;
@@ -84,6 +103,7 @@ function openDrawer(mode, t){
   // actually succeeds, so it's cleared here and (re)populated only on success.
   editingTaskId = isEdit ? (t && typeof t === 'object' ? t.id : t) : null;
   editingTaskDoneFlags = null;
+  editingTaskWasOverridden = false;
 
   document.getElementById('drawerTitle').textContent = isEdit ? 'Sửa nghiệp vụ' : 'Nghiệp vụ mới';
   document.getElementById('drawerSub').textContent = isEdit
@@ -117,6 +137,7 @@ function openDrawer(mode, t){
           done_uat: !!full.done_uat,
           done_staging: !!full.done_staging
         };
+        editingTaskWasOverridden = !!full.date_overridden;
         document.getElementById('f-name').value = full.name || '';
         document.getElementById('f-cat').value = full.category || '';
         document.getElementById('f-platform').value = full.platform || '';
@@ -146,6 +167,7 @@ function openDrawer(mode, t){
       // risk Save/Delete silently acting on the wrong (or no) task.
       editingTaskId = null;
       editingTaskDoneFlags = null;
+      editingTaskWasOverridden = false;
       close();
     });
 }
@@ -252,8 +274,8 @@ function renderMasterAxis(phases){
   phases.forEach(function(p){
     addTick(new Date(p.target_date), p.code + ' · ' + ddmm(p.target_date));
   });
-  // today marker — kept as-is, not derived from API data
-  var today = new Date('2026-08-06'), tp = pos(today);
+  // today marker — the real current date, not a frozen literal
+  var today = new Date(), tp = pos(today);
   var tm = document.createElement('div'); tm.className='today-mark'; tm.style.left=tp+'%'; axis.appendChild(tm);
   var td = document.createElement('div'); td.className='today-dot'; td.style.left=tp+'%'; axis.appendChild(td);
   var tl = document.createElement('div'); tl.className='today-label'; tl.style.left=tp+'%'; tl.textContent='HÔM NAY'; axis.appendChild(tl);
@@ -380,20 +402,48 @@ function renderGantt(tasks, sprints){
     return;
   }
 
-  var axisStart = new Date(sprints[0].start_date);
-  var axisEnd = new Date(sprints[sprints.length - 1].end_date);
+  // axis range must cover every sprint's start/end AND every task's effective
+  // date range — legacy pre-sprint tasks (date_overridden=true, no sprint,
+  // dated well before the earliest sprint) fall outside a sprints-only range
+  // and would otherwise render as bars with negative left%, overflowing into
+  // the TASKS label column.
+  var allDates = [];
+  sprints.forEach(function(s){
+    allDates.push(new Date(s.start_date), new Date(s.end_date));
+  });
+  tasks.forEach(function(t){
+    var r = effectiveRange(t);
+    if (r) { allDates.push(r.start, r.end); }
+  });
+  var axisStart = new Date(Math.min.apply(null, allDates));
+  var axisEnd = new Date(Math.max.apply(null, allDates));
   var axisSpan = (axisEnd - axisStart) || 1; // guard against a zero-length axis
   function pctPos(d){ return (d - axisStart) / axisSpan * 100; }
 
-  // header bands, sized proportionally along the full min/max sprint date range
+  // header bands, sized proportionally along the full axis (not just the sprint
+  // range) so they stay aligned with the bars below even when the axis is wider
+  // than the sprints — e.g. a legacy pre-sprint task pushes axisStart earlier
+  // than the first sprint. Bands stay normal flex-flow children (so they keep
+  // contributing their own content height to the header row, same as before);
+  // any gap between axisStart/axisEnd and the sprint range is filled with a
+  // plain unlabeled spacer div of the right width instead of shifting the bands.
+  function appendGapSpacer(widthPct){
+    if (widthPct <= 0.01) return;
+    var spacer = document.createElement('div');
+    spacer.style.width = widthPct + '%';
+    spacer.style.flex = 'none';
+    bandsEl.appendChild(spacer);
+  }
+  appendGapSpacer(pctPos(new Date(sprints[0].start_date)));
   sprints.forEach(function(s){
-    var w = (new Date(s.end_date) - new Date(s.start_date)) / axisSpan * 100;
+    var w = (pctPos(new Date(s.end_date)) - pctPos(new Date(s.start_date)));
     var band = document.createElement('div');
     band.className = 'sprint-band';
     band.style.width = w + '%';
     band.innerHTML = '<span class="lbl">' + escapeHtml(s.code) + '</span>' + fmtRange(s.start_date, s.end_date);
     bandsEl.appendChild(band);
   });
+  appendGapSpacer(100 - pctPos(new Date(sprints[sprints.length - 1].end_date)));
 
   // body grouped by category — one .cat-divider per category, one .task-row per task
   var cats = [];
@@ -522,8 +572,12 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   }
 
   // date_overridden: the user hand-edited the dates since the last sprint-driven
-  // autofill, OR there is no sprint selected but dates were entered manually.
-  var dateOverridden = manualDateEdit || (!sprintVal && !!(startVal || dueVal));
+  // autofill, OR the task being edited already had an override before this
+  // session touched it (manualDateEdit alone can't see that — it always resets
+  // to false on open, even when a sprint IS selected, which is exactly the case
+  // where an existing override's dates would otherwise get silently wiped),
+  // OR there is no sprint selected but dates were entered manually.
+  var dateOverridden = manualDateEdit || editingTaskWasOverridden || (!sprintVal && !!(startVal || dueVal));
 
   var body = {
     category: category,
