@@ -22,7 +22,7 @@ document.querySelectorAll('.nav-item').forEach(function(el){
 
 // ---- drawer: shared by "create" and "edit" ----
 var overlay = document.getElementById('overlay'), drawer = document.getElementById('drawer');
-var statusLabel = {0:'0. Backlog', 1:'1. Ready for Dev', 2:'2. In Test', 3:'3. Ready for Staging', 4:'4. Done'};
+var statusLabel = {0:'0. Backlog', 1:'1. Ready for Dev', 2:'2. In Dev', 3:'3. Ready for Staging', 4:'4. Done'};
 
 // dotted status string (from the real API) -> numeric suffix used by the
 // existing .pill.st-N / .bar.st-N CSS classes and the statusLabel map above.
@@ -265,6 +265,26 @@ function renderMasterAxis(phases){
   var start = new Date('2026-06-01'), end = new Date('2027-01-15');
   var span = end - start;
   function pos(d){ return ((d - start) / span * 100).toFixed(2); }
+
+  // alternating phase-segment bands behind the ticks, so the axis reads as a
+  // detail view of the phase cards above it instead of a disconnected ruler
+  var segStart = start;
+  phases.forEach(function(p, idx){
+    var segEnd = new Date(p.target_date);
+    var band = document.createElement('div');
+    band.className = 'axis-band' + (idx % 2 === 1 ? ' alt' : '');
+    band.style.left = pos(segStart) + '%';
+    band.style.width = (pos(segEnd) - pos(segStart)) + '%';
+    axis.appendChild(band);
+    segStart = segEnd;
+  });
+
+  // elapsed-progress fill on the line itself, same idea as each phase card's own .stack bar
+  var todayForFill = new Date();
+  var elapsedPct = Math.max(0, Math.min(100, pos(todayForFill)));
+  var fill = document.createElement('div'); fill.className = 'axis-fill'; fill.style.width = elapsedPct + '%';
+  axis.appendChild(fill);
+
   function addTick(d, label){
     var p = pos(d);
     var t = document.createElement('div'); t.className='tick'; t.style.left=p+'%'; axis.appendChild(t);
@@ -359,8 +379,92 @@ function loadSprintView(){
     });
 }
 
+// ---- risk report: tasks whose due date has already passed but aren't Done
+// yet, grouped by Sprint and by Phase (chronological order, groups with zero
+// at-risk tasks are skipped entirely) ----
+function renderRiskGroups(containerId, riskTasks, groupList, groupKeyFn, today){
+  var container = document.getElementById(containerId);
+  container.innerHTML = '';
+
+  groupList.forEach(function(g){
+    var groupRisk = riskTasks.filter(function(t){ return groupKeyFn(t) === g.key; });
+    if (groupRisk.length === 0) return;
+    groupRisk.sort(function(a, b){ return a.due_date < b.due_date ? -1 : (a.due_date > b.due_date ? 1 : 0); });
+
+    var card = document.createElement('div'); card.className = 'risk-group';
+    var head = document.createElement('div'); head.className = 'risk-group-head';
+    head.innerHTML = '<span>' + escapeHtml(g.label) + '</span><span class="risk-count">' + groupRisk.length + ' trễ hạn</span>';
+    card.appendChild(head);
+
+    groupRisk.forEach(function(t){
+      var days = Math.round((today - new Date(t.due_date)) / (24 * 60 * 60 * 1000));
+      var row = document.createElement('div'); row.className = 'risk-task';
+      row.innerHTML =
+        '<div class="risk-task-name">' + escapeHtml(t.name) + '</div>' +
+        '<div class="risk-task-meta">' +
+          '<span class="risk-due">Due ' + fmtDMY(t.due_date) + '</span>' +
+          '<span class="risk-days">Trễ ' + days + ' ngày</span>' +
+        '</div>';
+      row.addEventListener('click', function(){ openDrawer('edit', t); });
+      card.appendChild(row);
+    });
+    container.appendChild(card);
+  });
+
+  if (container.children.length === 0){
+    container.innerHTML = '<div class="view-sub">Không có nghiệp vụ nào trễ hạn — tốt!</div>';
+  }
+}
+
+// which status a task must have reached to no longer count as "at risk";
+// STATUS_ORDER index, so 3 = Ready for Staging, 4 = Done. Default per product
+// call: Ready for Staging counts as "basically shipped", so only Backlog/Ready
+// for Dev/In Dev tasks are flagged once overdue.
+var _riskThreshold = 3;
+
+document.querySelectorAll('#riskThresholdChips .chip').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#riskThresholdChips .chip').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    _riskThreshold = Number(btn.dataset.threshold);
+    loadRiskReports();
+  });
+});
+
+function loadRiskReports(){
+  var sprintEl = document.getElementById('riskBySprint');
+  var phaseEl = document.getElementById('riskByPhase');
+  var thresholdLabel = _riskThreshold === 4 ? 'Done' : 'Ready for Staging';
+  var subText = 'Nghiệp vụ đã quá due date nhưng chưa tới ' + thresholdLabel;
+  document.getElementById('riskSubSprint').textContent = subText;
+  document.getElementById('riskSubPhase').textContent = subText;
+
+  return Promise.all([loadTasks(), loadSprints(), loadPhasesList()])
+    .then(function(results){
+      var tasks = results[0], sprints = results[1], phases = results[2];
+      var today = new Date(); today.setHours(0, 0, 0, 0);
+      var todayIso = toIsoDate(today);
+      var riskTasks = tasks.filter(function(t){
+        return statusDotToNum(t.status) < _riskThreshold && t.due_date < todayIso;
+      });
+
+      var sprintGroups = sprints.map(function(s){ return { key: s.id, label: s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')' }; });
+      sprintGroups.push({ key: null, label: 'Chưa gán sprint' });
+      var phaseGroups = phases.map(function(p){ return { key: p.id, label: p.code + ': ' + p.name }; });
+      phaseGroups.push({ key: null, label: 'Chưa gán phase' });
+
+      renderRiskGroups('riskBySprint', riskTasks, sprintGroups, function(t){ return t.sprint_id; }, today);
+      renderRiskGroups('riskByPhase', riskTasks, phaseGroups, function(t){ return t.phase_id; }, today);
+    })
+    .catch(function(err){
+      console.error('Failed to load risk reports', err);
+      sprintEl.innerHTML = phaseEl.innerHTML = '<div class="view-sub">Không tải được risk report.</div>';
+    });
+}
+
 loadPhases();
 loadSprintView();
+loadRiskReports();
 
 // ---- shared data cache: both Timeline and Board read /api/tasks; fetch it once ----
 var _tasksPromise = null;
@@ -389,24 +493,122 @@ function effectiveRange(t){
   return null;
 }
 
-function renderGantt(tasks, sprints){
-  var bandsEl = document.getElementById('sprintBands');
+// ---- group-by chips: which dimension clusters the Gantt's rows ----
+var _timelineGroupBy = 'category';
+
+function groupsForMode(tasks, sprints, phases){
+  if (_timelineGroupBy === 'sprint'){
+    var order = sprints.map(function(s){ return { key: 's' + s.id, label: s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')' }; });
+    order.push({ key: 'none', label: 'Chưa gán sprint' });
+    return order;
+  }
+  if (_timelineGroupBy === 'phase'){
+    var order = phases.map(function(p){ return { key: 'p' + p.id, label: p.code + ': ' + p.name }; });
+    order.push({ key: 'none', label: 'Chưa gán phase' });
+    return order;
+  }
+  // category / platform have no fixed canonical order — cluster in the order
+  // they're first seen among the (already filtered) tasks, same as before
+  // this function existed for plain category grouping.
+  var field = _timelineGroupBy === 'platform' ? 'platform' : 'category';
+  var seen = [], seenSet = {};
+  tasks.forEach(function(t){
+    var v = t[field];
+    if (v && !seenSet[v]){ seenSet[v] = true; seen.push({ key: v, label: v }); }
+  });
+  return seen;
+}
+
+function taskGroupKey(t){
+  if (_timelineGroupBy === 'sprint') return t.sprint_id != null ? 's' + t.sprint_id : 'none';
+  if (_timelineGroupBy === 'phase') return t.phase_id != null ? 'p' + t.phase_id : 'none';
+  if (_timelineGroupBy === 'platform') return t.platform || 'none';
+  return t.category || 'none';
+}
+
+document.querySelectorAll('#groupByChips .chip').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#groupByChips .chip').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    _timelineGroupBy = btn.dataset.groupby;
+    if (_lastTimelineTasks && _lastTimelineSprints && _lastTimelinePhases){
+      renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+    }
+  });
+});
+
+// ---- day-level ruler: two-digit day-of-month ticks, a bolder one + dd/mm label every Monday ----
+function fmtDdMm(d){ return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0'); }
+
+function renderDayRuler(axisStart, axisEnd, pctPos){
+  var ruler = document.getElementById('dayRuler');
+  ruler.innerHTML = '';
+  var d = new Date(axisStart);
+  d.setHours(0, 0, 0, 0);
+  var end = new Date(axisEnd);
+  while (d <= end){
+    // labels only, no tick lines — the header is a solid bar and a vertical
+    // line drawn across it reads as a stray mark/seam; the actual day
+    // gridlines already live in the body's .gantt-track-overlay below it.
+    if (d.getDay() === 1){ // Monday
+      var lbl = document.createElement('div');
+      lbl.className = 'day-tick-label';
+      lbl.style.left = pctPos(d) + '%';
+      lbl.textContent = fmtDdMm(d);
+      ruler.appendChild(lbl);
+    }
+    d.setDate(d.getDate() + 1);
+  }
+}
+
+// updates a task's dates directly (used by the Timeline's drag-to-move /
+// drag-to-resize on bars) — always marks the task as date_overridden, since a
+// hand-placed bar position is by definition a manual override of its sprint's
+// default range, same as hand-editing the dates in the drawer would be.
+function updateTaskDates(task, newStartIso, newDueIso){
+  var body = {
+    category: task.category, name: task.name, platform: task.platform, status: task.status,
+    phase_id: task.phase_id, sprint_id: task.sprint_id,
+    done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
+    start_date: newStartIso, due_date: newDueIso, date_overridden: true
+  };
+  return fetch('/api/tasks/' + task.id, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+  });
+}
+
+function toIsoDate(d){
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// e.g. 15 (inclusive calendar days) -> "2w1d"
+function fmtWeeksDays(days){
+  var w = Math.floor(days / 7), d = days % 7;
+  if (w === 0) return d + 'd';
+  if (d === 0) return w + 'w';
+  return w + 'w' + d + 'd';
+}
+
+function renderGantt(tasks, sprints, phases){
   var body = document.getElementById('ganttBody');
-  bandsEl.innerHTML = '';
   body.innerHTML = '';
   var oldOverlay = document.querySelector('.gantt-track-overlay');
   if (oldOverlay) oldOverlay.parentNode.removeChild(oldOverlay);
 
-  if (sprints.length === 0){
-    body.innerHTML = '<div class="view-sub">Chưa có sprint nào để hiển thị Timeline.</div>';
-    return;
-  }
-
-  // axis range must cover every sprint's start/end AND every task's effective
-  // date range — legacy pre-sprint tasks (date_overridden=true, no sprint,
-  // dated well before the earliest sprint) fall outside a sprints-only range
-  // and would otherwise render as bars with negative left%, overflowing into
-  // the TASKS label column.
+  // axis range must cover every sprint's start/end (the project's planned
+  // calendar, even sprints with no tasks yet) AND every task's effective date
+  // range — legacy pre-sprint tasks (date_overridden=true, no sprint, dated
+  // well before the earliest sprint) fall outside a sprints-only range and
+  // would otherwise render as bars with negative left%, overflowing into the
+  // TASKS label column.
   var allDates = [];
   sprints.forEach(function(s){
     allDates.push(new Date(s.start_date), new Date(s.end_date));
@@ -415,47 +617,83 @@ function renderGantt(tasks, sprints){
     var r = effectiveRange(t);
     if (r) { allDates.push(r.start, r.end); }
   });
+  if (allDates.length === 0){
+    body.innerHTML = '<div class="view-sub">Chưa có dữ liệu để hiển thị Timeline.</div>';
+    return;
+  }
   var axisStart = new Date(Math.min.apply(null, allDates));
   var axisEnd = new Date(Math.max.apply(null, allDates));
   var axisSpan = (axisEnd - axisStart) || 1; // guard against a zero-length axis
   function pctPos(d){ return (d - axisStart) / axisSpan * 100; }
 
-  // header bands, sized proportionally along the full axis (not just the sprint
-  // range) so they stay aligned with the bars below even when the axis is wider
-  // than the sprints — e.g. a legacy pre-sprint task pushes axisStart earlier
-  // than the first sprint. Bands stay normal flex-flow children (so they keep
-  // contributing their own content height to the header row, same as before);
-  // any gap between axisStart/axisEnd and the sprint range is filled with a
-  // plain unlabeled spacer div of the right width instead of shifting the bands.
-  function appendGapSpacer(widthPct){
-    if (widthPct <= 0.01) return;
-    var spacer = document.createElement('div');
-    spacer.style.width = widthPct + '%';
-    spacer.style.flex = 'none';
-    bandsEl.appendChild(spacer);
+  renderDayRuler(axisStart, axisEnd, pctPos);
+
+  // drag-to-move (grab the bar body) / drag-to-resize (grab an edge handle) —
+  // converts the horizontal pixel delta into a whole-day delta using the same
+  // axis scale as the bars themselves, live-previews the bar during the drag,
+  // and on drop persists the new start/due via updateTaskDates().
+  function startBarDrag(mode, downEvent, task, barEl, trackEl, origStart, origEnd, markDragged){
+    var startX = downEvent.clientX;
+    var trackWidth = trackEl.getBoundingClientRect().width;
+    var msPerDay = 24 * 60 * 60 * 1000;
+    var pxPerDay = (trackWidth * msPerDay) / axisSpan;
+    var moved = false;
+    var newStart = origStart, newEnd = origEnd;
+
+    function onMove(e){
+      var deltaDays = Math.round((e.clientX - startX) / pxPerDay);
+      if (deltaDays === 0 && !moved) return;
+      moved = true;
+      if (mode === 'move'){
+        newStart = new Date(origStart); newStart.setDate(newStart.getDate() + deltaDays);
+        newEnd = new Date(origEnd); newEnd.setDate(newEnd.getDate() + deltaDays);
+      } else if (mode === 'resize-start'){
+        newStart = new Date(origStart); newStart.setDate(newStart.getDate() + deltaDays);
+        if (newStart > origEnd) newStart = new Date(origEnd);
+        newEnd = origEnd;
+      } else {
+        newEnd = new Date(origEnd); newEnd.setDate(newEnd.getDate() + deltaDays);
+        if (newEnd < origStart) newEnd = new Date(origStart);
+        newStart = origStart;
+      }
+      var l = pctPos(newStart);
+      barEl.style.left = l + '%';
+      barEl.style.width = Math.max(pctPos(newEnd) - l, 0.6) + '%';
+    }
+    function onUp(){
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      barEl.classList.remove('bar-dragging');
+      if (!moved) return;
+      markDragged();
+      updateTaskDates(task, toIsoDate(newStart), toIsoDate(newEnd))
+        .then(refreshAllViews)
+        .catch(function(err){
+          console.error('Cập nhật ngày trên Timeline thất bại', err);
+          alert('Không cập nhật được ngày: ' + err.message);
+          refreshAllViews(); // reload from the server truth to undo the live preview
+        });
+    }
+    barEl.classList.add('bar-dragging');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
-  appendGapSpacer(pctPos(new Date(sprints[0].start_date)));
-  sprints.forEach(function(s){
-    var w = (pctPos(new Date(s.end_date)) - pctPos(new Date(s.start_date)));
-    var band = document.createElement('div');
-    band.className = 'sprint-band';
-    band.style.width = w + '%';
-    band.innerHTML = '<span class="lbl">' + escapeHtml(s.code) + '</span>' + fmtRange(s.start_date, s.end_date);
-    bandsEl.appendChild(band);
-  });
-  appendGapSpacer(100 - pctPos(new Date(sprints[sprints.length - 1].end_date)));
 
-  // body grouped by category — one .cat-divider per category, one .task-row per task
-  var cats = [];
-  tasks.forEach(function(t){ if (cats.indexOf(t.category) === -1) cats.push(t.category); });
+  // body grouped by the active group-by chip (category/sprint/phase/platform) —
+  // one .cat-divider per group, one .task-row per task; groups with zero tasks
+  // after filtering (e.g. "no sprint" when everything is scheduled) are skipped.
+  var groups = groupsForMode(tasks, sprints, phases);
 
-  cats.forEach(function(cat){
+  groups.forEach(function(g){
+    var groupTasks = tasks.filter(function(t){ return taskGroupKey(t) === g.key; });
+    if (groupTasks.length === 0) return;
+
     var group = document.createElement('div'); group.className = 'cat-group';
     var divider = document.createElement('div'); divider.className = 'cat-divider';
-    divider.textContent = cat;
+    divider.textContent = g.label;
     group.appendChild(divider);
 
-    tasks.filter(function(t){ return t.category === cat; }).forEach(function(t){
+    groupTasks.forEach(function(t){
       var range = effectiveRange(t);
       if (!range) return; // no sprint and not overridden — skip rather than crash
 
@@ -467,12 +705,42 @@ function renderGantt(tasks, sprints){
       var left = pctPos(range.start);
       var width = Math.max(pctPos(range.end) - left, 0.6); // keep a visible sliver for short/zero-width ranges
       var n = statusDotToNum(t.status);
+      var durationDays = Math.round((range.end - range.start) / (24 * 60 * 60 * 1000)) + 1;
       var bar = document.createElement('div');
       bar.className = 'bar st-' + n;
       bar.style.left = left + '%';
       bar.style.width = width + '%';
-      bar.title = t.name + (t.sprint_code ? ' · ' + t.sprint_code : '');
-      bar.addEventListener('click', function(){ openDrawer('edit', t); });
+      bar.title = t.name + ' · ' + fmtWeeksDays(durationDays) + (t.sprint_code ? ' · ' + t.sprint_code : '');
+
+      var durationLabel = document.createElement('span'); durationLabel.className = 'bar-duration';
+      durationLabel.textContent = fmtWeeksDays(durationDays);
+      bar.appendChild(durationLabel);
+
+      var handleL = document.createElement('div'); handleL.className = 'bar-handle bar-handle-l';
+      var handleR = document.createElement('div'); handleR.className = 'bar-handle bar-handle-r';
+      bar.appendChild(handleL);
+      bar.appendChild(handleR);
+
+      var dragMoved = false;
+      function markDragged(){ dragMoved = true; }
+      bar.addEventListener('mousedown', function(e){
+        if (e.target === handleL || e.target === handleR) return;
+        e.preventDefault();
+        startBarDrag('move', e, t, bar, track, range.start, range.end, markDragged);
+      });
+      handleL.addEventListener('mousedown', function(e){
+        e.preventDefault(); e.stopPropagation();
+        startBarDrag('resize-start', e, t, bar, track, range.start, range.end, markDragged);
+      });
+      handleR.addEventListener('mousedown', function(e){
+        e.preventDefault(); e.stopPropagation();
+        startBarDrag('resize-end', e, t, bar, track, range.start, range.end, markDragged);
+      });
+      bar.addEventListener('click', function(){
+        if (dragMoved){ dragMoved = false; return; }
+        openDrawer('edit', t);
+      });
+
       track.appendChild(bar);
       row.appendChild(label); row.appendChild(track);
       group.appendChild(row);
@@ -480,18 +748,40 @@ function renderGantt(tasks, sprints){
     body.appendChild(group);
   });
 
-  // today line — real current date, drawn only if it falls within the sprint axis range
+  // overlay: day gridlines (every day, bolder on Mondays) plus the today
+  // line (real current date, only if it falls within the axis range) — a
+  // fixed vertical ruler over the chart that stays put while gantt-body
+  // scrolls under it, same as the sticky-feeling sprint/day header above.
+  var overlayEl = document.createElement('div');
+  overlayEl.className = 'gantt-track-overlay';
+  var gd = new Date(axisStart);
+  gd.setHours(0, 0, 0, 0);
+  var gdEnd = new Date(axisEnd);
+  while (gd <= gdEnd){
+    var gLine = document.createElement('div');
+    gLine.className = 'gantt-day-line' + (gd.getDay() === 1 ? ' is-week' : '');
+    gLine.style.left = pctPos(gd) + '%';
+    overlayEl.appendChild(gLine);
+    gd.setDate(gd.getDate() + 1);
+  }
   var todayPct = pctPos(new Date());
   if (todayPct >= 0 && todayPct <= 100){
-    var overlayEl = document.createElement('div');
-    overlayEl.className = 'gantt-track-overlay';
     var line = document.createElement('div');
     line.className = 'gantt-today-line';
     line.style.left = todayPct + '%';
     overlayEl.appendChild(line);
-    document.querySelector('.gantt').style.position = 'relative';
-    document.querySelector('.gantt').appendChild(overlayEl);
   }
+  // mounted on .gantt itself (not the scrolling .gantt-body) — position:absolute
+  // descendants of a scrolling element move WITH that element's scrolled
+  // content, so anchoring to .gantt (which never scrolls) is what keeps this
+  // acting as a fixed ruler while gantt-body scrolls underneath it. Its CSS
+  // top:36px (matching .gantt-header's fixed height) keeps it below the header
+  // without needing to measure the header's rendered height at render time —
+  // that measurement would read 0 whenever this runs while the Timeline tab
+  // isn't the active view (e.g. on page load, before the user switches to it).
+  var ganttEl = document.querySelector('.gantt');
+  ganttEl.style.position = 'relative';
+  ganttEl.appendChild(overlayEl);
 }
 
 function renderGanttLegend(){
@@ -517,10 +807,11 @@ loadPhasesList().then(function(phases){
   });
 }).catch(function(err){ console.error('Failed to load phases for Timeline filter', err); });
 
-// last tasks/sprints fetched for the Timeline, so changing a filter can
-// re-render instantly without refetching from the API
+// last tasks/sprints/phases fetched for the Timeline, so changing a filter or
+// group-by chip can re-render instantly without refetching from the API
 var _lastTimelineTasks = null;
 var _lastTimelineSprints = null;
+var _lastTimelinePhases = null;
 
 function applyTimelineFilters(tasks){
   var phaseId = document.getElementById('filter-phase').value;
@@ -536,24 +827,23 @@ function applyTimelineFilters(tasks){
 
 ['filter-phase', 'filter-category', 'filter-platform'].forEach(function(id){
   document.getElementById(id).addEventListener('change', function(){
-    if (_lastTimelineTasks && _lastTimelineSprints){
-      renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints);
+    if (_lastTimelineTasks && _lastTimelineSprints && _lastTimelinePhases){
+      renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
     }
   });
 });
 
 function loadTimelineView(){
-  var bandsEl = document.getElementById('sprintBands');
   var body = document.getElementById('ganttBody');
-  return Promise.all([loadTasks(), loadSprints()])
+  return Promise.all([loadTasks(), loadSprints(), loadPhasesList()])
     .then(function(results){
       _lastTimelineTasks = results[0];
       _lastTimelineSprints = results[1];
-      renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints);
+      _lastTimelinePhases = results[2];
+      renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
     })
     .catch(function(err){
       console.error('Failed to load Timeline data', err);
-      bandsEl.innerHTML = '';
       body.innerHTML = '<div class="view-sub">Không tải được dữ liệu Timeline. Thử tải lại trang.</div>';
     });
 }
@@ -596,8 +886,9 @@ function renderBoard(tasks){
     col.appendChild(head);
     tasksInCol.forEach(function(t){
       var card = document.createElement('div'); card.className = 'card'; card.draggable = true;
+      var sprintTag = t.sprint_code ? '<span class="tag tag-sprint">' + escapeHtml(t.sprint_code) + '</span>' : '';
       card.innerHTML = escapeHtml(t.name) +
-        '<div class="card-tags"><span class="tag">' + escapeHtml(t.category) + '</span><span class="tag">' + escapeHtml(t.platform) + '</span></div>';
+        '<div class="card-tags">' + sprintTag + '<span class="tag">' + escapeHtml(t.category) + '</span><span class="tag">' + escapeHtml(t.platform) + '</span></div>';
       card.addEventListener('click', function(){ openDrawer('edit', t); });
       card.addEventListener('dragstart', function(e){
         _draggingTaskId = t.id;
@@ -637,11 +928,34 @@ function renderBoard(tasks){
   });
 }
 
+// populate the Board's Sprint filter once (options never change during a
+// session — new sprints only ever come from a fresh Excel import)
+loadSprints().then(function(sprints){
+  var sel = document.getElementById('board-filter-sprint');
+  sprints.forEach(function(s){
+    var opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')';
+    sel.appendChild(opt);
+  });
+}).catch(function(err){ console.error('Failed to load sprints for Board filter', err); });
+
+document.getElementById('board-filter-sprint').addEventListener('change', function(){
+  loadBoardView();
+});
+
 function loadBoardView(){
   var boardEl = document.getElementById('board');
   return loadTasks()
     .then(function(tasks){
-      renderBoard(tasks);
+      var sprintFilter = document.getElementById('board-filter-sprint').value;
+      var filtered = sprintFilter
+        ? tasks.filter(function(t){ return String(t.sprint_id) === String(sprintFilter); })
+        : tasks;
+      var sel = document.getElementById('board-filter-sprint');
+      var scopeLabel = sprintFilter ? sel.options[sel.selectedIndex].textContent : 'toàn bộ dự án';
+      document.getElementById('boardSub').textContent = filtered.length + ' nghiệp vụ · ' + scopeLabel;
+      renderBoard(filtered);
     })
     .catch(function(err){
       console.error('Failed to load Board data', err);
@@ -661,6 +975,7 @@ function refreshAllViews(){
   loadSprintView();
   loadTimelineView();
   loadBoardView();
+  loadRiskReports();
 }
 
 document.getElementById('saveBtn').addEventListener('click', function(){

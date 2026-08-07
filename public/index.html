@@ -56,6 +56,24 @@
           <div class="axis-label">Trục thời gian toàn dự án · 06/2026 → 01/2027</div>
           <div class="axis" id="masterAxis"></div>
         </div>
+
+        <div class="risk-threshold-chips" id="riskThresholdChips">
+          <span class="chip-label">Trễ hạn tính đến khi chưa tới</span>
+          <button type="button" class="chip" data-threshold="4">Done</button>
+          <button type="button" class="chip active" data-threshold="3">Ready for Staging</button>
+        </div>
+        <div class="risk-wrap">
+          <div class="risk-col">
+            <div class="risk-col-title">Risk theo Sprint</div>
+            <div class="view-sub" style="margin-bottom:12px;" id="riskSubSprint"></div>
+            <div id="riskBySprint"></div>
+          </div>
+          <div class="risk-col">
+            <div class="risk-col-title">Risk theo Phase</div>
+            <div class="view-sub" style="margin-bottom:12px;" id="riskSubPhase"></div>
+            <div id="riskByPhase"></div>
+          </div>
+        </div>
       </section>
 
       <!-- SPRINT -->
@@ -74,7 +92,7 @@
         <div class="view-head">
           <div>
             <div class="view-title">Timeline theo ngày</div>
-            <div class="view-sub">Sprint 14 → Sprint 17 · mỗi thanh là một nghiệp vụ trong dải sprint của nó, bấm để sửa</div>
+            <div class="view-sub">Mỗi thanh là một nghiệp vụ theo đúng ngày bắt đầu/kết thúc, bấm để sửa</div>
           </div>
         </div>
 
@@ -95,12 +113,19 @@
             <option>BE</option>
           </select>
         </div>
+        <div class="groupby-chips" id="groupByChips">
+          <span class="chip-label">Nhóm theo</span>
+          <button type="button" class="chip active" data-groupby="category">Category</button>
+          <button type="button" class="chip" data-groupby="sprint">Sprint</button>
+          <button type="button" class="chip" data-groupby="phase">Phase</button>
+          <button type="button" class="chip" data-groupby="platform">Platform</button>
+        </div>
         <div class="gantt-legend" id="ganttLegend"></div>
 
         <div class="gantt">
           <div class="gantt-header">
             <div class="gantt-corner">TASKS</div>
-            <div class="gantt-days" id="sprintBands"></div>
+            <div class="gantt-day-ruler" id="dayRuler"></div>
           </div>
           <div class="gantt-body" id="ganttBody"></div>
         </div>
@@ -111,8 +136,11 @@
         <div class="view-head">
           <div>
             <div class="view-title">Board theo trạng thái</div>
-            <div class="view-sub">108 nghiệp vụ · toàn bộ dự án</div>
+            <div class="view-sub" id="boardSub"></div>
           </div>
+        </div>
+        <div class="filters">
+          <select id="board-filter-sprint"><option value="">Tất cả Sprint</option></select>
         </div>
         <div class="board" id="board"></div>
       </section>
@@ -154,7 +182,7 @@
       <select id="f-status">
         <option value="0.backlog">0. Backlog</option>
         <option value="1.ready_for_dev">1. Ready for Dev</option>
-        <option value="2.in_test">2. In Test</option>
+        <option value="2.in_test">2. In Dev</option>
         <option value="3.ready_for_staging">3. Ready for Staging</option>
         <option value="4.done">4. Done</option>
       </select>

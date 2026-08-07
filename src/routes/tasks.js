@@ -3,6 +3,7 @@ const { STATUS_CODES } = require('../lib/statusCodes');
 const { normalizeDate } = require('../lib/normalizeDate');
 const { asyncHandler } = require('../lib/asyncHandler');
 const { isForeignKeyViolation } = require('../lib/dbErrors');
+const { buildDateChangeNote } = require('../lib/dateChangeNote');
 
 function normalizeTaskDates(t) {
   return {
@@ -72,6 +73,20 @@ function tasksRouter(pool) {
       return res.status(400).json({ error: 'status không hợp lệ' });
     }
     try {
+      // captured before the UPDATE so the date-change log below can diff
+      // against what the row actually had, regardless of which caller (the
+      // edit drawer or a Timeline drag/resize) triggered this PUT.
+      const { rows: beforeRows } = await pool.query(
+        'SELECT start_date, due_date FROM tasks WHERE id=$1', [id]
+      );
+      if (beforeRows.length === 0) {
+        return res.status(404).json({ error: 'không tìm thấy nghiệp vụ' });
+      }
+      const before = {
+        start_date: normalizeDate(beforeRows[0].start_date),
+        due_date: normalizeDate(beforeRows[0].due_date)
+      };
+
       const { rows } = await pool.query(
         `UPDATE tasks SET
            category=$1, name=$2, platform=$3, phase_id=$4, sprint_id=$5, status=$6,
@@ -88,7 +103,14 @@ function tasksRouter(pool) {
       if (rows.length === 0) {
         return res.status(404).json({ error: 'không tìm thấy nghiệp vụ' });
       }
-      res.json(normalizeTaskDates(rows[0]));
+      const after = normalizeTaskDates(rows[0]);
+
+      const dateChangeNote = buildDateChangeNote(before, { start_date: after.start_date, due_date: after.due_date });
+      if (dateChangeNote) {
+        await pool.query('INSERT INTO activity_logs (task_id, note) VALUES ($1, $2)', [id, dateChangeNote]);
+      }
+
+      res.json(after);
     } catch (err) {
       if (isForeignKeyViolation(err)) {
         return res.status(400).json({ error: 'phase_id hoặc sprint_id không tồn tại' });

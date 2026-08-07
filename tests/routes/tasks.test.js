@@ -151,3 +151,46 @@ test('GET /api/tasks normalizes date fields to plain YYYY-MM-DD strings', async 
   assert.equal(res.body[0].sprint_start, '2026-08-03');
   assert.equal(res.body[0].sprint_end, '2026-08-14');
 });
+
+test('PUT that changes start_date/due_date auto-records an activity log entry', async () => {
+  const app = createApp(makeTestPool());
+  const created = await request(app)
+    .post('/api/tasks')
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      start_date: '2026-07-06', due_date: '2026-07-17'
+    });
+  const id = created.body.id;
+
+  await request(app)
+    .put(`/api/tasks/${id}`)
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      start_date: '2026-07-15', due_date: '2026-07-26', date_overridden: true
+    });
+
+  const logs = await request(app).get(`/api/tasks/${id}/logs`);
+  assert.equal(logs.body.length, 1);
+  assert.equal(logs.body[0].note, 'Dịch ngày: 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
+});
+
+test('PUT that leaves dates unchanged does not record an activity log entry', async () => {
+  const app = createApp(makeTestPool());
+  const created = await request(app)
+    .post('/api/tasks')
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      start_date: '2026-07-06', due_date: '2026-07-17'
+    });
+  const id = created.body.id;
+
+  await request(app)
+    .put(`/api/tasks/${id}`)
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '2.in_test',
+      start_date: '2026-07-06', due_date: '2026-07-17'
+    });
+
+  const logs = await request(app).get(`/api/tasks/${id}/logs`);
+  assert.equal(logs.body.length, 0);
+});

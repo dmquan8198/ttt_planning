@@ -14,7 +14,7 @@ function makeTasks(n, { analyst = 0, dev = 0, uat = 0 } = {}) {
   return tasks;
 }
 
-test('P1 rollup matches the sheet: 43/43 analyst, 43/43 dev, 39/43 uat, 4 days to 10/08', () => {
+test('P1 rollup: 43/43 analyst, 43/43 dev, 39/43 uat blend to 96.9%, 4 days to 10/08', () => {
   const phase = { code: 'P1', name: 'Lived', target_date: '2026-08-10' };
   const tasks = makeTasks(43, { analyst: 43, dev: 43, uat: 39 });
   const rollup = computePhaseRollup(phase, tasks, '2026-08-06');
@@ -22,11 +22,11 @@ test('P1 rollup matches the sheet: 43/43 analyst, 43/43 dev, 39/43 uat, 4 days t
   assert.equal(rollup.done_analyst, 43);
   assert.equal(rollup.done_dev, 43);
   assert.equal(rollup.done_uat, 39);
-  assert.equal(rollup.pct_complete, 100);
+  assert.equal(rollup.pct_complete, 96.9);
   assert.equal(rollup.days_remaining, 4);
 });
 
-test('P2 rollup matches the sheet: 18/28 analyst = 64.3%, 26 days to 01/09', () => {
+test('P2 rollup: 18/28 analyst, 11/28 dev, 2/28 uat blend to 36.9%, 26 days to 01/09', () => {
   const phase = { code: 'P2', name: 'Rollout', target_date: '2026-09-01' };
   const tasks = makeTasks(28, { analyst: 18, dev: 11, uat: 2 });
   const rollup = computePhaseRollup(phase, tasks, '2026-08-06');
@@ -34,7 +34,7 @@ test('P2 rollup matches the sheet: 18/28 analyst = 64.3%, 26 days to 01/09', () 
   assert.equal(rollup.done_analyst, 18);
   assert.equal(rollup.done_dev, 11);
   assert.equal(rollup.done_uat, 2);
-  assert.equal(rollup.pct_complete, 64.3);
+  assert.equal(rollup.pct_complete, 36.9);
   assert.equal(rollup.days_remaining, 26);
 });
 

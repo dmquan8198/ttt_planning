@@ -3,7 +3,7 @@ const STATUS_CODES = ['0.backlog', '1.ready_for_dev', '2.in_test', '3.ready_for_
 const STATUS_LABELS = {
   '0.backlog': 'Backlog',
   '1.ready_for_dev': 'Ready for Dev',
-  '2.in_test': 'In Test',
+  '2.in_test': 'In Dev',
   '3.ready_for_staging': 'Ready for Staging',
   '4.done': 'Done'
 };
