@@ -16,18 +16,23 @@ function signed(n) {
 // Builds a human-readable activity-log note describing a start_date/due_date
 // change (before/after are { start_date, due_date } plain 'YYYY-MM-DD' strings),
 // or returns null when neither date actually changed — callers should skip
-// logging in that case rather than record a no-op note.
-function buildDateChangeNote(before, after) {
+// logging in that case rather than record a no-op note. actorName (who made
+// the change) is optional and, when given, is inserted right after the
+// "Dịch ngày"/"Đổi ngày" prefix — before the trailing "(+N ngày)" delta, so
+// that pattern stays anchored to the end of the string for callers that
+// parse it back out (see public/app.js's parseDateChangeNote).
+function buildDateChangeNote(before, after, actorName) {
   const startChanged = before.start_date !== after.start_date;
   const dueChanged = before.due_date !== after.due_date;
   if (!startChanged && !dueChanged) return null;
 
+  const who = actorName ? ` (${actorName})` : '';
   const startDelta = startChanged ? dayDelta(before.start_date, after.start_date) : 0;
   const dueDelta = dueChanged ? dayDelta(before.due_date, after.due_date) : 0;
 
   // both ends moved by the same amount — a plain shift of the whole range
   if (startChanged && dueChanged && startDelta === dueDelta) {
-    return `Dịch ngày: ${fmtDMY(before.start_date)}–${fmtDMY(before.due_date)} → ` +
+    return `Dịch ngày${who}: ${fmtDMY(before.start_date)}–${fmtDMY(before.due_date)} → ` +
       `${fmtDMY(after.start_date)}–${fmtDMY(after.due_date)} (${signed(startDelta)} ngày)`;
   }
 
@@ -38,7 +43,7 @@ function buildDateChangeNote(before, after) {
   if (dueChanged) {
     parts.push(`kết thúc ${fmtDMY(before.due_date)} → ${fmtDMY(after.due_date)} (${signed(dueDelta)} ngày)`);
   }
-  return `Đổi ngày: ${parts.join(', ')}`;
+  return `Đổi ngày${who}: ${parts.join(', ')}`;
 }
 
 module.exports = { buildDateChangeNote };

@@ -33,6 +33,22 @@ test('POST then GET activity log entries for a task', async () => {
   assert.equal(list.body[0].note, 'Chuyển sang Ready for Dev, giao cho BE.');
 });
 
+test('POST with an X-Actor-Name header appends " — <name>" to the note', async () => {
+  const pool = makeTestPool();
+  const created = await pool.query(
+    "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Task A','Web','2026-08-05','2026-08-10') RETURNING id"
+  );
+  const taskId = created.rows[0].id;
+  const app = createApp(pool);
+
+  const post = await request(app)
+    .post(`/api/tasks/${taskId}/logs`)
+    .set('X-Actor-Name', encodeURIComponent('Quân'))
+    .send({ note: 'Chuyển sang Ready for Dev, giao cho BE.' });
+  assert.equal(post.status, 201);
+  assert.equal(post.body.note, 'Chuyển sang Ready for Dev, giao cho BE. — Quân');
+});
+
 test('POST rejects an empty note', async () => {
   const pool = makeTestPool();
   const created = await pool.query(

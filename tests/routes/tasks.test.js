@@ -174,6 +174,31 @@ test('PUT that changes start_date/due_date auto-records an activity log entry', 
   assert.equal(logs.body[0].note, 'Dịch ngày: 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
 });
 
+test('PUT with an X-Actor-Name header attributes the date-change log entry to that name', async () => {
+  const app = createApp(makeTestPool());
+  const created = await request(app)
+    .post('/api/tasks')
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      start_date: '2026-07-06', due_date: '2026-07-17'
+    });
+  const id = created.body.id;
+
+  // real callers send this percent-encoded (see public/app.js's authFetch) —
+  // Node decodes raw headers as latin1, which mangles UTF-8 diacritics if
+  // sent as-is, so the test must encode the same way a real client would.
+  await request(app)
+    .put(`/api/tasks/${id}`)
+    .set('X-Actor-Name', encodeURIComponent('Quân'))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      start_date: '2026-07-15', due_date: '2026-07-26', date_overridden: true
+    });
+
+  const logs = await request(app).get(`/api/tasks/${id}/logs`);
+  assert.equal(logs.body[0].note, 'Dịch ngày (Quân): 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
+});
+
 test('PUT that leaves dates unchanged does not record an activity log entry', async () => {
   const app = createApp(makeTestPool());
   const created = await request(app)

@@ -216,12 +216,15 @@ body{
 .gantt-day-line.is-week{background:var(--ink-faint); opacity:0.55;}
 .gantt-today-line{position:absolute; top:0; bottom:0; width:1.5px; background:var(--accent-ink);}
 .gantt-today-line::before{content:'HÔM NAY'; position:absolute; top:-2px; left:5px; font-family:var(--mono); font-size:9.5px; color:var(--accent-ink); font-weight:700; letter-spacing:0.04em;}
-.cat-group{border-bottom:1px solid var(--border);}
+.cat-group{border-bottom:1px solid var(--border); transition:background .12s ease;}
 .cat-group:last-child{border-bottom:none;}
+.cat-group.group-drag-over{background:var(--accent-soft);}
 .cat-divider{padding:7px 12px; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-muted); background:var(--surface-2); border-top:1px solid var(--border);}
 .cat-group:first-child .cat-divider{border-top:none;}
 .task-row{display:flex; align-items:stretch; border-top:1px solid var(--border);}
-.task-label{width:186px; flex:none; border-right:1px solid var(--border); padding:8px 12px; font-size:12px; display:flex; align-items:center;}
+.task-row.row-dragging{opacity:0.4;}
+.task-label{width:186px; flex:none; border-right:1px solid var(--border); padding:8px 12px; font-size:12px; display:flex; align-items:center; cursor:grab;}
+.task-label:active{cursor:grabbing;}
 .task-track{flex:1; position:relative; height:44px;}
 .bar{
   position:absolute; top:8px; height:28px; border-radius:5px;
@@ -260,6 +263,17 @@ body{
 .tag-sprint{color:var(--accent-ink); background:var(--accent-soft); border-color:var(--accent-ink); font-weight:600;}
 .col-more{font-size:11px; color:var(--ink-faint); text-align:center; padding:6px 0 2px; font-family:var(--mono);}
 
+/* ===== LOG ===== */
+.log-row{
+  display:flex; gap:16px; align-items:flex-start; padding:11px 14px; border:1px solid var(--border);
+  border-radius:7px; margin-bottom:8px; background:var(--surface); cursor:pointer; transition:box-shadow .2s ease;
+}
+.log-row:hover{box-shadow:0 2px 8px rgba(0,0,0,0.05);}
+.log-row-time{font-family:var(--mono); font-size:10.5px; color:var(--ink-muted); flex:none; width:110px; padding-top:1px;}
+.log-row-body{flex:1; min-width:0;}
+.log-row-task{font-size:12.5px; font-weight:600; margin-bottom:2px;}
+.log-row-note{font-size:11.5px; color:var(--ink-muted); font-family:var(--mono);}
+
 /* ===== SPRINT VIEW ===== */
 .sprint-columns{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
 .sprint-panel{border:1px solid var(--border); border-radius:8px; background:var(--surface); padding:16px 16px 6px;}
@@ -275,6 +289,25 @@ body{
 .sprint-task:hover{box-shadow:0 2px 8px rgba(0,0,0,0.05);}
 .sprint-task-top{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
 .sprint-task-name{font-size:12.5px; font-weight:500;}
+.carryover-head{
+  display:flex; align-items:center; gap:6px; margin:6px 0 10px; padding-top:12px;
+  border-top:1px solid var(--border); font-size:11px; font-weight:700; text-transform:uppercase;
+  letter-spacing:0.04em; color:var(--red-ink);
+}
+.sprint-task.carryover{border-color:var(--red-bg); background:var(--red-bg);}
+
+/* ===== LOGIN ===== */
+.login-overlay{
+  position:fixed; inset:0; z-index:20; background:var(--canvas);
+  display:flex; align-items:center; justify-content:center; padding:20px;
+}
+.login-card{
+  width:100%; max-width:340px; background:var(--surface); border:1px solid var(--border);
+  border-radius:10px; padding:28px 26px; box-shadow:var(--shadow);
+}
+.login-title{font-family:var(--serif); font-size:20px; margin-bottom:2px;}
+.login-sub{font-size:12px; color:var(--ink-muted); margin-bottom:20px;}
+.login-error{font-size:12px; color:var(--red-ink); background:var(--red-bg); border-radius:6px; padding:8px 10px; margin-bottom:12px;}
 
 /* ===== FORM (slide-over) ===== */
 .overlay{position:fixed; inset:0; background:rgba(20,19,16,0.28); opacity:0; pointer-events:none; transition:opacity .2s ease; z-index:9;}
@@ -301,6 +334,7 @@ body{
   padding:10px; font-size:13px; font-weight:600; cursor:pointer; margin-top:6px;
 }
 .save-btn:active{transform:scale(0.98);}
+.save-btn:disabled{opacity:0.6; cursor:not-allowed;}
 .log-preview{border:1px solid var(--border); border-radius:6px; padding:10px 12px; background:var(--surface-2); margin-top:6px;}
 .log-item{font-size:11.5px; margin-bottom:7px; padding-bottom:7px; border-bottom:1px solid var(--border);}
 .log-item:last-child{margin-bottom:0; padding-bottom:0; border-bottom:none;}

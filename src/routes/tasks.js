@@ -105,7 +105,7 @@ function tasksRouter(pool) {
       }
       const after = normalizeTaskDates(rows[0]);
 
-      const dateChangeNote = buildDateChangeNote(before, { start_date: after.start_date, due_date: after.due_date });
+      const dateChangeNote = buildDateChangeNote(before, { start_date: after.start_date, due_date: after.due_date }, req.actorName);
       if (dateChangeNote) {
         await pool.query('INSERT INTO activity_logs (task_id, note) VALUES ($1, $2)', [id, dateChangeNote]);
       }

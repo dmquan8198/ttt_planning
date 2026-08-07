@@ -26,10 +26,11 @@ function logsRouter(pool) {
     if (!note) {
       return res.status(400).json({ error: 'note không được để trống' });
     }
+    const finalNote = req.actorName ? `${note} — ${req.actorName}` : note;
     try {
       const { rows } = await pool.query(
         'INSERT INTO activity_logs (task_id, note) VALUES ($1, $2) RETURNING id, note, created_at',
-        [taskId, note]
+        [taskId, finalNote]
       );
       res.status(201).json(rows[0]);
     } catch (err) {

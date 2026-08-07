@@ -8,6 +8,23 @@
 </head>
 <body>
 
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="login-title">TTT New</div>
+    <div class="login-sub">Nhập tên và password để vào hệ thống</div>
+    <div class="field">
+      <label>Tên</label>
+      <input id="login-name" type="text" placeholder="Tên của bạn" autocomplete="name">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input id="login-password" type="password" placeholder="Password" autocomplete="current-password">
+    </div>
+    <div class="login-error" id="loginError" style="display:none;"></div>
+    <button class="save-btn" id="loginBtn">Đăng nhập</button>
+  </div>
+</div>
+
 <div class="app-frame">
   <div class="titlebar">
     <div class="dots"><span></span><span></span><span></span></div>
@@ -32,6 +49,10 @@
         <div class="nav-item" data-view="board">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M7.5 3v14M12.5 3v14"/></svg>
           Board
+        </div>
+        <div class="nav-item" data-view="log">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3.5h9l3 3v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M13 3.5V7h3"/><path d="M6 10.5h6M6 13.5h6"/></svg>
+          Log
         </div>
       </div>
       <div class="rail-footer">
@@ -144,6 +165,30 @@
         </div>
         <div class="board" id="board"></div>
       </section>
+
+      <!-- LOG -->
+      <section class="view" id="view-log">
+        <div class="view-head">
+          <div>
+            <div class="view-title">Log đổi ngày</div>
+            <div class="view-sub">Lịch sử tất cả các lần đổi start/end date của mọi nghiệp vụ, mới nhất trước</div>
+          </div>
+        </div>
+
+        <div class="view-title" style="font-size:16px; margin-bottom:2px;">Tổng hợp theo task</div>
+        <div class="view-sub" style="margin-bottom:12px;">Mỗi task 1 dòng · dùng lần đổi ngày gần nhất nếu đổi nhiều lần</div>
+        <div class="groupby-chips" id="logSummaryGroupChips">
+          <span class="chip-label">Chia theo</span>
+          <button type="button" class="chip active" data-groupby="sprint">Sprint</button>
+          <button type="button" class="chip" data-groupby="phase">Phase</button>
+          <button type="button" class="chip" data-groupby="category">Category</button>
+        </div>
+        <div id="logSummaryWrap" style="margin-bottom:30px;"></div>
+
+        <div class="view-title" style="font-size:16px; margin-bottom:2px;">Lịch sử chi tiết</div>
+        <div class="view-sub" style="margin-bottom:12px;">Toàn bộ các lần đổi ngày, mới nhất trước</div>
+        <div id="logListWrap"></div>
+      </section>
     </main>
   </div>
 </div>
@@ -156,7 +201,14 @@
 
   <div class="field">
     <label>Category</label>
-    <select id="f-cat"><option>Product Foundation</option><option>Cross Service Integration</option><option>Internal features</option><option>Convert &amp; Scale</option></select>
+    <select id="f-cat">
+      <option>Product Foundation</option>
+      <option>Cross Service Integration</option>
+      <option>Internal features</option>
+      <option>Convert &amp; Scale</option>
+      <option value="__add_new__">+ Thêm category mới...</option>
+    </select>
+    <input id="f-cat-new" type="text" placeholder="Nhập tên category mới, Enter để xác nhận" style="display:none; margin-top:6px;">
   </div>
   <div class="field">
     <label>Tên nghiệp vụ</label>
