@@ -14,7 +14,15 @@
     <div class="login-sub">Nhập tên và password để vào hệ thống</div>
     <div class="field">
       <label>Tên</label>
-      <input id="login-name" type="text" placeholder="Tên của bạn" autocomplete="name">
+      <select id="login-name">
+        <option value="">— Chọn tên —</option>
+        <option>quan.dang1</option>
+        <option>anh.nguyen80</option>
+        <option>nghi.vo</option>
+        <option>hung.le1</option>
+        <option>uyen.ly</option>
+        <option>toan.han</option>
+      </select>
     </div>
     <div class="field">
       <label>Password</label>
@@ -115,33 +123,40 @@
             <div class="view-title">Timeline theo ngày</div>
             <div class="view-sub">Mỗi thanh là một nghiệp vụ theo đúng ngày bắt đầu/kết thúc, bấm để sửa</div>
           </div>
+          <div class="view-head-controls">
+            <select id="filter-phase"><option value="">Phase</option></select>
+            <select id="filter-category">
+              <option value="">Category</option>
+              <option>Product Foundation</option>
+              <option>Cross Service Integration</option>
+              <option>Convert &amp; Scale</option>
+              <option>Internal features</option>
+            </select>
+            <select id="filter-platform">
+              <option value="">Platform</option>
+              <option>Web</option>
+              <option>App</option>
+              <option>App/Auto</option>
+              <option>BE</option>
+            </select>
+            <div class="groupby-chips" id="groupByChips" title="Xem Timeline theo góc nhìn Sprint / Category / Phase / Platform">
+              <span class="chip-label">Xem theo</span>
+              <button type="button" class="chip active" data-groupby="sprint">Sprint</button>
+              <button type="button" class="chip" data-groupby="category">Category</button>
+              <button type="button" class="chip" data-groupby="phase">Phase</button>
+              <button type="button" class="chip" data-groupby="platform">Platform</button>
+            </div>
+          </div>
         </div>
 
-        <div class="filters">
-          <select id="filter-phase"><option value="">Tất cả Phase</option></select>
-          <select id="filter-category">
-            <option value="">Tất cả Category</option>
-            <option>Product Foundation</option>
-            <option>Cross Service Integration</option>
-            <option>Convert &amp; Scale</option>
-            <option>Internal features</option>
-          </select>
-          <select id="filter-platform">
-            <option value="">Tất cả Platform</option>
-            <option>Web</option>
-            <option>App</option>
-            <option>App/Auto</option>
-            <option>BE</option>
-          </select>
+        <div class="gantt-legend-row">
+          <div class="gantt-legend" id="ganttLegend"></div>
+          <div class="groupby-chips" id="dayUnitChips">
+            <span class="chip-label">Số ngày theo</span>
+            <button type="button" class="chip" data-unit="calendar">Lịch</button>
+            <button type="button" class="chip active" data-unit="working">Working day</button>
+          </div>
         </div>
-        <div class="groupby-chips" id="groupByChips">
-          <span class="chip-label">Nhóm theo</span>
-          <button type="button" class="chip active" data-groupby="category">Category</button>
-          <button type="button" class="chip" data-groupby="sprint">Sprint</button>
-          <button type="button" class="chip" data-groupby="phase">Phase</button>
-          <button type="button" class="chip" data-groupby="platform">Platform</button>
-        </div>
-        <div class="gantt-legend" id="ganttLegend"></div>
 
         <div class="gantt">
           <div class="gantt-header">
@@ -162,6 +177,10 @@
         </div>
         <div class="filters">
           <select id="board-filter-sprint"><option value="">Tất cả Sprint</option></select>
+          <div class="groupby-chips" id="boardSprintQuick">
+            <button type="button" class="chip" data-quick="current">Sprint hiện tại</button>
+            <button type="button" class="chip" data-quick="next">Sprint sau</button>
+          </div>
         </div>
         <div class="board" id="board"></div>
       </section>

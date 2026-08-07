@@ -36,6 +36,41 @@ function escapeHtml(str){
   });
 }
 
+// ---- FLIP animation: call before a container's contents get rebuilt (drag
+// reorder/regroup, status change, resort, etc.), keep the returned function,
+// then call it once the new DOM is in place — matched elements (by keyAttr,
+// e.g. a task id) slide from their old position to the new one instead of
+// just jumping, so swaps/moves between rows or blocks read as motion rather
+// than a hard cut. Elements with no earlier position (newly appeared) are
+// left alone; elements that didn't move are left alone too. ----
+function captureFlipPositions(container, keyAttr){
+  var positions = {};
+  Array.from(container.querySelectorAll('[' + keyAttr + ']')).forEach(function(el){
+    positions[el.getAttribute(keyAttr)] = el.getBoundingClientRect();
+  });
+  return function playFlip(){
+    Array.from(container.querySelectorAll('[' + keyAttr + ']')).forEach(function(el){
+      var oldRect = positions[el.getAttribute(keyAttr)];
+      if (!oldRect) return;
+      var newRect = el.getBoundingClientRect();
+      var dx = oldRect.left - newRect.left;
+      var dy = oldRect.top - newRect.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+      el.style.transition = 'none';
+      el.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
+      requestAnimationFrame(function(){
+        el.style.transition = 'transform .25s ease';
+        el.style.transform = '';
+        el.addEventListener('transitionend', function handler(e){
+          if (e.propertyName !== 'transform') return;
+          el.style.transition = '';
+          el.removeEventListener('transitionend', handler);
+        });
+      });
+    });
+  };
+}
+
 // id of the task currently being edited, or null when the drawer is in "create" mode
 var editingTaskId = null;
 // the Analyst/Dev/UAT/Staging completion flags of the task currently being edited.
@@ -44,6 +79,11 @@ var editingTaskId = null;
 // through on save or the PUT handler's `!!b.done_analyst` (etc.) will wipe them
 // to false. null while in "create" mode, where a brand-new task has none yet.
 var editingTaskDoneFlags = null;
+// the manual sort position of the task currently being edited (from the
+// Timeline's drag-to-reorder) — has no form field, so must be passed straight
+// through on save or the PUT handler would wipe it to null. null in "create"
+// mode, where a brand-new task has no position yet.
+var editingTaskStt = null;
 // whether the task currently being edited already had date_overridden=true when
 // loaded. manualDateEdit alone can't detect this — it only tracks hand-edits
 // made THIS drawer session, so it resets to false on every open and can't see
@@ -104,6 +144,7 @@ function openDrawer(mode, t){
   editingTaskId = isEdit ? (t && typeof t === 'object' ? t.id : t) : null;
   editingTaskDoneFlags = null;
   editingTaskWasOverridden = false;
+  editingTaskStt = null;
 
   document.getElementById('drawerTitle').textContent = isEdit ? 'Sửa nghiệp vụ' : 'Nghiệp vụ mới';
   document.getElementById('drawerSub').textContent = isEdit
@@ -143,6 +184,7 @@ function openDrawer(mode, t){
           done_staging: !!full.done_staging
         };
         editingTaskWasOverridden = !!full.date_overridden;
+        editingTaskStt = full.stt != null ? full.stt : null;
         document.getElementById('f-name').value = full.name || '';
         addCategoryOptionIfMissing(full.category);
         document.getElementById('f-cat').value = full.category || '';
@@ -176,6 +218,7 @@ function openDrawer(mode, t){
       editingTaskId = null;
       editingTaskDoneFlags = null;
       editingTaskWasOverridden = false;
+      editingTaskStt = null;
       close();
     });
 }
@@ -342,23 +385,32 @@ function renderMasterAxis(phases){
   function pos(d){ return ((d - start) / span * 100).toFixed(2); }
 
   // alternating phase-segment bands behind the ticks, so the axis reads as a
-  // detail view of the phase cards above it instead of a disconnected ruler
+  // detail view of the phase cards above it instead of a disconnected ruler —
+  // each segment also gets its OWN progress fill using that phase's own
+  // pct_complete (same number as the .phase-pct/.stack bar on its card above),
+  // colored green once done, so the axis is a literal continuation of the
+  // cards rather than a separate "elapsed time" concept.
   var segStart = start;
   phases.forEach(function(p, idx){
     var segEnd = new Date(p.target_date);
+    var segStartPct = parseFloat(pos(segStart)), segEndPct = parseFloat(pos(segEnd));
+    var segWidth = segEndPct - segStartPct;
+
     var band = document.createElement('div');
     band.className = 'axis-band' + (idx % 2 === 1 ? ' alt' : '');
-    band.style.left = pos(segStart) + '%';
-    band.style.width = (pos(segEnd) - pos(segStart)) + '%';
+    band.style.left = segStartPct + '%';
+    band.style.width = segWidth + '%';
     axis.appendChild(band);
+
+    var pct = p.pct_complete || 0;
+    var fill = document.createElement('div');
+    fill.className = 'axis-fill' + (pct === 100 ? ' is-done' : '');
+    fill.style.left = segStartPct + '%';
+    fill.style.width = (segWidth * pct / 100) + '%';
+    axis.appendChild(fill);
+
     segStart = segEnd;
   });
-
-  // elapsed-progress fill on the line itself, same idea as each phase card's own .stack bar
-  var todayForFill = new Date();
-  var elapsedPct = Math.max(0, Math.min(100, pos(todayForFill)));
-  var fill = document.createElement('div'); fill.className = 'axis-fill'; fill.style.width = elapsedPct + '%';
-  axis.appendChild(fill);
 
   function addTick(d, label){
     var p = pos(d);
@@ -414,7 +466,12 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks){
     return panel;
   }
 
-  var tasksList = sprint.tasks || [];
+  // Done → Ready for Staging → In Dev → Ready for Dev → Backlog, so the
+  // finished/near-finished work is immediately visible without scrolling —
+  // the whole point of this view being a compact one-page overview.
+  var tasksList = (sprint.tasks || []).slice().sort(function(a, b){
+    return statusDotToNum(b.status) - statusDotToNum(a.status);
+  });
   panel.innerHTML =
     '<div class="sprint-panel-head">' +
       '<div class="sprint-panel-title">' + titleText + '</div>' +
@@ -427,12 +484,12 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks){
     var n = statusDotToNum(t.status);
     var label = n >= 0 ? statusLabel[n].replace(/^\d\.\s*/, '') : '';
     var item = document.createElement('div'); item.className = 'sprint-task';
+    item.setAttribute('data-task-id', t.id);
     item.innerHTML =
-      '<div class="sprint-task-top">' +
-        '<div class="sprint-task-name">' + escapeHtml(t.name) + '</div>' +
-        '<span class="pill st-' + n + '">' + escapeHtml(label) + '</span>' +
-      '</div>' +
-      '<div class="card-tags"><span class="tag">' + escapeHtml(t.category) + '</span><span class="tag">' + escapeHtml(t.platform) + '</span></div>';
+      '<span class="sprint-task-name">' + escapeHtml(t.name) + '</span>' +
+      '<span class="tag">' + escapeHtml(t.category) + '</span>' +
+      '<span class="tag">' + escapeHtml(t.platform) + '</span>' +
+      '<span class="pill st-' + n + '">' + escapeHtml(label) + '</span>';
     item.addEventListener('click', function(){ openDrawer('edit', t); });
     listEl.appendChild(item);
   });
@@ -452,13 +509,13 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks){
       var n = statusDotToNum(t.status);
       var label = n >= 0 ? statusLabel[n].replace(/^\d\.\s*/, '') : '';
       var item = document.createElement('div'); item.className = 'sprint-task carryover';
+      item.setAttribute('data-task-id', t.id);
       item.innerHTML =
-        '<div class="sprint-task-top">' +
-          '<div class="sprint-task-name">' + escapeHtml(t.name) + '</div>' +
-          '<span class="pill st-' + n + '">' + escapeHtml(label) + '</span>' +
-        '</div>' +
-        '<div class="card-tags"><span class="tag tag-sprint">' + escapeHtml(t.sprint_code || '') + '</span>' +
-          '<span class="tag">' + escapeHtml(t.category) + '</span><span class="tag">' + escapeHtml(t.platform) + '</span></div>';
+        '<span class="sprint-task-name">' + escapeHtml(t.name) + '</span>' +
+        '<span class="tag tag-sprint">' + escapeHtml(t.sprint_code || '') + '</span>' +
+        '<span class="tag">' + escapeHtml(t.category) + '</span>' +
+        '<span class="tag">' + escapeHtml(t.platform) + '</span>' +
+        '<span class="pill st-' + n + '">' + escapeHtml(label) + '</span>';
       item.addEventListener('click', function(){ openDrawer('edit', t); });
       panel.appendChild(item);
     });
@@ -472,6 +529,7 @@ function loadSprintView(){
   return Promise.all([fetchJSON('/api/sprints/current-next'), loadTasks(), loadSprints()])
     .then(function(results){
       var data = results[0], tasks = results[1], sprints = results[2];
+      var playFlip = captureFlipPositions(col, 'data-task-id');
       col.innerHTML = '';
 
       var carryOver = [];
@@ -493,6 +551,7 @@ function loadSprintView(){
 
       col.appendChild(renderSprintPanel(data.current, true, carryOver));
       col.appendChild(renderSprintPanel(data.next, false));
+      playFlip();
     })
     .catch(function(err){
       console.error('Failed to load /api/sprints/current-next', err);
@@ -615,7 +674,7 @@ function effectiveRange(t){
 }
 
 // ---- group-by chips: which dimension clusters the Gantt's rows ----
-var _timelineGroupBy = 'category';
+var _timelineGroupBy = 'sprint';
 
 function groupsForMode(tasks, sprints, phases){
   if (_timelineGroupBy === 'sprint'){
@@ -672,9 +731,13 @@ function renderDayRuler(axisStart, axisEnd, pctPos){
     // line drawn across it reads as a stray mark/seam; the actual day
     // gridlines already live in the body's .gantt-track-overlay below it.
     if (d.getDay() === 1){ // Monday
+      var p = pctPos(d);
       var lbl = document.createElement('div');
-      lbl.className = 'day-tick-label';
-      lbl.style.left = pctPos(d) + '%';
+      // labels near the right edge would otherwise get clipped by .gantt's
+      // overflow:hidden (rounded corners) since they anchor rightward by
+      // default — flip them to anchor leftward instead once close to 100%
+      lbl.className = 'day-tick-label' + (p > 95 ? ' align-end' : '');
+      lbl.style.left = p + '%';
       lbl.textContent = fmtDdMm(d);
       ruler.appendChild(lbl);
     }
@@ -689,7 +752,7 @@ function renderDayRuler(axisStart, axisEnd, pctPos){
 function updateTaskDates(task, newStartIso, newDueIso){
   var body = {
     category: task.category, name: task.name, platform: task.platform, status: task.status,
-    phase_id: task.phase_id, sprint_id: task.sprint_id,
+    phase_id: task.phase_id, sprint_id: task.sprint_id, stt: task.stt,
     done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
     start_date: newStartIso, due_date: newDueIso, date_overridden: true
   };
@@ -710,13 +773,46 @@ function toIsoDate(d){
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
-// e.g. 15 (inclusive calendar days) -> "2w1d"
-function fmtWeeksDays(days){
-  var w = Math.floor(days / 7), d = days % 7;
+// e.g. 15 (inclusive calendar days), daysPerWeek=7 -> "2w1d"; with
+// daysPerWeek=5 (working-day mode, 1 working week = Mon-Fri) the same day
+// count is expressed in working weeks instead.
+function fmtWeeksDays(days, daysPerWeek){
+  daysPerWeek = daysPerWeek || 7;
+  var w = Math.floor(days / daysPerWeek), d = days % daysPerWeek;
   if (w === 0) return d + 'd';
   if (d === 0) return w + 'w';
   return w + 'w' + d + 'd';
 }
+
+// counts Mon-Fri days in [start, end] inclusive
+function countWorkingDays(start, end){
+  var count = 0;
+  var d = new Date(start);
+  d.setHours(0, 0, 0, 0);
+  var last = new Date(end);
+  last.setHours(0, 0, 0, 0);
+  while (d <= last){
+    var day = d.getDay();
+    if (day !== 0 && day !== 6) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+}
+
+// which unit the Timeline's bar-duration labels use — toggled by the
+// "Lịch"/"Working day" chip pair, default per product call: working day
+var _timelineDayUnit = 'working';
+
+document.querySelectorAll('#dayUnitChips .chip').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#dayUnitChips .chip').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    _timelineDayUnit = btn.dataset.unit;
+    if (_lastTimelineTasks && _lastTimelineSprints && _lastTimelinePhases){
+      renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+    }
+  });
+});
 
 // drag-to-regroup: dragging a task's label from one .cat-group to another
 // changes whichever field the active group-by chip clusters by. Sprint moves
@@ -730,7 +826,7 @@ var _draggingTimelineTaskId = null;
 function buildGroupChangeBody(task, groupKey, sprints){
   var body = {
     category: task.category, name: task.name, platform: task.platform, status: task.status,
-    phase_id: task.phase_id, sprint_id: task.sprint_id,
+    phase_id: task.phase_id, sprint_id: task.sprint_id, stt: task.stt,
     done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
     start_date: task.start_date, due_date: task.due_date, date_overridden: task.date_overridden
   };
@@ -773,8 +869,50 @@ function updateTaskGroup(task, groupKey, sprints){
   });
 }
 
+// swaps two tasks' stt (manual sort position) — a simple, low-risk way to
+// let a drag-to-reorder-within-group swap two rows' positions without
+// having to renumber every other task's stt to make room for an insert.
+// Falls back to appending past the current max stt for whichever side (or
+// both) doesn't have one yet, so tasks created without an stt can still be
+// dragged into a meaningful order.
+function reorderTimelineTask(draggedTask, targetTask){
+  if (draggedTask.id === targetTask.id) return;
+  var maxStt = _lastTimelineTasks.reduce(function(max, t){ return Math.max(max, t.stt || 0); }, 0);
+  var draggedStt = draggedTask.stt != null ? draggedTask.stt : ++maxStt;
+  var targetStt = targetTask.stt != null ? targetTask.stt : ++maxStt;
+  if (draggedStt === targetStt) return;
+
+  var updates = [];
+  if (draggedTask.stt !== targetStt) updates.push({ task: draggedTask, newStt: targetStt });
+  if (targetTask.stt !== draggedStt) updates.push({ task: targetTask, newStt: draggedStt });
+
+  Promise.all(updates.map(function(u){
+    var body = {
+      category: u.task.category, name: u.task.name, platform: u.task.platform, status: u.task.status,
+      phase_id: u.task.phase_id, sprint_id: u.task.sprint_id, stt: u.newStt,
+      done_analyst: u.task.done_analyst, done_dev: u.task.done_dev, done_uat: u.task.done_uat, done_staging: u.task.done_staging,
+      start_date: u.task.start_date, due_date: u.task.due_date, date_overridden: u.task.date_overridden
+    };
+    return authFetch('/api/tasks/' + u.task.id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function(res){
+      if (!res.ok){
+        return res.json().catch(function(){ return {}; }).then(function(errBody){
+          throw new Error(errBody.error || ('HTTP ' + res.status));
+        });
+      }
+    });
+  })).then(refreshAllViews).catch(function(err){
+    console.error('Đổi vị trí trên Timeline thất bại', err);
+    alert('Không đổi được vị trí: ' + err.message);
+  });
+}
+
 function renderGantt(tasks, sprints, phases){
   var body = document.getElementById('ganttBody');
+  var playFlip = captureFlipPositions(body, 'data-task-id');
   body.innerHTML = '';
   var oldOverlay = document.querySelector('.gantt-track-overlay');
   if (oldOverlay) oldOverlay.parentNode.removeChild(oldOverlay);
@@ -801,6 +939,20 @@ function renderGantt(tasks, sprints, phases){
   var axisEnd = new Date(Math.max.apply(null, allDates));
   var axisSpan = (axisEnd - axisStart) || 1; // guard against a zero-length axis
   function pctPos(d){ return (d - axisStart) / axisSpan * 100; }
+
+  // give each day a real minimum pixel width instead of always squeezing the
+  // whole axis to fit the viewport — .gantt scrolls horizontally once the
+  // content is wider than it (header + body share this width so they stay
+  // aligned; bars/day-ruler ticks inside them still use % of THIS width, so
+  // no other positioning math changes). "max(100%, …)" keeps short axes
+  // filling the view exactly as before instead of leaving dead space.
+  var PX_PER_DAY = 8;
+  var axisSpanDays = axisSpan / (24 * 60 * 60 * 1000);
+  var trackPxWidth = axisSpanDays * PX_PER_DAY;
+  var totalRowWidth = 186 + trackPxWidth;
+  var headerEl = document.querySelector('.gantt-header');
+  headerEl.style.width = 'max(100%, ' + totalRowWidth + 'px)';
+  body.style.width = 'max(100%, ' + totalRowWidth + 'px)';
 
   renderDayRuler(axisStart, axisEnd, pctPos);
 
@@ -895,10 +1047,11 @@ function renderGantt(tasks, sprints, phases){
       if (!range) return; // no sprint and not overridden — skip rather than crash
 
       var row = document.createElement('div'); row.className = 'task-row';
+      row.setAttribute('data-task-id', t.id);
       var label = document.createElement('div'); label.className = 'task-label';
       label.textContent = t.name;
       label.draggable = true;
-      label.title = 'Bấm để sửa · Kéo để chuyển sang nhóm khác';
+      label.title = 'Bấm để sửa · Kéo để chuyển nhóm hoặc đổi vị trí';
       label.addEventListener('dragstart', function(e){
         _draggingTimelineTaskId = t.id;
         row.classList.add('row-dragging');
@@ -916,20 +1069,55 @@ function renderGantt(tasks, sprints, phases){
       label.addEventListener('click', function(){
         openDrawer('edit', t);
       });
+
+      // dropping directly on another row within the SAME group swaps their
+      // manual positions (stt) instead of the group-level "change group"
+      // behaviour — it stops propagation so the .cat-group drop handler above
+      // doesn't also fire. Dropping on a row from a DIFFERENT group is left
+      // to bubble up to that handler instead, since there's no "position"
+      // for it to land on once its grouping field itself is changing.
+      row.addEventListener('dragover', function(e){
+        var draggedId = _draggingTimelineTaskId;
+        var draggedTask = draggedId != null ? _lastTimelineTasks.filter(function(x){ return x.id === draggedId; })[0] : null;
+        if (draggedTask && draggedTask.id !== t.id && taskGroupKey(draggedTask) === g.key){
+          e.preventDefault();
+          e.stopPropagation();
+          row.classList.add('row-drop-target');
+        }
+      });
+      row.addEventListener('dragleave', function(){
+        row.classList.remove('row-drop-target');
+      });
+      row.addEventListener('drop', function(e){
+        var draggedId = _draggingTimelineTaskId;
+        var draggedTask = draggedId != null ? _lastTimelineTasks.filter(function(x){ return x.id === draggedId; })[0] : null;
+        row.classList.remove('row-drop-target');
+        if (!draggedTask || draggedTask.id === t.id || taskGroupKey(draggedTask) !== g.key) return;
+        e.preventDefault();
+        e.stopPropagation();
+        reorderTimelineTask(draggedTask, t);
+      });
+
       var track = document.createElement('div'); track.className = 'task-track';
 
       var left = pctPos(range.start);
       var width = Math.max(pctPos(range.end) - left, 0.6); // keep a visible sliver for short/zero-width ranges
       var n = statusDotToNum(t.status);
-      var durationDays = Math.round((range.end - range.start) / (24 * 60 * 60 * 1000)) + 1;
+      var calendarDays = Math.round((range.end - range.start) / (24 * 60 * 60 * 1000)) + 1;
+      // calendar mode groups into weeks (e.g. 7 calendar days incl. a Sat/Sun
+      // -> "1w"); working-day mode intentionally does NOT — "1 working week"
+      // as an abbreviation reads as ambiguous/misleading next to calendar
+      // weeks, so it just shows the plain count (that same week -> "5d").
+      var durationDays = _timelineDayUnit === 'working' ? countWorkingDays(range.start, range.end) : calendarDays;
+      var durationText = _timelineDayUnit === 'working' ? (durationDays + 'd') : fmtWeeksDays(durationDays, 7);
       var bar = document.createElement('div');
       bar.className = 'bar st-' + n;
       bar.style.left = left + '%';
       bar.style.width = width + '%';
-      bar.title = t.name + ' · ' + fmtWeeksDays(durationDays) + (t.sprint_code ? ' · ' + t.sprint_code : '');
+      bar.title = t.name + ' · ' + durationText + (t.sprint_code ? ' · ' + t.sprint_code : '');
 
       var durationLabel = document.createElement('span'); durationLabel.className = 'bar-duration';
-      durationLabel.textContent = fmtWeeksDays(durationDays);
+      durationLabel.textContent = durationText;
       bar.appendChild(durationLabel);
 
       var handleL = document.createElement('div'); handleL.className = 'bar-handle bar-handle-l';
@@ -965,9 +1153,15 @@ function renderGantt(tasks, sprints, phases){
   });
 
   // overlay: day gridlines (every day, bolder on Mondays) plus the today
-  // line (real current date, only if it falls within the axis range) — a
-  // fixed vertical ruler over the chart that stays put while gantt-body
-  // scrolls under it, same as the sticky-feeling sprint/day header above.
+  // line (real current date, only if it falls within the axis range). Mounted
+  // on .gantt itself (not the scrolling .gantt-body), so it stays vertically
+  // pinned while gantt-body's own vertical scroll moves under it — but .gantt
+  // now ALSO scrolls horizontally (see trackPxWidth above), and since the
+  // overlay is a direct child of .gantt (not of the wide header/body), it
+  // rides along with that horizontal scroll automatically. Positions are in
+  // PIXELS against trackPxWidth rather than "%", because % on this overlay
+  // would resolve against .gantt's own (narrower, viewport-clamped) box, not
+  // the wider scrollable content the header/bars actually use.
   var overlayEl = document.createElement('div');
   overlayEl.className = 'gantt-track-overlay';
   var gd = new Date(axisStart);
@@ -976,7 +1170,7 @@ function renderGantt(tasks, sprints, phases){
   while (gd <= gdEnd){
     var gLine = document.createElement('div');
     gLine.className = 'gantt-day-line' + (gd.getDay() === 1 ? ' is-week' : '');
-    gLine.style.left = pctPos(gd) + '%';
+    gLine.style.left = (pctPos(gd) / 100 * trackPxWidth) + 'px';
     overlayEl.appendChild(gLine);
     gd.setDate(gd.getDate() + 1);
   }
@@ -984,20 +1178,13 @@ function renderGantt(tasks, sprints, phases){
   if (todayPct >= 0 && todayPct <= 100){
     var line = document.createElement('div');
     line.className = 'gantt-today-line';
-    line.style.left = todayPct + '%';
+    line.style.left = (todayPct / 100 * trackPxWidth) + 'px';
     overlayEl.appendChild(line);
   }
-  // mounted on .gantt itself (not the scrolling .gantt-body) — position:absolute
-  // descendants of a scrolling element move WITH that element's scrolled
-  // content, so anchoring to .gantt (which never scrolls) is what keeps this
-  // acting as a fixed ruler while gantt-body scrolls underneath it. Its CSS
-  // top:36px (matching .gantt-header's fixed height) keeps it below the header
-  // without needing to measure the header's rendered height at render time —
-  // that measurement would read 0 whenever this runs while the Timeline tab
-  // isn't the active view (e.g. on page load, before the user switches to it).
   var ganttEl = document.querySelector('.gantt');
   ganttEl.style.position = 'relative';
   ganttEl.appendChild(overlayEl);
+  playFlip();
 }
 
 function renderGanttLegend(){
@@ -1072,7 +1259,7 @@ var _draggingTaskId = null;
 function updateTaskStatus(task, newStatus){
   var body = {
     category: task.category, name: task.name, platform: task.platform, status: newStatus,
-    phase_id: task.phase_id, sprint_id: task.sprint_id,
+    phase_id: task.phase_id, sprint_id: task.sprint_id, stt: task.stt,
     done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
     start_date: task.start_date, due_date: task.due_date, date_overridden: task.date_overridden
   };
@@ -1091,6 +1278,7 @@ function updateTaskStatus(task, newStatus){
 
 function renderBoard(tasks){
   var boardEl = document.getElementById('board');
+  var playFlip = captureFlipPositions(boardEl, 'data-task-id');
   boardEl.innerHTML = '';
   STATUS_ORDER.forEach(function(status, idx){
     var col = document.createElement('div'); col.className = 'col';
@@ -1102,6 +1290,7 @@ function renderBoard(tasks){
     col.appendChild(head);
     tasksInCol.forEach(function(t){
       var card = document.createElement('div'); card.className = 'card'; card.draggable = true;
+      card.setAttribute('data-task-id', t.id);
       var sprintTag = t.sprint_code ? '<span class="tag tag-sprint">' + escapeHtml(t.sprint_code) + '</span>' : '';
       card.innerHTML = escapeHtml(t.name) +
         '<div class="card-tags">' + sprintTag + '<span class="tag">' + escapeHtml(t.category) + '</span><span class="tag">' + escapeHtml(t.platform) + '</span></div>';
@@ -1142,6 +1331,7 @@ function renderBoard(tasks){
 
     boardEl.appendChild(col);
   });
+  playFlip();
 }
 
 // populate the Board's Sprint filter once (options never change during a
@@ -1158,6 +1348,36 @@ loadSprints().then(function(sprints){
 
 document.getElementById('board-filter-sprint').addEventListener('change', function(){
   loadBoardView();
+  syncBoardQuickChips();
+});
+
+// quick chips for the two sprints people actually care about day-to-day —
+// jump straight to them instead of hunting through the full Sprint dropdown
+var _boardCurrentSprintId = null, _boardNextSprintId = null;
+
+function syncBoardQuickChips(){
+  var sel = document.getElementById('board-filter-sprint');
+  document.querySelectorAll('#boardSprintQuick .chip').forEach(function(btn){
+    var targetId = btn.dataset.quick === 'current' ? _boardCurrentSprintId : _boardNextSprintId;
+    btn.disabled = targetId == null;
+    btn.classList.toggle('active', targetId != null && String(targetId) === String(sel.value));
+  });
+}
+
+fetchJSON('/api/sprints/current-next').then(function(data){
+  _boardCurrentSprintId = data.current ? data.current.id : null;
+  _boardNextSprintId = data.next ? data.next.id : null;
+  syncBoardQuickChips();
+}).catch(function(err){ console.error('Failed to load current/next sprint for Board quick chips', err); });
+
+document.querySelectorAll('#boardSprintQuick .chip').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var targetId = btn.dataset.quick === 'current' ? _boardCurrentSprintId : _boardNextSprintId;
+    if (targetId == null) return;
+    document.getElementById('board-filter-sprint').value = String(targetId);
+    loadBoardView();
+    syncBoardQuickChips();
+  });
 });
 
 function loadBoardView(){
@@ -1191,9 +1411,38 @@ function fmtDateTime(iso){
 // "kết thúc" (due date) delta is preferred as the representative number for
 // a task, since that's the deadline actually slipping; falls back to the
 // "bắt đầu" (start date) delta when only the start moved.
+function isDateChangeNote(note){
+  // matches both "Dịch ngày: ..." (no actor) and "Dịch ngày (Quân): ..."
+  // (with one) — same for "Đổi ngày" — an exact ":"-suffixed prefix check
+  // would miss every attributed entry once an actor name is inserted
+  // between the label and the colon (see buildDateChangeNote server-side).
+  return /^(Dịch ngày|Đổi ngày)\b/.test(note);
+}
+
+// pulls the actor's name back out as its own value, so the Log tab can show
+// "who" as a distinct badge instead of leaving it buried inside the note
+// text. Date-change notes carry it as "...ngày (Tên): ..."; manual notes
+// carry it as a "... — Tên" suffix (see logs.js / dateChangeNote.js).
+function parseActorFromNote(note){
+  var m1 = note.match(/^(?:Dịch ngày|Đổi ngày)\s*\(([^)]+)\):/);
+  if (m1) return m1[1];
+  var m2 = note.match(/—\s*([^—]+)$/);
+  if (m2) return m2[1].trim();
+  return null;
+}
+
+// for display only: drops the trailing " — Tên" suffix from a manual note
+// once its actor is already shown as a separate badge, so the name isn't
+// printed twice. Date-change notes keep their inline "(Tên)" as-is since
+// it reads naturally as part of the sentence, not a bolted-on suffix.
+function stripActorSuffix(note){
+  if (isDateChangeNote(note)) return note;
+  return note.replace(/\s*—\s*[^—]+$/, '');
+}
+
 function parseDateChangeNote(note){
   var moveMatch = note.match(/\(([+-]\d+) ngày\)$/);
-  if (note.indexOf('Dịch ngày:') === 0){
+  if (note.indexOf('Dịch ngày') === 0){
     return { deltaDays: moveMatch ? Number(moveMatch[1]) : null };
   }
   var startMatch = note.match(/bắt đầu [\d/]+ → [\d/]+ \(([+-]\d+) ngày\)/);
@@ -1275,9 +1524,12 @@ function renderLogSummary(dateChangeLogs, tasks, sprints, phases){
     rowsInGroup.forEach(function(r){
       var d = r.deltaDays;
       var deltaText = d == null ? '?' : (d > 0 ? '+' + d : String(d));
+      var actor = parseActorFromNote(r.log.note);
       var row = document.createElement('div'); row.className = 'risk-task';
       row.innerHTML =
-        '<div class="risk-task-name">' + escapeHtml(r.task.name) + '</div>' +
+        '<div class="risk-task-name">' + escapeHtml(r.task.name) +
+          (actor ? ' <span class="tag tag-actor">' + escapeHtml(actor) + '</span>' : '') +
+        '</div>' +
         '<div class="risk-task-meta">' +
           '<span class="risk-due">' + fmtDateTime(r.log.created_at) + '</span>' +
           '<span class="risk-days">' + deltaText + ' ngày</span>' +
@@ -1297,9 +1549,7 @@ function loadLogView(){
       var taskById = {};
       tasks.forEach(function(t){ taskById[t.id] = t; });
 
-      var dateChangeLogs = logs.filter(function(l){
-        return l.note.indexOf('Dịch ngày:') === 0 || l.note.indexOf('Đổi ngày:') === 0;
-      });
+      var dateChangeLogs = logs.filter(function(l){ return isDateChangeNote(l.note); });
 
       renderLogSummary(dateChangeLogs, tasks, sprints, phases);
 
@@ -1311,12 +1561,15 @@ function loadLogView(){
 
       dateChangeLogs.forEach(function(l){
         var task = taskById[l.task_id];
+        var actor = parseActorFromNote(l.note);
         var row = document.createElement('div'); row.className = 'log-row';
         row.innerHTML =
           '<div class="log-row-time">' + fmtDateTime(l.created_at) + '</div>' +
           '<div class="log-row-body">' +
-            '<div class="log-row-task">' + escapeHtml(l.task_name) + '</div>' +
-            '<div class="log-row-note">' + escapeHtml(l.note) + '</div>' +
+            '<div class="log-row-task">' + escapeHtml(l.task_name) +
+              (actor ? ' <span class="tag tag-actor">' + escapeHtml(actor) + '</span>' : '') +
+            '</div>' +
+            '<div class="log-row-note">' + escapeHtml(stripActorSuffix(l.note)) + '</div>' +
           '</div>';
         if (task){
           row.addEventListener('click', function(){ openDrawer('edit', task); });
@@ -1432,6 +1685,7 @@ document.getElementById('saveBtn').addEventListener('click', function(){
     status: status,
     phase_id: phaseVal ? Number(phaseVal) : null,
     sprint_id: sprintVal ? Number(sprintVal) : null,
+    stt: editingTaskId ? editingTaskStt : null,
     date_overridden: dateOverridden,
     start_date: startVal,
     due_date: dueVal

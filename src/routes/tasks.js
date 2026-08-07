@@ -91,13 +91,13 @@ function tasksRouter(pool) {
         `UPDATE tasks SET
            category=$1, name=$2, platform=$3, phase_id=$4, sprint_id=$5, status=$6,
            done_analyst=$7, done_dev=$8, done_uat=$9, done_staging=$10,
-           start_date=$11, due_date=$12, date_overridden=$13, updated_at=now()
-         WHERE id=$14
+           start_date=$11, due_date=$12, date_overridden=$13, stt=$14, updated_at=now()
+         WHERE id=$15
          RETURNING *`,
         [
           b.category, b.name, b.platform, b.phase_id || null, b.sprint_id || null, b.status,
           !!b.done_analyst, !!b.done_dev, !!b.done_uat, !!b.done_staging,
-          b.start_date, b.due_date, !!b.date_overridden, id
+          b.start_date, b.due_date, !!b.date_overridden, b.stt != null ? b.stt : null, id
         ]
       );
       if (rows.length === 0) {

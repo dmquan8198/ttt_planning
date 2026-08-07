@@ -68,6 +68,37 @@ test('full CRUD lifecycle: create, list, update, delete', async () => {
   assert.equal(listedAfter.body.length, 0);
 });
 
+test('PUT persists stt when given (Timeline drag-to-reorder relies on this) — full-replace, so every caller must pass the task\'s current stt or it clears', async () => {
+  const app = createApp(makeTestPool());
+  const created = await request(app)
+    .post('/api/tasks')
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', stt: 5,
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  const id = created.body.id;
+  assert.equal(created.body.stt, 5);
+
+  const movedTo9 = await request(app)
+    .put(`/api/tasks/${id}`)
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '0.backlog', stt: 9,
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  assert.equal(movedTo9.body.stt, 9);
+
+  // documents the full-replace contract: a PUT that omits stt clears it,
+  // same as every other field here — this is exactly why every frontend
+  // mutation call site must pass the task's current stt through explicitly
+  const statusOnlyChange = await request(app)
+    .put(`/api/tasks/${id}`)
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  assert.equal(statusOnlyChange.body.stt, null);
+});
+
 test('PUT on a non-existent task returns 404', async () => {
   const app = createApp(makeTestPool());
   const res = await request(app)
