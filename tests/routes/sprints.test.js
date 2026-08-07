@@ -33,7 +33,7 @@ test('GET /api/sprints/current-next returns current sprint tasks and next sprint
   );
   const { rows: [s15] } = await pool.query("SELECT id FROM sprints WHERE code='S15'");
   await pool.query(
-    "INSERT INTO tasks (category, name, platform, sprint_id, status) VALUES ('Product Foundation','Task A','Web',$1,'1.ready_for_dev')",
+    "INSERT INTO tasks (category, name, platform, sprint_id, status, start_date, due_date) VALUES ('Product Foundation','Task A','Web',$1,'1.ready_for_dev','2026-08-03','2026-08-14')",
     [s15.id]
   );
 

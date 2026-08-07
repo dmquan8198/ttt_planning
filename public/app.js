@@ -471,7 +471,7 @@ function renderGantt(tasks, sprints){
       bar.className = 'bar st-' + n;
       bar.style.left = left + '%';
       bar.style.width = width + '%';
-      bar.textContent = t.sprint_code || '';
+      bar.title = t.name + (t.sprint_code ? ' · ' + t.sprint_code : '');
       bar.addEventListener('click', function(){ openDrawer('edit', t); });
       track.appendChild(bar);
       row.appendChild(label); row.appendChild(track);
@@ -494,12 +494,62 @@ function renderGantt(tasks, sprints){
   }
 }
 
+function renderGanttLegend(){
+  var el = document.getElementById('ganttLegend');
+  if (!el) return;
+  el.innerHTML = STATUS_ORDER.map(function(status, idx){
+    var label = statusLabel[idx].replace(/^\d+\.\s*/, '');
+    return '<span class="legend-item"><span class="legend-swatch st-' + idx + '"></span>' + escapeHtml(label) + '</span>';
+  }).join('');
+}
+renderGanttLegend();
+
+// dynamic Phase <select> options for the Timeline filter row (kept in sync with
+// the real phase codes/names from the API rather than a hardcoded guess)
+loadPhasesList().then(function(phases){
+  var sel = document.getElementById('filter-phase');
+  if (!sel) return;
+  phases.forEach(function(p){
+    var opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.code + ': ' + p.name;
+    sel.appendChild(opt);
+  });
+}).catch(function(err){ console.error('Failed to load phases for Timeline filter', err); });
+
+// last tasks/sprints fetched for the Timeline, so changing a filter can
+// re-render instantly without refetching from the API
+var _lastTimelineTasks = null;
+var _lastTimelineSprints = null;
+
+function applyTimelineFilters(tasks){
+  var phaseId = document.getElementById('filter-phase').value;
+  var category = document.getElementById('filter-category').value;
+  var platform = document.getElementById('filter-platform').value;
+  return tasks.filter(function(t){
+    if (phaseId && String(t.phase_id) !== String(phaseId)) return false;
+    if (category && t.category !== category) return false;
+    if (platform && t.platform !== platform) return false;
+    return true;
+  });
+}
+
+['filter-phase', 'filter-category', 'filter-platform'].forEach(function(id){
+  document.getElementById(id).addEventListener('change', function(){
+    if (_lastTimelineTasks && _lastTimelineSprints){
+      renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints);
+    }
+  });
+});
+
 function loadTimelineView(){
   var bandsEl = document.getElementById('sprintBands');
   var body = document.getElementById('ganttBody');
   return Promise.all([loadTasks(), loadSprints()])
     .then(function(results){
-      renderGantt(results[0], results[1]);
+      _lastTimelineTasks = results[0];
+      _lastTimelineSprints = results[1];
+      renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints);
     })
     .catch(function(err){
       console.error('Failed to load Timeline data', err);
@@ -509,23 +559,80 @@ function loadTimelineView(){
 }
 
 // ---- board ----
+// dragged task id, held between dragstart and drop (dataTransfer.getData is
+// unreliable to read during dragover in some browsers, so we keep our own ref)
+var _draggingTaskId = null;
+
+function updateTaskStatus(task, newStatus){
+  var body = {
+    category: task.category, name: task.name, platform: task.platform, status: newStatus,
+    phase_id: task.phase_id, sprint_id: task.sprint_id,
+    done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
+    start_date: task.start_date, due_date: task.due_date, date_overridden: task.date_overridden
+  };
+  return fetch('/api/tasks/' + task.id, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+  });
+}
+
 function renderBoard(tasks){
   var boardEl = document.getElementById('board');
   boardEl.innerHTML = '';
   STATUS_ORDER.forEach(function(status, idx){
     var col = document.createElement('div'); col.className = 'col';
+    col.dataset.status = status;
     var head = document.createElement('div'); head.className = 'col-head';
     var label = statusLabel[idx].replace(/^\d+\.\s*/, '');
     var tasksInCol = tasks.filter(function(t){ return t.status === status; });
     head.innerHTML = '<span class="pill st-' + idx + '">' + escapeHtml(label) + '</span><span class="col-count">' + tasksInCol.length + '</span>';
     col.appendChild(head);
     tasksInCol.forEach(function(t){
-      var card = document.createElement('div'); card.className = 'card';
+      var card = document.createElement('div'); card.className = 'card'; card.draggable = true;
       card.innerHTML = escapeHtml(t.name) +
         '<div class="card-tags"><span class="tag">' + escapeHtml(t.category) + '</span><span class="tag">' + escapeHtml(t.platform) + '</span></div>';
       card.addEventListener('click', function(){ openDrawer('edit', t); });
+      card.addEventListener('dragstart', function(e){
+        _draggingTaskId = t.id;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(t.id));
+      });
+      card.addEventListener('dragend', function(){
+        card.classList.remove('dragging');
+        _draggingTaskId = null;
+      });
       col.appendChild(card);
     });
+
+    col.addEventListener('dragover', function(e){
+      e.preventDefault();
+      col.classList.add('drag-over');
+    });
+    col.addEventListener('dragleave', function(){
+      col.classList.remove('drag-over');
+    });
+    col.addEventListener('drop', function(e){
+      e.preventDefault();
+      col.classList.remove('drag-over');
+      var taskId = _draggingTaskId;
+      var task = tasks.filter(function(t){ return t.id === taskId; })[0];
+      if (!task || task.status === status) return;
+      updateTaskStatus(task, status)
+        .then(refreshAllViews)
+        .catch(function(err){
+          console.error('Drag-and-drop status update failed', err);
+          alert('Không đổi được trạng thái: ' + err.message);
+        });
+    });
+
     boardEl.appendChild(col);
   });
 }
@@ -566,8 +673,8 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   var startVal = document.getElementById('f-start').value || null;
   var dueVal = document.getElementById('f-due').value || null;
 
-  if (!name || !category || !platform || !status){
-    alert('Vui lòng nhập đầy đủ Tên nghiệp vụ, Category, Platform và Status.');
+  if (!name || !category || !platform || !status || !startVal || !dueVal){
+    alert('Vui lòng nhập đầy đủ Tên nghiệp vụ, Category, Platform, Status, Start và Due.');
     return;
   }
 
@@ -576,8 +683,9 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   // session touched it (manualDateEdit alone can't see that — it always resets
   // to false on open, even when a sprint IS selected, which is exactly the case
   // where an existing override's dates would otherwise get silently wiped),
-  // OR there is no sprint selected but dates were entered manually.
-  var dateOverridden = manualDateEdit || editingTaskWasOverridden || (!sprintVal && !!(startVal || dueVal));
+  // OR there is no sprint selected (dates are mandatory, so with no sprint to
+  // auto-fill them they must have been entered/kept by hand).
+  var dateOverridden = manualDateEdit || editingTaskWasOverridden || !sprintVal;
 
   var body = {
     category: category,
@@ -587,8 +695,8 @@ document.getElementById('saveBtn').addEventListener('click', function(){
     phase_id: phaseVal ? Number(phaseVal) : null,
     sprint_id: sprintVal ? Number(sprintVal) : null,
     date_overridden: dateOverridden,
-    start_date: dateOverridden ? startVal : null,
-    due_date: dateOverridden ? dueVal : null
+    start_date: startVal,
+    due_date: dueVal
   };
 
   // this form has no Analyst/Dev/UAT/Staging fields (they're tracked separately

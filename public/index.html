@@ -79,10 +79,23 @@
         </div>
 
         <div class="filters">
-          <select><option>Tất cả Phase</option><option>P1: Lived</option><option selected>P2: Rollout</option><option>P3: Convert</option></select>
-          <select><option selected>Tất cả Category</option><option>Product Foundation</option><option>Cross Service Integration</option><option>Internal features</option></select>
-          <select><option selected>Tất cả Platform</option><option>Web</option><option>App</option><option>BE</option></select>
+          <select id="filter-phase"><option value="">Tất cả Phase</option></select>
+          <select id="filter-category">
+            <option value="">Tất cả Category</option>
+            <option>Product Foundation</option>
+            <option>Cross Service Integration</option>
+            <option>Convert &amp; Scale</option>
+            <option>Internal features</option>
+          </select>
+          <select id="filter-platform">
+            <option value="">Tất cả Platform</option>
+            <option>Web</option>
+            <option>App</option>
+            <option>App/Auto</option>
+            <option>BE</option>
+          </select>
         </div>
+        <div class="gantt-legend" id="ganttLegend"></div>
 
         <div class="gantt">
           <div class="gantt-header">
@@ -149,12 +162,12 @@
   </div>
   <div class="field-row">
     <div class="field">
-      <label>Start (mặc định = đầu Sprint)</label>
-      <input id="f-start" type="date">
+      <label>Start * (mặc định = đầu Sprint)</label>
+      <input id="f-start" type="date" required>
     </div>
     <div class="field">
-      <label>Due (mặc định = cuối Sprint)</label>
-      <input id="f-due" type="date">
+      <label>Due * (mặc định = cuối Sprint)</label>
+      <input id="f-due" type="date" required>
     </div>
   </div>
   <div class="field">

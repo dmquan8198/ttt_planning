@@ -31,8 +31,8 @@ function tasksRouter(pool) {
 
   router.post('/', asyncHandler(async (req, res) => {
     const b = req.body;
-    if (!b.name || !b.category || !b.platform) {
-      return res.status(400).json({ error: 'name, category, platform là bắt buộc' });
+    if (!b.name || !b.category || !b.platform || !b.start_date || !b.due_date) {
+      return res.status(400).json({ error: 'name, category, platform, start_date, due_date là bắt buộc' });
     }
     if (b.status && !STATUS_CODES.includes(b.status)) {
       return res.status(400).json({ error: 'status không hợp lệ' });
@@ -47,7 +47,7 @@ function tasksRouter(pool) {
         [
           b.stt || null, b.category, b.name, b.platform, b.phase_id || null, b.sprint_id || null,
           b.status || STATUS_CODES[0], !!b.done_analyst, !!b.done_dev, !!b.done_uat, !!b.done_staging,
-          b.start_date || null, b.due_date || null, !!b.date_overridden
+          b.start_date, b.due_date, !!b.date_overridden
         ]
       );
       res.status(201).json(normalizeTaskDates(rows[0]));
@@ -65,8 +65,8 @@ function tasksRouter(pool) {
       return res.status(400).json({ error: 'id không hợp lệ' });
     }
     const b = req.body;
-    if (!b.name || !b.category || !b.platform || !b.status) {
-      return res.status(400).json({ error: 'name, category, platform, status là bắt buộc' });
+    if (!b.name || !b.category || !b.platform || !b.status || !b.start_date || !b.due_date) {
+      return res.status(400).json({ error: 'name, category, platform, status, start_date, due_date là bắt buộc' });
     }
     if (!STATUS_CODES.includes(b.status)) {
       return res.status(400).json({ error: 'status không hợp lệ' });
@@ -82,7 +82,7 @@ function tasksRouter(pool) {
         [
           b.category, b.name, b.platform, b.phase_id || null, b.sprint_id || null, b.status,
           !!b.done_analyst, !!b.done_dev, !!b.done_uat, !!b.done_staging,
-          b.start_date || null, b.due_date || null, !!b.date_overridden, id
+          b.start_date, b.due_date, !!b.date_overridden, id
         ]
       );
       if (rows.length === 0) {

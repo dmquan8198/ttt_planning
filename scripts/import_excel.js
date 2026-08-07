@@ -106,7 +106,7 @@ function resolvePhaseId(rawPhase, phaseIdByCode, warnings, rowLabel) {
   return null;
 }
 
-function resolveSprintAndDates(rawSprint, sprintIdByCode, warnings, rowLabel) {
+function resolveSprintAndDates(rawSprint, sprintIdByCode, sprintsByCode, warnings, rowLabel) {
   const result = { sprintId: null, startDate: null, dueDate: null, dateOverridden: false };
   if (!isNonEmpty(rawSprint)) return result;
 
@@ -123,6 +123,15 @@ function resolveSprintAndDates(rawSprint, sprintIdByCode, warnings, rowLabel) {
     return result;
   }
   result.sprintId = sprintIdByCode[parsed.code] || null;
+  // start_date/due_date are NOT NULL — a sprint-linked task always inherits its
+  // sprint's dates at import time (the app keeps them in sync going forward via
+  // the drawer's auto-fill; this just seeds the same values so the initial
+  // import satisfies the column constraint).
+  const sprintDates = sprintsByCode.get(parsed.code);
+  if (sprintDates) {
+    result.startDate = sprintDates.start;
+    result.dueDate = sprintDates.end;
+  }
   return result;
 }
 
@@ -139,7 +148,7 @@ function resolveStatus(rawStatus, warnings, rowLabel) {
 // checked-out client, so a mid-import failure (e.g. row 80 of 108) rolls back
 // cleanly instead of leaving partial data committed — important since this
 // script isn't safe to blindly re-run (tasks/activity_logs aren't upserts).
-async function insertTasksAndLogs(pool, rows, phaseIdByCode, sprintIdByCode, warnings) {
+async function insertTasksAndLogs(pool, rows, phaseIdByCode, sprintIdByCode, sprintsByCode, warnings) {
   const client = await pool.connect();
   let taskCount = 0;
   try {
@@ -158,7 +167,7 @@ async function insertTasksAndLogs(pool, rows, phaseIdByCode, sprintIdByCode, war
 
       const phaseId = resolvePhaseId(row[COL.PHASE], phaseIdByCode, warnings, rowLabel);
       const { sprintId, startDate, dueDate, dateOverridden } = resolveSprintAndDates(
-        row[COL.SPRINT], sprintIdByCode, warnings, rowLabel
+        row[COL.SPRINT], sprintIdByCode, sprintsByCode, warnings, rowLabel
       );
       const status = resolveStatus(row[COL.STATUS], warnings, rowLabel);
 
@@ -208,7 +217,7 @@ async function runImport(pool, sourcePath) {
   const phaseIdByCode = await upsertPhases(pool);
   const sprintsByCode = collectSprintCodes(rows);
   const sprintIdByCode = await upsertSprints(pool, sprintsByCode);
-  const taskCount = await insertTasksAndLogs(pool, rows, phaseIdByCode, sprintIdByCode, warnings);
+  const taskCount = await insertTasksAndLogs(pool, rows, phaseIdByCode, sprintIdByCode, sprintsByCode, warnings);
 
   return {
     taskCount,

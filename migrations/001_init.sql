@@ -27,8 +27,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   done_dev BOOLEAN NOT NULL DEFAULT FALSE,
   done_uat BOOLEAN NOT NULL DEFAULT FALSE,
   done_staging BOOLEAN NOT NULL DEFAULT FALSE,
-  start_date DATE,
-  due_date DATE,
+  start_date DATE NOT NULL,
+  due_date DATE NOT NULL,
   date_overridden BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

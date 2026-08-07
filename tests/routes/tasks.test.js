@@ -28,12 +28,23 @@ test('POST /api/tasks rejects an invalid status', async () => {
   assert.equal(res.status, 400);
 });
 
+test('POST /api/tasks rejects a task missing start_date/due_date', async () => {
+  const app = createApp(makeTestPool());
+  const res = await request(app)
+    .post('/api/tasks')
+    .send({ name: 'Task A', category: 'Product Foundation', platform: 'Web' });
+  assert.equal(res.status, 400);
+});
+
 test('full CRUD lifecycle: create, list, update, delete', async () => {
   const app = createApp(makeTestPool());
 
   const created = await request(app)
     .post('/api/tasks')
-    .send({ name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev' });
+    .send({
+      name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
   assert.equal(created.status, 201);
   const id = created.body.id;
 
@@ -43,7 +54,10 @@ test('full CRUD lifecycle: create, list, update, delete', async () => {
 
   const updated = await request(app)
     .put(`/api/tasks/${id}`)
-    .send({ name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '4.done' });
+    .send({
+      name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '4.done',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
   assert.equal(updated.status, 200);
   assert.equal(updated.body.status, '4.done');
 
@@ -58,7 +72,10 @@ test('PUT on a non-existent task returns 404', async () => {
   const app = createApp(makeTestPool());
   const res = await request(app)
     .put('/api/tasks/999')
-    .send({ name: 'X', category: 'Product Foundation', platform: 'Web', status: '0.backlog' });
+    .send({
+      name: 'X', category: 'Product Foundation', platform: 'Web', status: '0.backlog',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
   assert.equal(res.status, 404);
 });
 
@@ -66,10 +83,30 @@ test('PUT /api/tasks/:id rejects a request missing required fields', async () =>
   const app = createApp(makeTestPool());
   const created = await request(app)
     .post('/api/tasks')
-    .send({ name: 'Task A', category: 'Product Foundation', platform: 'Web' });
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
   const res = await request(app)
     .put(`/api/tasks/${created.body.id}`)
-    .send({ name: 'Task A', category: 'Product Foundation', platform: 'Web' }); // no status
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    }); // no status
+  assert.equal(res.status, 400);
+});
+
+test('PUT /api/tasks/:id rejects a request missing start_date/due_date', async () => {
+  const app = createApp(makeTestPool());
+  const created = await request(app)
+    .post('/api/tasks')
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  const res = await request(app)
+    .put(`/api/tasks/${created.body.id}`)
+    .send({ name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '0.backlog' }); // no dates
   assert.equal(res.status, 400);
 });
 
@@ -77,7 +114,10 @@ test('PUT /api/tasks/:id with a non-numeric id returns 400', async () => {
   const app = createApp(makeTestPool());
   const res = await request(app)
     .put('/api/tasks/abc')
-    .send({ name: 'X', category: 'Product Foundation', platform: 'Web', status: '0.backlog' });
+    .send({
+      name: 'X', category: 'Product Foundation', platform: 'Web', status: '0.backlog',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
   assert.equal(res.status, 400);
 });
 
@@ -85,7 +125,10 @@ test('POST /api/tasks with a non-existent phase_id returns 400, not 500', async 
   const app = createApp(makeTestPool());
   const res = await request(app)
     .post('/api/tasks')
-    .send({ name: 'X', category: 'Product Foundation', platform: 'Web', phase_id: 9999 });
+    .send({
+      name: 'X', category: 'Product Foundation', platform: 'Web', phase_id: 9999,
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
   assert.equal(res.status, 400);
 });
 

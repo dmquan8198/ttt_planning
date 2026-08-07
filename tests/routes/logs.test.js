@@ -17,7 +17,7 @@ function makeTestPool() {
 test('POST then GET activity log entries for a task', async () => {
   const pool = makeTestPool();
   const created = await pool.query(
-    "INSERT INTO tasks (category, name, platform) VALUES ('Product Foundation','Task A','Web') RETURNING id"
+    "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Task A','Web','2026-08-05','2026-08-10') RETURNING id"
   );
   const taskId = created.rows[0].id;
   const app = createApp(pool);
@@ -36,7 +36,7 @@ test('POST then GET activity log entries for a task', async () => {
 test('POST rejects an empty note', async () => {
   const pool = makeTestPool();
   const created = await pool.query(
-    "INSERT INTO tasks (category, name, platform) VALUES ('Product Foundation','Task A','Web') RETURNING id"
+    "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Task A','Web','2026-08-05','2026-08-10') RETURNING id"
   );
   const app = createApp(pool);
   const res = await request(app)
@@ -60,7 +60,7 @@ test('POST a log for a non-existent taskId returns 400 (foreign key violation), 
 test('deleting a task cascades to delete its activity logs', async () => {
   const pool = makeTestPool();
   const created = await pool.query(
-    "INSERT INTO tasks (category, name, platform) VALUES ('Product Foundation','Task A','Web') RETURNING id"
+    "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Task A','Web','2026-08-05','2026-08-10') RETURNING id"
   );
   const taskId = created.rows[0].id;
   const app = createApp(pool);

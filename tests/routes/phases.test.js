@@ -21,13 +21,13 @@ test('GET /api/phases returns rollup per phase', async () => {
   );
   const { rows: [p1] } = await pool.query("SELECT id FROM phases WHERE code='P1'");
   await pool.query(
-    `INSERT INTO tasks (category, name, platform, phase_id, done_analyst, done_dev, done_uat)
-     VALUES ('Product Foundation','Task A','Web',$1,true,true,true),
-            ('Product Foundation','Task B','Web',$1,true,false,false)`,
+    `INSERT INTO tasks (category, name, platform, phase_id, done_analyst, done_dev, done_uat, start_date, due_date)
+     VALUES ('Product Foundation','Task A','Web',$1,true,true,true,'2026-08-05','2026-08-10'),
+            ('Product Foundation','Task B','Web',$1,true,false,false,'2026-08-05','2026-08-10')`,
     [p1.id]
   );
   await pool.query(
-    "INSERT INTO tasks (category, name, platform) VALUES ('Product Foundation','Unassigned Task','Web')"
+    "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Unassigned Task','Web','2026-08-05','2026-08-10')"
   );
 
   const app = createApp(pool);
