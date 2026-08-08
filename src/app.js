@@ -6,6 +6,7 @@ const tasksRouter = require('./routes/tasks');
 const logsRouter = require('./routes/logs');
 const allLogsRouter = require('./routes/allLogs');
 const authRouter = require('./routes/auth');
+const snapshotsRouter = require('./routes/snapshots');
 
 function createApp(pool) {
   const app = express();
@@ -43,6 +44,8 @@ function createApp(pool) {
   app.use('/api/tasks/:taskId/logs', logsRouter(pool));
 
   app.use('/api/logs', allLogsRouter(pool));
+
+  app.use('/api/snapshots', snapshotsRouter(pool));
 
   app.use('/api/tasks', tasksRouter(pool));
 

@@ -103,6 +103,33 @@
             <div id="riskByPhase"></div>
           </div>
         </div>
+
+        <div class="risk-threshold-chips" id="dueSoonWindowChips">
+          <span class="chip-label">Sắp đến hạn trong</span>
+          <button type="button" class="chip" data-window="3">3 ngày</button>
+          <button type="button" class="chip active" data-window="7">7 ngày</button>
+        </div>
+        <div class="risk-wrap">
+          <div class="risk-col">
+            <div class="risk-col-title">Sắp đến hạn theo Sprint</div>
+            <div class="view-sub" style="margin-bottom:12px;" id="dueSoonSubSprint"></div>
+            <div id="dueSoonBySprint"></div>
+          </div>
+          <div class="risk-col">
+            <div class="risk-col-title">Sắp đến hạn theo Phase</div>
+            <div class="view-sub" style="margin-bottom:12px;" id="dueSoonSubPhase"></div>
+            <div id="dueSoonByPhase"></div>
+          </div>
+        </div>
+
+        <div class="risk-threshold-chips" id="snapshotControls">
+          <span class="chip-label">Báo cáo tuần</span>
+          <button type="button" class="chip snapshot-capture-btn" id="captureSnapshotBtn">+ Chụp báo cáo hôm nay</button>
+          <span class="chip-label">So với</span>
+          <select id="snapshotCompareSelect"><option value="">— Chọn snapshot cũ —</option></select>
+        </div>
+        <div id="snapshotCompareWrap"></div>
+        <div id="snapshotListWrap" style="margin-top:10px;"></div>
       </section>
 
       <!-- SPRINT -->

@@ -561,8 +561,19 @@ function loadSprintView(){
 
 // ---- risk report: tasks whose due date has already passed but aren't Done
 // yet, grouped by Sprint and by Phase (chronological order, groups with zero
-// at-risk tasks are skipped entirely) ----
-function renderRiskGroups(containerId, riskTasks, groupList, groupKeyFn, today){
+// at-risk tasks are skipped entirely). Also reused for the "due soon"
+// (upcoming, not-yet-overdue) report via opts — same layout, different
+// wording/color and day-count direction. ----
+function renderRiskGroups(containerId, riskTasks, groupList, groupKeyFn, today, opts){
+  opts = opts || {};
+  var countLabel = opts.countLabel || function(n){ return n + ' trễ hạn'; };
+  var daysLabel = opts.daysLabel || function(t){
+    var days = Math.round((today - new Date(t.due_date)) / (24 * 60 * 60 * 1000));
+    return 'Trễ ' + days + ' ngày';
+  };
+  var badgeClass = opts.badgeClass || '';
+  var emptyText = opts.emptyText || 'Không có nghiệp vụ nào trễ hạn — tốt!';
+
   var container = document.getElementById(containerId);
   container.innerHTML = '';
 
@@ -573,17 +584,16 @@ function renderRiskGroups(containerId, riskTasks, groupList, groupKeyFn, today){
 
     var card = document.createElement('div'); card.className = 'risk-group';
     var head = document.createElement('div'); head.className = 'risk-group-head';
-    head.innerHTML = '<span>' + escapeHtml(g.label) + '</span><span class="risk-count">' + groupRisk.length + ' trễ hạn</span>';
+    head.innerHTML = '<span>' + escapeHtml(g.label) + '</span><span class="risk-count ' + badgeClass + '">' + countLabel(groupRisk.length) + '</span>';
     card.appendChild(head);
 
     groupRisk.forEach(function(t){
-      var days = Math.round((today - new Date(t.due_date)) / (24 * 60 * 60 * 1000));
       var row = document.createElement('div'); row.className = 'risk-task';
       row.innerHTML =
         '<div class="risk-task-name">' + escapeHtml(t.name) + '</div>' +
         '<div class="risk-task-meta">' +
           '<span class="risk-due">Due ' + fmtDMY(t.due_date) + '</span>' +
-          '<span class="risk-days">Trễ ' + days + ' ngày</span>' +
+          '<span class="risk-days ' + badgeClass + '">' + daysLabel(t) + '</span>' +
         '</div>';
       row.addEventListener('click', function(){ openDrawer('edit', t); });
       card.appendChild(row);
@@ -592,7 +602,7 @@ function renderRiskGroups(containerId, riskTasks, groupList, groupKeyFn, today){
   });
 
   if (container.children.length === 0){
-    container.innerHTML = '<div class="view-sub">Không có nghiệp vụ nào trễ hạn — tốt!</div>';
+    container.innerHTML = '<div class="view-sub">' + emptyText + '</div>';
   }
 }
 
@@ -611,13 +621,32 @@ document.querySelectorAll('#riskThresholdChips .chip').forEach(function(btn){
   });
 });
 
+// how many days ahead counts as "sắp đến hạn" (due soon) — a forward-looking
+// companion to the overdue risk report above, so a PM can act before a task
+// slips rather than only finding out after.
+var _dueSoonWindow = 7;
+
+document.querySelectorAll('#dueSoonWindowChips .chip').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#dueSoonWindowChips .chip').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    _dueSoonWindow = Number(btn.dataset.window);
+    loadRiskReports();
+  });
+});
+
 function loadRiskReports(){
   var sprintEl = document.getElementById('riskBySprint');
   var phaseEl = document.getElementById('riskByPhase');
+  var dueSoonSprintEl = document.getElementById('dueSoonBySprint');
+  var dueSoonPhaseEl = document.getElementById('dueSoonByPhase');
   var thresholdLabel = _riskThreshold === 4 ? 'Done' : 'Ready for Staging';
   var subText = 'Nghiệp vụ đã quá due date nhưng chưa tới ' + thresholdLabel;
   document.getElementById('riskSubSprint').textContent = subText;
   document.getElementById('riskSubPhase').textContent = subText;
+  var dueSoonSubText = 'Nghiệp vụ due trong ' + _dueSoonWindow + ' ngày tới nhưng chưa tới ' + thresholdLabel;
+  document.getElementById('dueSoonSubSprint').textContent = dueSoonSubText;
+  document.getElementById('dueSoonSubPhase').textContent = dueSoonSubText;
 
   return Promise.all([loadTasks(), loadSprints(), loadPhasesList()])
     .then(function(results){
@@ -627,6 +656,10 @@ function loadRiskReports(){
       var riskTasks = tasks.filter(function(t){
         return statusDotToNum(t.status) < _riskThreshold && t.due_date < todayIso;
       });
+      var dueSoonEndIso = toIsoDate(new Date(today.getTime() + _dueSoonWindow * 24 * 60 * 60 * 1000));
+      var dueSoonTasks = tasks.filter(function(t){
+        return statusDotToNum(t.status) < _riskThreshold && t.due_date >= todayIso && t.due_date <= dueSoonEndIso;
+      });
 
       var sprintGroups = sprints.map(function(s){ return { key: s.id, label: s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')' }; });
       sprintGroups.push({ key: null, label: 'Chưa gán sprint' });
@@ -635,16 +668,192 @@ function loadRiskReports(){
 
       renderRiskGroups('riskBySprint', riskTasks, sprintGroups, function(t){ return t.sprint_id; }, today);
       renderRiskGroups('riskByPhase', riskTasks, phaseGroups, function(t){ return t.phase_id; }, today);
+
+      var dueSoonOpts = {
+        countLabel: function(n){ return n + ' sắp đến hạn'; },
+        daysLabel: function(t){
+          var days = Math.round((new Date(t.due_date) - today) / (24 * 60 * 60 * 1000));
+          return days === 0 ? 'Due hôm nay' : 'Còn ' + days + ' ngày';
+        },
+        badgeClass: 'is-soon',
+        emptyText: 'Không có nghiệp vụ nào sắp đến hạn trong ' + _dueSoonWindow + ' ngày tới — tốt!'
+      };
+      renderRiskGroups('dueSoonBySprint', dueSoonTasks, sprintGroups, function(t){ return t.sprint_id; }, today, dueSoonOpts);
+      renderRiskGroups('dueSoonByPhase', dueSoonTasks, phaseGroups, function(t){ return t.phase_id; }, today, dueSoonOpts);
     })
     .catch(function(err){
       console.error('Failed to load risk reports', err);
       sprintEl.innerHTML = phaseEl.innerHTML = '<div class="view-sub">Không tải được risk report.</div>';
+      dueSoonSprintEl.innerHTML = dueSoonPhaseEl.innerHTML = '<div class="view-sub">Không tải được report.</div>';
     });
 }
+
+// ---- weekly snapshot report: a manual "chụp báo cáo" captures today's
+// phase rollup + risk/due-soon counts into a saved row, so a PM can compare
+// against a chosen earlier week instead of only ever seeing a live "as of
+// now" view with no trend. Deliberately manual (no cron) — this app has no
+// background worker, and Render's free tier sleeps when idle, so a
+// scheduled job can't be trusted to fire on time anyway. ----
+var _snapshotList = [];
+var _snapshotCurrent = null;
+var _snapshotCompareId = '';
+
+function loadSnapshotSection(){
+  return Promise.all([
+    fetchJSON('/api/snapshots/current'),
+    fetchJSON('/api/snapshots')
+  ]).then(function(results){
+    _snapshotCurrent = results[0];
+    _snapshotList = results[1];
+    renderSnapshotControls();
+    renderSnapshotCompare();
+    renderSnapshotList();
+  }).catch(function(err){
+    console.error('Failed to load snapshot report', err);
+    document.getElementById('snapshotListWrap').innerHTML = '<div class="view-sub">Không tải được báo cáo tuần.</div>';
+  });
+}
+
+function renderSnapshotControls(){
+  var sel = document.getElementById('snapshotCompareSelect');
+  var stillValid = _snapshotList.some(function(s){ return String(s.id) === String(_snapshotCompareId); });
+  sel.innerHTML = '<option value="">— Chọn snapshot cũ —</option>';
+  _snapshotList.forEach(function(s){
+    var opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = fmtDMY(s.snapshot_date) + (s.actor_name ? ' (' + s.actor_name + ')' : '');
+    sel.appendChild(opt);
+  });
+  _snapshotCompareId = stillValid ? _snapshotCompareId : '';
+  sel.value = _snapshotCompareId;
+}
+
+// goodDirection: 1 = higher is better (VD: % hoàn thành), -1 = lower is
+// better (VD: số task trễ hạn), 0 = trung tính, không tô màu
+function snapshotDeltaBadge(delta, unit, goodDirection){
+  var sign = delta > 0 ? '+' : '';
+  var cls = 'snap-delta';
+  if (goodDirection !== 0 && delta !== 0){
+    var isGood = goodDirection === 1 ? delta > 0 : delta < 0;
+    cls += isGood ? ' is-good' : ' is-bad';
+  }
+  return '<span class="' + cls + '">' + sign + delta + unit + '</span>';
+}
+
+function renderSnapshotCompare(){
+  var wrap = document.getElementById('snapshotCompareWrap');
+  wrap.innerHTML = '';
+  if (!_snapshotCompareId || !_snapshotCurrent) return;
+  var chosen = _snapshotList.filter(function(s){ return String(s.id) === String(_snapshotCompareId); })[0];
+  if (!chosen) return;
+
+  var card = document.createElement('div'); card.className = 'risk-group';
+  var head = document.createElement('div'); head.className = 'risk-group-head';
+  head.innerHTML = '<span>So với ' + fmtDMY(chosen.snapshot_date) + (chosen.actor_name ? ' (' + escapeHtml(chosen.actor_name) + ')' : '') + '</span>';
+  card.appendChild(head);
+
+  chosen.data.phases.forEach(function(oldPhase){
+    var newPhase = _snapshotCurrent.data.phases.filter(function(p){ return p.id === oldPhase.id; })[0];
+    if (!newPhase) return; // phase removed since this snapshot — nothing to compare
+    var oldPct = oldPhase.pct_complete, newPct = newPhase.pct_complete;
+    var delta = (oldPct != null && newPct != null) ? Math.round((newPct - oldPct) * 10) / 10 : null;
+    var row = document.createElement('div'); row.className = 'risk-task';
+    row.innerHTML =
+      '<div class="risk-task-name">' + escapeHtml(oldPhase.code) + ': ' + escapeHtml(oldPhase.name) + '</div>' +
+      '<div class="risk-task-meta">' +
+        '<span class="risk-due">' + (oldPct != null ? oldPct + '%' : '—') + ' → ' + (newPct != null ? newPct + '%' : '—') + '</span>' +
+        (delta != null ? snapshotDeltaBadge(delta, '%', 1) : '') +
+      '</div>';
+    card.appendChild(row);
+  });
+
+  var riskDelta = _snapshotCurrent.data.risk_count - chosen.data.risk_count;
+  var riskRow = document.createElement('div'); riskRow.className = 'risk-task';
+  riskRow.innerHTML =
+    '<div class="risk-task-name">Trễ hạn (risk)</div>' +
+    '<div class="risk-task-meta">' +
+      '<span class="risk-due">' + chosen.data.risk_count + ' → ' + _snapshotCurrent.data.risk_count + '</span>' +
+      snapshotDeltaBadge(riskDelta, '', -1) +
+    '</div>';
+  card.appendChild(riskRow);
+
+  var soonDelta = _snapshotCurrent.data.due_soon_count - chosen.data.due_soon_count;
+  var soonRow = document.createElement('div'); soonRow.className = 'risk-task';
+  soonRow.innerHTML =
+    '<div class="risk-task-name">Sắp đến hạn (7 ngày)</div>' +
+    '<div class="risk-task-meta">' +
+      '<span class="risk-due">' + chosen.data.due_soon_count + ' → ' + _snapshotCurrent.data.due_soon_count + '</span>' +
+      snapshotDeltaBadge(soonDelta, '', 0) +
+    '</div>';
+  card.appendChild(soonRow);
+
+  wrap.appendChild(card);
+}
+
+function renderSnapshotList(){
+  var wrap = document.getElementById('snapshotListWrap');
+  wrap.innerHTML = '';
+  if (_snapshotList.length === 0){
+    wrap.innerHTML = '<div class="view-sub">Chưa có báo cáo tuần nào được chụp.</div>';
+    return;
+  }
+  var card = document.createElement('div'); card.className = 'risk-group';
+  _snapshotList.forEach(function(s){
+    var row = document.createElement('div'); row.className = 'risk-task';
+    row.innerHTML =
+      '<div class="risk-task-name">' + fmtDateTime(s.created_at) + (s.actor_name ? ' — ' + escapeHtml(s.actor_name) : '') + '</div>' +
+      '<div class="risk-task-meta"><button type="button" class="chip snapshot-delete-btn" data-id="' + s.id + '">Xoá</button></div>';
+    card.appendChild(row);
+  });
+  wrap.appendChild(card);
+  wrap.querySelectorAll('.snapshot-delete-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if (!confirm('Xoá báo cáo tuần này?')) return;
+      authFetch('/api/snapshots/' + btn.dataset.id, { method: 'DELETE' })
+        .then(function(res){
+          if (!res.ok){
+            return res.json().catch(function(){ return {}; }).then(function(errBody){
+              throw new Error(errBody.error || ('HTTP ' + res.status));
+            });
+          }
+          return loadSnapshotSection();
+        })
+        .catch(function(err){
+          console.error('Failed to delete snapshot', err);
+          alert('Không xoá được: ' + err.message);
+        });
+    });
+  });
+}
+
+document.getElementById('captureSnapshotBtn').addEventListener('click', function(){
+  var btn = this;
+  btn.disabled = true;
+  authFetch('/api/snapshots', { method: 'POST' })
+    .then(function(res){
+      if (!res.ok){
+        return res.json().catch(function(){ return {}; }).then(function(errBody){
+          throw new Error(errBody.error || ('HTTP ' + res.status));
+        });
+      }
+      return loadSnapshotSection();
+    })
+    .catch(function(err){
+      console.error('Failed to capture snapshot', err);
+      alert('Không chụp được báo cáo: ' + err.message);
+    })
+    .finally(function(){ btn.disabled = false; });
+});
+
+document.getElementById('snapshotCompareSelect').addEventListener('change', function(){
+  _snapshotCompareId = this.value;
+  renderSnapshotCompare();
+});
 
 loadPhases();
 loadSprintView();
 loadRiskReports();
+loadSnapshotSection();
 
 // ---- shared data cache: both Timeline and Board read /api/tasks; fetch it once ----
 var _tasksPromise = null;
@@ -1643,6 +1852,7 @@ function refreshAllViews(){
   loadBoardView();
   loadRiskReports();
   loadLogView();
+  loadSnapshotSection();
 }
 
 // guards saveBtn/deleteBtn against double-submit (double-click, or clicking

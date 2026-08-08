@@ -172,12 +172,24 @@ body{
 .risk-group{border:1px solid var(--border); border-radius:8px; background:var(--surface); margin-bottom:12px; overflow:hidden;}
 .risk-group-head{display:flex; justify-content:space-between; align-items:baseline; padding:9px 12px; background:var(--surface-2); font-size:12px; font-weight:600; border-bottom:1px solid var(--border);}
 .risk-count{font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--red-ink); background:var(--red-bg); padding:2px 7px; border-radius:999px;}
+.risk-count.is-soon{color:var(--yellow-ink); background:var(--yellow-bg);}
 .risk-task{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 12px; border-top:1px solid var(--border); cursor:pointer; transition:background .12s ease;}
 .risk-task:first-of-type{border-top:none;}
 .risk-task:hover{background:var(--surface-2);}
 .risk-task-name{font-size:12.5px; flex:1; min-width:0;}
 .risk-task-meta{display:flex; align-items:center; gap:8px; flex:none;}
 .risk-days{font-family:var(--mono); font-size:10.5px; font-weight:700; color:var(--red-ink); background:var(--red-bg); padding:2px 7px; border-radius:999px; white-space:nowrap;}
+.risk-days.is-soon{color:var(--yellow-ink); background:var(--yellow-bg);}
+#snapshotControls select{
+  font-family:var(--sans); font-size:12.5px; padding:6px 10px; border-radius:6px;
+  border:1px solid var(--border); background:var(--surface); color:var(--ink);
+}
+.snapshot-capture-btn{background:var(--ink); color:var(--canvas); border-color:var(--ink); font-weight:600;}
+.snapshot-capture-btn:hover{opacity:0.85;}
+.snapshot-capture-btn:disabled{opacity:0.4; cursor:not-allowed;}
+.snap-delta{font-family:var(--mono); font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:999px; white-space:nowrap; background:var(--surface-2); color:var(--ink-muted);}
+.snap-delta.is-good{color:var(--green-ink); background:var(--green-bg);}
+.snap-delta.is-bad{color:var(--red-ink); background:var(--red-bg);}
 .risk-due{font-family:var(--mono); font-size:10.5px; color:var(--ink-muted); white-space:nowrap;}
 
 /* ===== TIMELINE ===== */
