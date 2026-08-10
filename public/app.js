@@ -36,6 +36,34 @@ function escapeHtml(str){
   });
 }
 
+// ---- toast: non-blocking success/failure feedback for every mutating
+// action (drag, save, delete, ...) — replaces alert(), which freezes the
+// whole page until dismissed, with a small auto-dismissing notice so the
+// user can tell "did it work" without an interruption they have to clear. ----
+function showToast(type, title, message){
+  var container = document.getElementById('toastContainer');
+  if (!container) return;
+  var toast = document.createElement('div');
+  toast.className = 'toast is-' + type;
+  toast.innerHTML =
+    '<span class="toast-icon">' + (type === 'success' ? '✓' : '✕') + '</span>' +
+    '<span class="toast-body">' +
+      '<div class="toast-title">' + escapeHtml(title) + '</div>' +
+      (message ? '<div class="toast-message">' + escapeHtml(message) + '</div>' : '') +
+    '</span>';
+  container.appendChild(toast);
+  var timer = setTimeout(remove, type === 'error' ? 6000 : 3000);
+  toast.addEventListener('click', remove);
+  function remove(){
+    clearTimeout(timer);
+    if (toast.classList.contains('is-leaving')) return;
+    toast.classList.add('is-leaving');
+    toast.addEventListener('animationend', function(){ toast.remove(); });
+  }
+}
+function toastSuccess(message){ showToast('success', 'Thành công', message); }
+function toastError(message){ showToast('error', 'Thất bại', message); }
+
 // ---- FLIP animation: call before a container's contents get rebuilt (drag
 // reorder/regroup, status change, resort, etc.), keep the returned function,
 // then call it once the new DOM is in place — matched elements (by keyAttr,
@@ -164,15 +192,16 @@ function openDrawer(mode, t){
 
   overlay.classList.add('show'); drawer.classList.add('show');
 
-  Promise.all([loadPhasesList(), loadSprints(), isEdit ? loadTasks() : Promise.resolve(null)])
+  Promise.all([loadPhasesList(), loadSprints(), isEdit ? loadTasks() : Promise.resolve(null), fetchJSON('/api/sprints/current-next')])
     .then(function(results){
-      var phases = results[0], sprints = results[1], allTasks = results[2];
+      var phases = results[0], sprints = results[1], allTasks = results[2], currentNext = results[3];
+      var currentSprintId = currentNext.current ? currentNext.current.id : null;
 
       populateSelectOptions(document.getElementById('f-phase'), phases, function(p){
         return p.code + ': ' + p.name + ' (' + fmtDMY(p.target_date) + ')';
       }, '— không có —');
       populateSelectOptions(document.getElementById('f-sprint'), sprints, function(s){
-        return s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')';
+        return s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')' + (s.id === currentSprintId ? ' — sprint hiện tại' : '');
       }, '— không có —');
 
       if (isEdit){
@@ -524,6 +553,147 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks){
   return panel;
 }
 
+// cross-sprint view: EVERY task in EVERY sprint, one row per sprint, tasks
+// grouped by Platform within the row (the "who do I need" signal for
+// staffing) and colored by status — so a PM can scan all sprints in one
+// screen and still see what each task actually is, not just a count.
+var SPRINT_OVERVIEW_PLATFORMS = ['Web', 'App', 'BE', 'App/Auto'];
+
+// canonical platforms first (fixed order), then any other platform value
+// found in the data (shouldn't normally happen — the drawer only offers
+// the 4 above — but avoids silently dropping a task with an odd value)
+function platformBucketsFor(sprintTasks){
+  var extra = [];
+  sprintTasks.forEach(function(t){
+    if (SPRINT_OVERVIEW_PLATFORMS.indexOf(t.platform) === -1 && extra.indexOf(t.platform) === -1) extra.push(t.platform);
+  });
+  return SPRINT_OVERVIEW_PLATFORMS.concat(extra.sort());
+}
+
+// updates just a task's sprint (+ derived dates from that sprint, same as
+// Timeline's drag-to-regroup-by-sprint) — a dedicated function rather than
+// reusing updateTaskGroup/buildGroupChangeBody, since those branch on the
+// Timeline's own _timelineGroupBy chip state, which has nothing to do with
+// a drag happening on the Sprint page.
+function updateTaskSprint(task, newSprintId, sprints){
+  var sprint = sprints.filter(function(s){ return s.id === newSprintId; })[0];
+  var body = {
+    category: task.category, name: task.name, platform: task.platform, status: task.status,
+    phase_id: task.phase_id, sprint_id: newSprintId, stt: task.stt,
+    done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
+    start_date: sprint ? sprint.start_date : task.start_date,
+    due_date: sprint ? sprint.end_date : task.due_date,
+    date_overridden: false
+  };
+  return authFetch('/api/tasks/' + task.id, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+  });
+}
+
+var _draggingSprintOverviewTaskId = null;
+
+function renderSprintOverviewTable(sprints, tasks, currentSprintId, nextSprintId){
+  var wrap = document.getElementById('sprintOverviewWrap');
+  wrap.innerHTML = '';
+  if (sprints.length === 0){
+    wrap.innerHTML = '<div class="view-sub">Chưa có sprint nào.</div>';
+    return;
+  }
+
+  sprints.forEach(function(s){
+    var sprintTasks = tasks.filter(function(t){ return t.sprint_id === s.id; });
+    var doneCount = sprintTasks.filter(function(t){ return t.status === '4.done'; }).length;
+    var isCurrent = s.id === currentSprintId, isNext = s.id === nextSprintId;
+
+    var row = document.createElement('div');
+    row.className = 'sprint-overview-row' + (isCurrent ? ' is-current' : (isNext ? ' is-next' : ''));
+
+    var head = document.createElement('div'); head.className = 'sprint-overview-row-head';
+    var tag = isCurrent ? '<span class="tag tag-sprint">hiện tại</span>' : (isNext ? '<span class="tag">sau</span>' : '');
+    head.innerHTML =
+      '<span class="sprint-overview-row-title"><span>' + escapeHtml(s.code) + ' (' + fmtRange(s.start_date, s.end_date) + ')</span>' + tag + '</span>' +
+      '<span class="sprint-overview-row-count">' + sprintTasks.length + ' nghiệp vụ · ' + doneCount + '/' + sprintTasks.length + ' Done</span>';
+    row.appendChild(head);
+
+    // drop anywhere in this sprint's row (empty or not) moves the dragged
+    // task here — derives new start/due from this sprint, same as Timeline's
+    // drag-to-regroup, then refreshes every view so Board/Timeline/Log stay
+    // in sync with the change.
+    row.addEventListener('dragover', function(e){
+      var draggedId = _draggingSprintOverviewTaskId;
+      var draggedTask = draggedId != null ? tasks.filter(function(t){ return t.id === draggedId; })[0] : null;
+      if (draggedTask && draggedTask.sprint_id !== s.id){
+        e.preventDefault();
+        row.classList.add('sprint-overview-row-drag-over');
+      }
+    });
+    row.addEventListener('dragleave', function(){
+      row.classList.remove('sprint-overview-row-drag-over');
+    });
+    row.addEventListener('drop', function(e){
+      row.classList.remove('sprint-overview-row-drag-over');
+      var draggedId = _draggingSprintOverviewTaskId;
+      var draggedTask = draggedId != null ? tasks.filter(function(t){ return t.id === draggedId; })[0] : null;
+      if (!draggedTask || draggedTask.sprint_id === s.id) return;
+      e.preventDefault();
+      updateTaskSprint(draggedTask, s.id, sprints)
+        .then(function(){
+          refreshAllViews();
+          toastSuccess('Đã đổi sprint cho "' + draggedTask.name + '"');
+        })
+        .catch(function(err){
+          console.error('Đổi sprint thất bại', err);
+          toastError('Không đổi được sprint: ' + err.message);
+        });
+    });
+
+    if (sprintTasks.length === 0){
+      var empty = document.createElement('div'); empty.className = 'view-sub'; empty.textContent = 'Chưa có nghiệp vụ.';
+      row.appendChild(empty);
+    } else {
+      var body = document.createElement('div'); body.className = 'sprint-overview-row-body';
+      platformBucketsFor(sprintTasks).forEach(function(p){
+        var platformTasks = sprintTasks.filter(function(t){ return t.platform === p; });
+        if (platformTasks.length === 0) return;
+        var group = document.createElement('div'); group.className = 'sprint-overview-platform-group';
+        var label = document.createElement('span'); label.className = 'sprint-overview-platform-label'; label.textContent = p;
+        group.appendChild(label);
+        platformTasks.forEach(function(t){
+          var n = statusDotToNum(t.status);
+          var chip = document.createElement('span');
+          chip.className = 'sprint-overview-task-chip st-' + n;
+          chip.textContent = t.name;
+          chip.title = t.name + ' · kéo để đổi sprint';
+          chip.draggable = true;
+          chip.addEventListener('click', function(){ openDrawer('edit', t); });
+          chip.addEventListener('dragstart', function(e){
+            _draggingSprintOverviewTaskId = t.id;
+            chip.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(t.id));
+          });
+          chip.addEventListener('dragend', function(){
+            chip.classList.remove('dragging');
+            _draggingSprintOverviewTaskId = null;
+          });
+          group.appendChild(chip);
+        });
+        body.appendChild(group);
+      });
+      row.appendChild(body);
+    }
+    wrap.appendChild(row);
+  });
+}
+
 function loadSprintView(){
   var col = document.getElementById('sprintColumns');
   return Promise.all([fetchJSON('/api/sprints/current-next'), loadTasks(), loadSprints()])
@@ -531,6 +701,8 @@ function loadSprintView(){
       var data = results[0], tasks = results[1], sprints = results[2];
       var playFlip = captureFlipPositions(col, 'data-task-id');
       col.innerHTML = '';
+
+      renderSprintOverviewTable(sprints, tasks, data.current ? data.current.id : null, data.next ? data.next.id : null);
 
       var carryOver = [];
       if (data.current){
@@ -558,6 +730,21 @@ function loadSprintView(){
       col.innerHTML = '<div class="view-sub">Không tải được dữ liệu Sprint. Thử tải lại trang.</div>';
     });
 }
+
+var SPRINT_TAB_SUB = {
+  overview: 'Toàn bộ nghiệp vụ mỗi sprint, nhóm theo Platform — để phân bổ nhân sự, bấm vào 1 nghiệp vụ để sửa',
+  'current-next': 'Biết ngay tuần này đang làm gì, tuần sau sắp tới gì — bấm vào 1 nghiệp vụ để sửa'
+};
+document.querySelectorAll('#sprintTabChips .chip').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#sprintTabChips .chip').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    var tab = btn.dataset.tab;
+    document.getElementById('sprintTabOverview').style.display = tab === 'overview' ? '' : 'none';
+    document.getElementById('sprintTabCurrentNext').style.display = tab === 'current-next' ? '' : 'none';
+    document.getElementById('sprintTabSub').textContent = SPRINT_TAB_SUB[tab];
+  });
+});
 
 // ---- risk report: tasks whose due date has already passed but aren't Done
 // yet, grouped by Sprint and by Phase (chronological order, groups with zero
@@ -816,11 +1003,11 @@ function renderSnapshotList(){
               throw new Error(errBody.error || ('HTTP ' + res.status));
             });
           }
-          return loadSnapshotSection();
+          return loadSnapshotSection().then(function(){ toastSuccess('Đã xoá báo cáo tuần'); });
         })
         .catch(function(err){
           console.error('Failed to delete snapshot', err);
-          alert('Không xoá được: ' + err.message);
+          toastError('Không xoá được: ' + err.message);
         });
     });
   });
@@ -836,11 +1023,11 @@ document.getElementById('captureSnapshotBtn').addEventListener('click', function
           throw new Error(errBody.error || ('HTTP ' + res.status));
         });
       }
-      return loadSnapshotSection();
+      return loadSnapshotSection().then(function(){ toastSuccess('Đã chụp báo cáo tuần'); });
     })
     .catch(function(err){
       console.error('Failed to capture snapshot', err);
-      alert('Không chụp được báo cáo: ' + err.message);
+      toastError('Không chụp được báo cáo: ' + err.message);
     })
     .finally(function(){ btn.disabled = false; });
 });
@@ -1012,6 +1199,17 @@ function countWorkingDays(start, end){
 // "Lịch"/"Working day" chip pair, default per product call: working day
 var _timelineDayUnit = 'working';
 
+// shared by the row's static duration label and the live drag tooltip —
+// calendar mode groups into weeks (e.g. 7 calendar days incl. a Sat/Sun ->
+// "1w"); working-day mode intentionally does NOT, it just shows the plain
+// count (that same week -> "5d"), since "1 working week" as an abbreviation
+// reads as ambiguous/misleading next to calendar weeks.
+function formatDurationText(start, end){
+  var calendarDays = Math.round((end - start) / (24 * 60 * 60 * 1000)) + 1;
+  var durationDays = _timelineDayUnit === 'working' ? countWorkingDays(start, end) : calendarDays;
+  return _timelineDayUnit === 'working' ? (durationDays + 'd') : fmtWeeksDays(durationDays, 7);
+}
+
 document.querySelectorAll('#dayUnitChips .chip').forEach(function(btn){
   btn.addEventListener('click', function(){
     document.querySelectorAll('#dayUnitChips .chip').forEach(function(b){ b.classList.remove('active'); });
@@ -1113,9 +1311,12 @@ function reorderTimelineTask(draggedTask, targetTask){
         });
       }
     });
-  })).then(refreshAllViews).catch(function(err){
+  })).then(function(){
+    refreshAllViews();
+    toastSuccess('Đã đổi vị trí');
+  }).catch(function(err){
     console.error('Đổi vị trí trên Timeline thất bại', err);
-    alert('Không đổi được vị trí: ' + err.message);
+    toastError('Không đổi được vị trí: ' + err.message);
   });
 }
 
@@ -1177,6 +1378,19 @@ function renderGantt(tasks, sprints, phases){
     var moved = false;
     var newStart = origStart, newEnd = origEnd;
 
+    // shows the date range being dragged to + resulting duration, live —
+    // mounted on trackEl (not barEl) since .bar has overflow:hidden, which
+    // would clip a tooltip positioned above it via bottom:100%.
+    var tooltip = document.createElement('div');
+    tooltip.className = 'bar-drag-tooltip';
+    trackEl.appendChild(tooltip);
+    function updateTooltip(l, w){
+      tooltip.style.left = (l + w / 2) + '%';
+      tooltip.textContent = fmtDMY(toIsoDate(newStart)) + ' → ' + fmtDMY(toIsoDate(newEnd)) + ' · ' + formatDurationText(newStart, newEnd);
+    }
+    var initL = pctPos(origStart);
+    updateTooltip(initL, Math.max(pctPos(origEnd) - initL, 0.6));
+
     function onMove(e){
       var deltaDays = Math.round((e.clientX - startX) / pxPerDay);
       if (deltaDays === 0 && !moved) return;
@@ -1194,20 +1408,26 @@ function renderGantt(tasks, sprints, phases){
         newStart = origStart;
       }
       var l = pctPos(newStart);
+      var w = Math.max(pctPos(newEnd) - l, 0.6);
       barEl.style.left = l + '%';
-      barEl.style.width = Math.max(pctPos(newEnd) - l, 0.6) + '%';
+      barEl.style.width = w + '%';
+      updateTooltip(l, w);
     }
     function onUp(){
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
       barEl.classList.remove('bar-dragging');
+      tooltip.remove();
       if (!moved) return;
       markDragged();
       updateTaskDates(task, toIsoDate(newStart), toIsoDate(newEnd))
-        .then(refreshAllViews)
+        .then(function(){
+          refreshAllViews();
+          toastSuccess('Đã cập nhật ngày cho "' + task.name + '"');
+        })
         .catch(function(err){
           console.error('Cập nhật ngày trên Timeline thất bại', err);
-          alert('Không cập nhật được ngày: ' + err.message);
+          toastError('Không cập nhật được ngày: ' + err.message);
           refreshAllViews(); // reload from the server truth to undo the live preview
         });
     }
@@ -1244,10 +1464,13 @@ function renderGantt(tasks, sprints, phases){
       var task = tasks.filter(function(x){ return x.id === taskId; })[0];
       if (!task || taskGroupKey(task) === g.key) return;
       updateTaskGroup(task, g.key, sprints)
-        .then(refreshAllViews)
+        .then(function(){
+          refreshAllViews();
+          toastSuccess('Đã đổi nhóm cho "' + task.name + '"');
+        })
         .catch(function(err){
           console.error('Đổi nhóm trên Timeline thất bại', err);
-          alert('Không đổi được nhóm: ' + err.message);
+          toastError('Không đổi được nhóm: ' + err.message);
         });
     });
 
@@ -1312,13 +1535,7 @@ function renderGantt(tasks, sprints, phases){
       var left = pctPos(range.start);
       var width = Math.max(pctPos(range.end) - left, 0.6); // keep a visible sliver for short/zero-width ranges
       var n = statusDotToNum(t.status);
-      var calendarDays = Math.round((range.end - range.start) / (24 * 60 * 60 * 1000)) + 1;
-      // calendar mode groups into weeks (e.g. 7 calendar days incl. a Sat/Sun
-      // -> "1w"); working-day mode intentionally does NOT — "1 working week"
-      // as an abbreviation reads as ambiguous/misleading next to calendar
-      // weeks, so it just shows the plain count (that same week -> "5d").
-      var durationDays = _timelineDayUnit === 'working' ? countWorkingDays(range.start, range.end) : calendarDays;
-      var durationText = _timelineDayUnit === 'working' ? (durationDays + 'd') : fmtWeeksDays(durationDays, 7);
+      var durationText = formatDurationText(range.start, range.end);
       var bar = document.createElement('div');
       bar.className = 'bar st-' + n;
       bar.style.left = left + '%';
@@ -1396,15 +1613,16 @@ function renderGantt(tasks, sprints, phases){
   playFlip();
 }
 
-function renderGanttLegend(){
-  var el = document.getElementById('ganttLegend');
+function renderStatusLegend(elementId){
+  var el = document.getElementById(elementId);
   if (!el) return;
   el.innerHTML = STATUS_ORDER.map(function(status, idx){
     var label = statusLabel[idx].replace(/^\d+\.\s*/, '');
     return '<span class="legend-item"><span class="legend-swatch st-' + idx + '"></span>' + escapeHtml(label) + '</span>';
   }).join('');
 }
-renderGanttLegend();
+renderStatusLegend('ganttLegend');
+renderStatusLegend('sprintLegend');
 
 // dynamic Phase <select> options for the Timeline filter row (kept in sync with
 // the real phase codes/names from the API rather than a hardcoded guess)
@@ -1531,10 +1749,13 @@ function renderBoard(tasks){
       var task = tasks.filter(function(t){ return t.id === taskId; })[0];
       if (!task || task.status === status) return;
       updateTaskStatus(task, status)
-        .then(refreshAllViews)
+        .then(function(){
+          refreshAllViews();
+          toastSuccess('Đã đổi trạng thái cho "' + task.name + '"');
+        })
         .catch(function(err){
           console.error('Drag-and-drop status update failed', err);
-          alert('Không đổi được trạng thái: ' + err.message);
+          toastError('Không đổi được trạng thái: ' + err.message);
         });
     });
 
@@ -1875,7 +2096,7 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   var dueVal = document.getElementById('f-due').value || null;
 
   if (!name || !category || !platform || !status || !startVal || !dueVal){
-    alert('Vui lòng nhập đầy đủ Tên nghiệp vụ, Category, Platform, Status, Start và Due.');
+    toastError('Vui lòng nhập đầy đủ Tên nghiệp vụ, Category, Platform, Status, Start và Due.');
     return;
   }
 
@@ -1953,9 +2174,10 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   }).then(function(){
     close();
     refreshAllViews();
+    toastSuccess(isCreate ? 'Đã tạo nghiệp vụ "' + name + '"' : 'Đã lưu thay đổi cho "' + name + '"');
   }).catch(function(err){
     console.error('Save task failed', err);
-    alert('Không lưu được nghiệp vụ: ' + err.message);
+    toastError('Không lưu được nghiệp vụ: ' + err.message);
   }).finally(function(){
     _drawerActionBusy = false;
     saveBtnEl.disabled = false;
@@ -1976,6 +2198,7 @@ document.getElementById('deleteBtn').addEventListener('click', function(){
   deleteBtnEl.disabled = true;
   deleteBtnEl.textContent = 'Đang xoá...';
 
+  var deletedTaskName = document.getElementById('f-name').value;
   authFetch('/api/tasks/' + editingTaskId, { method: 'DELETE' })
     .then(function(res){
       if (!res.ok){
@@ -1987,10 +2210,11 @@ document.getElementById('deleteBtn').addEventListener('click', function(){
     .then(function(){
       close();
       refreshAllViews();
+      toastSuccess('Đã xoá "' + deletedTaskName + '"');
     })
     .catch(function(err){
       console.error('Delete task failed', err);
-      alert('Không xoá được nghiệp vụ: ' + err.message);
+      toastError('Không xoá được nghiệp vụ: ' + err.message);
     })
     .finally(function(){
       _drawerActionBusy = false;
@@ -2028,10 +2252,10 @@ document.getElementById('addLogBtn').addEventListener('click', function(){
     return res.json();
   }).then(function(){
     input.value = '';
-    return fetchAndRenderLogs(editingTaskId);
+    return fetchAndRenderLogs(editingTaskId).then(function(){ toastSuccess('Đã thêm ghi chú'); });
   }).catch(function(err){
     console.error('Add log failed', err);
-    alert('Không thêm được ghi chú: ' + err.message);
+    toastError('Không thêm được ghi chú: ' + err.message);
   }).finally(function(){
     _addLogBusy = false;
     addLogBtnEl.disabled = false;

@@ -136,11 +136,25 @@
       <section class="view" id="view-sprint">
         <div class="view-head">
           <div>
-            <div class="view-title">Sprint hiện tại &amp; sprint tiếp theo</div>
-            <div class="view-sub">Biết ngay tuần này đang làm gì, tuần sau sắp tới gì — bấm vào 1 nghiệp vụ để sửa</div>
+            <div class="view-title">Sprint</div>
+            <div class="view-sub" id="sprintTabSub">Toàn bộ nghiệp vụ mỗi sprint, nhóm theo Platform — để phân bổ nhân sự, bấm vào 1 nghiệp vụ để sửa</div>
           </div>
         </div>
-        <div class="sprint-columns" id="sprintColumns"></div>
+
+        <div class="groupby-chips" id="sprintTabChips">
+          <button type="button" class="chip active" data-tab="overview">Overview tất cả Sprint</button>
+          <button type="button" class="chip" data-tab="current-next">Sprint hiện tại &amp; sau</button>
+        </div>
+
+        <div class="gantt-legend" id="sprintLegend"></div>
+
+        <div id="sprintTabOverview">
+          <div id="sprintOverviewWrap"></div>
+        </div>
+
+        <div id="sprintTabCurrentNext" style="display:none;">
+          <div class="sprint-columns" id="sprintColumns"></div>
+        </div>
       </section>
 
       <!-- TIMELINE -->
@@ -239,6 +253,7 @@
   </div>
 </div>
 
+<div class="toast-container" id="toastContainer"></div>
 <div class="overlay" id="overlay"></div>
 <div class="drawer" id="drawer">
   <button class="drawer-close" id="closeDrawer">&#10005;</button>
