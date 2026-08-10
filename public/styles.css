@@ -142,6 +142,17 @@ body{
 .today-chip{
   font-family:var(--mono); font-size:11px; color:var(--ink-faint); text-align:center;
 }
+.user-chip{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  font-family:var(--mono); font-size:11px; color:var(--ink-muted);
+  padding:7px 9px; border:1px solid var(--border); border-radius:6px; background:var(--surface-2);
+}
+.user-chip #userChipName{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+#logoutBtn{
+  font-family:var(--sans); font-size:11px; color:var(--ink-muted); background:none; border:none;
+  cursor:pointer; padding:0; flex:none; text-decoration:underline;
+}
+#logoutBtn:hover{color:var(--ink);}
 
 /* ---- main ---- */
 .main{flex:1; min-width:0; padding:26px 30px 40px; overflow-y:auto; overflow-x:auto; scrollbar-width:thin; scrollbar-color:var(--ink-faint) transparent;}
@@ -430,6 +441,24 @@ body{
 .toast-message{font-size:11.5px; color:var(--ink-muted); margin-top:1px; word-break:break-word;}
 @keyframes toast-in{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
 @keyframes toast-out{ from{opacity:1; transform:translateY(0);} to{opacity:0; transform:translateX(12px);} }
+
+/* ===== LOG HOVER POPUP ===== */
+.log-hover-popup{
+  position:fixed; z-index:80; max-width:320px; padding:11px 13px; border-radius:9px;
+  background:var(--surface); border:1px solid var(--border); box-shadow:0 8px 24px rgba(0,0,0,0.2);
+  display:none; pointer-events:none; animation:log-popup-in .12s ease;
+}
+.log-hover-popup.show{display:block;}
+.log-hover-title{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  font-size:10px; font-weight:700; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;
+  margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid var(--border);
+}
+.log-hover-date{font-family:var(--mono); font-weight:600; letter-spacing:0; text-transform:none;}
+.log-hover-note{font-size:12.5px; color:var(--ink); line-height:1.45; word-break:break-word; white-space:pre-wrap;}
+.log-hover-empty{font-size:12px; color:var(--ink-faint); font-style:italic;}
+.log-hover-popup .tag-actor{margin-top:8px; display:inline-block;}
+@keyframes log-popup-in{ from{opacity:0; transform:translateY(3px);} to{opacity:1; transform:translateY(0);} }
 .overlay.show{opacity:1; pointer-events:auto;}
 .drawer{
   position:fixed; top:0; right:0; height:100%; width:400px; background:var(--surface);

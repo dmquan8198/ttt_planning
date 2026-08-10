@@ -321,6 +321,7 @@ function getActorName(){ return localStorage.getItem(ACTOR_NAME_KEY) || ''; }
 // requireRole fallback for an unrecognized actor.
 function getActorRole(){ return localStorage.getItem(ACTOR_ROLE_KEY) || 'viewer'; }
 var ROLE_LEVEL = { viewer: 0, editor: 1, admin: 2 };
+var ROLE_DISPLAY = { viewer: 'Viewer', editor: 'Editor', admin: 'Admin' };
 // mirrors src/lib/roles.js's roleAtLeast — this is ONLY for showing/hiding
 // controls; the server re-checks the real role on every mutating request,
 // since a client-side check can't actually stop anyone.
@@ -366,8 +367,18 @@ function applyRoleUI(){
   document.getElementById('navUsers').style.display = hasRole('admin') ? '' : 'none';
   var captureBtn = document.getElementById('captureSnapshotBtn');
   if (captureBtn) captureBtn.style.display = hasRole('editor') ? '' : 'none';
+  var nameEl = document.getElementById('userChipName');
+  if (nameEl) nameEl.textContent = getActorName() + ' · ' + ROLE_DISPLAY[getActorRole()];
   if (typeof refreshAllViews === 'function') refreshAllViews();
 }
+
+function logout(){
+  localStorage.removeItem(ACTOR_NAME_KEY);
+  localStorage.removeItem(ACTOR_ROLE_KEY);
+  localStorage.removeItem(LOGGED_IN_KEY);
+  location.reload();
+}
+document.getElementById('logoutBtn').addEventListener('click', logout);
 
 // populate the login dropdown from the real user list so anyone an admin
 // adds via the Users page can actually log in — keeps the 6 hardcoded
@@ -567,8 +578,45 @@ function loadPhasesList(){
   return _phasesListPromise;
 }
 
+// hover popup for a sprint-task row: the most recent activity log entry for
+// that task, if any — lets a PM skim what happened on a task without
+// opening the drawer for each one. A native title tooltip works but is
+// plain/slow/browser-styled; this is a small styled popup anchored to the
+// hovered row instead, reusing the same actor-parsing helpers the Log tab
+// uses so the actor shows as its own badge rather than raw text in the note.
+function showLogHoverPopup(targetEl, taskId, latestLogByTaskId){
+  var popup = document.getElementById('logHoverPopup');
+  var log = latestLogByTaskId ? latestLogByTaskId[taskId] : null;
+  var bodyHtml;
+  if (log){
+    var actor = parseActorFromNote(log.note);
+    var noteText = stripActorSuffix(log.note);
+    bodyHtml = '<div class="log-hover-note">' + escapeHtml(noteText) + '</div>' +
+      (actor ? '<span class="tag tag-actor">' + escapeHtml(actor) + '</span>' : '');
+  } else {
+    bodyHtml = '<div class="log-hover-empty">Chưa có log nào</div>';
+  }
+  popup.innerHTML =
+    '<div class="log-hover-title"><span>Hoạt động gần nhất</span>' +
+    (log ? '<span class="log-hover-date">' + fmtDateTime(log.created_at) + '</span>' : '') +
+    '</div>' + bodyHtml;
+
+  popup.classList.add('show');
+  var rect = targetEl.getBoundingClientRect();
+  var popupRect = popup.getBoundingClientRect();
+  var top = rect.top - popupRect.height - 8;
+  if (top < 8) top = rect.bottom + 8; // not enough room above — flip below
+  var left = Math.min(rect.left, window.innerWidth - popupRect.width - 12);
+  if (left < 8) left = 8;
+  popup.style.top = top + 'px';
+  popup.style.left = left + 'px';
+}
+function hideLogHoverPopup(){
+  document.getElementById('logHoverPopup').classList.remove('show');
+}
+
 // ---- sprint view: current + next (fetched from /api/sprints/current-next) ----
-function renderSprintPanel(sprint, isCurrent, carryOverTasks){
+function renderSprintPanel(sprint, isCurrent, carryOverTasks, latestLogByTaskId){
   var panel = document.createElement('div');
   panel.className = 'sprint-panel' + (isCurrent ? ' is-current' : '');
   var titleText = isCurrent ? 'Sprint hiện tại' : 'Sprint tiếp theo';
@@ -607,6 +655,8 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks){
       '<span class="tag">' + escapeHtml(t.platform) + '</span>' +
       '<span class="pill st-' + n + '">' + escapeHtml(label) + '</span>';
     item.addEventListener('click', function(){ openDrawer('edit', t); });
+    item.addEventListener('mouseenter', function(){ showLogHoverPopup(item, t.id, latestLogByTaskId); });
+    item.addEventListener('mouseleave', hideLogHoverPopup);
     listEl.appendChild(item);
   });
   panel.appendChild(listEl);
@@ -632,6 +682,8 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks){
         '<span class="tag">' + escapeHtml(t.category) + '</span>' +
         '<span class="tag">' + escapeHtml(t.platform) + '</span>' +
         '<span class="pill st-' + n + '">' + escapeHtml(label) + '</span>';
+      item.addEventListener('mouseenter', function(){ showLogHoverPopup(item, t.id, latestLogByTaskId); });
+      item.addEventListener('mouseleave', hideLogHoverPopup);
       item.addEventListener('click', function(){ openDrawer('edit', t); });
       panel.appendChild(item);
     });
@@ -783,11 +835,18 @@ function renderSprintOverviewTable(sprints, tasks, currentSprintId, nextSprintId
 
 function loadSprintView(){
   var col = document.getElementById('sprintColumns');
-  return Promise.all([fetchJSON('/api/sprints/current-next'), loadTasks(), loadSprints()])
+  return Promise.all([fetchJSON('/api/sprints/current-next'), loadTasks(), loadSprints(), fetchJSON('/api/logs')])
     .then(function(results){
-      var data = results[0], tasks = results[1], sprints = results[2];
+      var data = results[0], tasks = results[1], sprints = results[2], allLogs = results[3];
       var playFlip = captureFlipPositions(col, 'data-task-id');
       col.innerHTML = '';
+
+      // /api/logs is already sorted newest-first, so the first entry seen
+      // per task_id is that task's most recent log.
+      var latestLogByTaskId = {};
+      allLogs.forEach(function(l){
+        if (!(l.task_id in latestLogByTaskId)) latestLogByTaskId[l.task_id] = l;
+      });
 
       renderSprintOverviewTable(sprints, tasks, data.current ? data.current.id : null, data.next ? data.next.id : null);
 
@@ -808,8 +867,8 @@ function loadSprintView(){
           });
       }
 
-      col.appendChild(renderSprintPanel(data.current, true, carryOver));
-      col.appendChild(renderSprintPanel(data.next, false));
+      col.appendChild(renderSprintPanel(data.current, true, carryOver, latestLogByTaskId));
+      col.appendChild(renderSprintPanel(data.next, false, null, latestLogByTaskId));
       playFlip();
     })
     .catch(function(err){
@@ -898,7 +957,7 @@ document.querySelectorAll('#riskThresholdChips .chip').forEach(function(btn){
 // how many days ahead counts as "sắp đến hạn" (due soon) — a forward-looking
 // companion to the overdue risk report above, so a PM can act before a task
 // slips rather than only finding out after.
-var _dueSoonWindow = 7;
+var _dueSoonWindow = 3;
 
 document.querySelectorAll('#dueSoonWindowChips .chip').forEach(function(btn){
   btn.addEventListener('click', function(){
@@ -1124,7 +1183,6 @@ document.getElementById('captureSnapshotBtn').addEventListener('click', function
 // non-admins via applyRoleUI(), and every write here is re-checked
 // server-side by requireRole regardless of what the client shows. ----
 var ROLE_OPTIONS = ['viewer', 'editor', 'admin'];
-var ROLE_DISPLAY = { viewer: 'Viewer', editor: 'Editor', admin: 'Admin' };
 
 function renderUsersList(users){
   var wrap = document.getElementById('usersListWrap');

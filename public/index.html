@@ -83,6 +83,10 @@
       </div>
       <div class="rail-footer">
         <button class="btn-new" id="openDrawer">+ Nghiệp vụ mới</button>
+        <div class="user-chip">
+          <span id="userChipName"></span>
+          <button type="button" id="logoutBtn" title="Đăng xuất">Đăng xuất</button>
+        </div>
         <div class="today-chip" id="todayChip"></div>
       </div>
     </nav>
@@ -124,8 +128,8 @@
 
         <div class="risk-threshold-chips" id="dueSoonWindowChips">
           <span class="chip-label">Sắp đến hạn trong</span>
-          <button type="button" class="chip" data-window="3">3 ngày</button>
-          <button type="button" class="chip active" data-window="7">7 ngày</button>
+          <button type="button" class="chip active" data-window="3">3 ngày</button>
+          <button type="button" class="chip" data-window="7">7 ngày</button>
         </div>
         <div class="risk-wrap">
           <div class="risk-col">
@@ -300,6 +304,7 @@
 </div>
 
 <div class="toast-container" id="toastContainer"></div>
+<div class="log-hover-popup" id="logHoverPopup"></div>
 <div class="overlay" id="overlay"></div>
 <div class="drawer" id="drawer">
   <button class="drawer-close" id="closeDrawer">&#10005;</button>
