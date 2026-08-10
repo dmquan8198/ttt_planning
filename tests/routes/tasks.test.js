@@ -14,24 +14,30 @@ function makeTestPool() {
   return new Pool();
 }
 
+// migrations/001_init.sql seeds this as an admin — using it as the default
+// actor for these CRUD tests keeps them focused on task behavior rather
+// than on the separate permissions feature (see tests/routes/permissions.test.js).
+const ADMIN = 'quan.dang1';
+function asAdmin(req) {
+  return req.set('X-Actor-Name', encodeURIComponent(ADMIN));
+}
+
 test('POST /api/tasks rejects a task missing required fields', async () => {
   const app = createApp(makeTestPool());
-  const res = await request(app).post('/api/tasks').send({ name: 'Only a name' });
+  const res = await asAdmin(request(app).post('/api/tasks')).send({ name: 'Only a name' });
   assert.equal(res.status, 400);
 });
 
 test('POST /api/tasks rejects an invalid status', async () => {
   const app = createApp(makeTestPool());
-  const res = await request(app)
-    .post('/api/tasks')
+  const res = await asAdmin(request(app).post('/api/tasks'))
     .send({ name: 'Task A', category: 'Product Foundation', platform: 'Web', status: 'not-a-status' });
   assert.equal(res.status, 400);
 });
 
 test('POST /api/tasks rejects a task missing start_date/due_date', async () => {
   const app = createApp(makeTestPool());
-  const res = await request(app)
-    .post('/api/tasks')
+  const res = await asAdmin(request(app).post('/api/tasks'))
     .send({ name: 'Task A', category: 'Product Foundation', platform: 'Web' });
   assert.equal(res.status, 400);
 });
@@ -39,8 +45,7 @@ test('POST /api/tasks rejects a task missing start_date/due_date', async () => {
 test('full CRUD lifecycle: create, list, update, delete', async () => {
   const app = createApp(makeTestPool());
 
-  const created = await request(app)
-    .post('/api/tasks')
+  const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
       name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
       start_date: '2026-08-05', due_date: '2026-08-10'
@@ -52,8 +57,7 @@ test('full CRUD lifecycle: create, list, update, delete', async () => {
   assert.equal(listed.status, 200);
   assert.equal(listed.body.length, 1);
 
-  const updated = await request(app)
-    .put(`/api/tasks/${id}`)
+  const updated = await asAdmin(request(app).put(`/api/tasks/${id}`))
     .send({
       name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '4.done',
       start_date: '2026-08-05', due_date: '2026-08-10'
@@ -61,7 +65,7 @@ test('full CRUD lifecycle: create, list, update, delete', async () => {
   assert.equal(updated.status, 200);
   assert.equal(updated.body.status, '4.done');
 
-  const deleted = await request(app).delete(`/api/tasks/${id}`);
+  const deleted = await asAdmin(request(app).delete(`/api/tasks/${id}`));
   assert.equal(deleted.status, 204);
 
   const listedAfter = await request(app).get('/api/tasks');
@@ -70,8 +74,7 @@ test('full CRUD lifecycle: create, list, update, delete', async () => {
 
 test('PUT persists stt when given (Timeline drag-to-reorder relies on this) — full-replace, so every caller must pass the task\'s current stt or it clears', async () => {
   const app = createApp(makeTestPool());
-  const created = await request(app)
-    .post('/api/tasks')
+  const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web', stt: 5,
       start_date: '2026-08-05', due_date: '2026-08-10'
@@ -79,8 +82,7 @@ test('PUT persists stt when given (Timeline drag-to-reorder relies on this) — 
   const id = created.body.id;
   assert.equal(created.body.stt, 5);
 
-  const movedTo9 = await request(app)
-    .put(`/api/tasks/${id}`)
+  const movedTo9 = await asAdmin(request(app).put(`/api/tasks/${id}`))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '0.backlog', stt: 9,
       start_date: '2026-08-05', due_date: '2026-08-10'
@@ -90,8 +92,7 @@ test('PUT persists stt when given (Timeline drag-to-reorder relies on this) — 
   // documents the full-replace contract: a PUT that omits stt clears it,
   // same as every other field here — this is exactly why every frontend
   // mutation call site must pass the task's current stt through explicitly
-  const statusOnlyChange = await request(app)
-    .put(`/api/tasks/${id}`)
+  const statusOnlyChange = await asAdmin(request(app).put(`/api/tasks/${id}`))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
       start_date: '2026-08-05', due_date: '2026-08-10'
@@ -101,8 +102,7 @@ test('PUT persists stt when given (Timeline drag-to-reorder relies on this) — 
 
 test('PUT on a non-existent task returns 404', async () => {
   const app = createApp(makeTestPool());
-  const res = await request(app)
-    .put('/api/tasks/999')
+  const res = await asAdmin(request(app).put('/api/tasks/999'))
     .send({
       name: 'X', category: 'Product Foundation', platform: 'Web', status: '0.backlog',
       start_date: '2026-08-05', due_date: '2026-08-10'
@@ -112,14 +112,12 @@ test('PUT on a non-existent task returns 404', async () => {
 
 test('PUT /api/tasks/:id rejects a request missing required fields', async () => {
   const app = createApp(makeTestPool());
-  const created = await request(app)
-    .post('/api/tasks')
+  const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web',
       start_date: '2026-08-05', due_date: '2026-08-10'
     });
-  const res = await request(app)
-    .put(`/api/tasks/${created.body.id}`)
+  const res = await asAdmin(request(app).put(`/api/tasks/${created.body.id}`))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web',
       start_date: '2026-08-05', due_date: '2026-08-10'
@@ -129,22 +127,19 @@ test('PUT /api/tasks/:id rejects a request missing required fields', async () =>
 
 test('PUT /api/tasks/:id rejects a request missing start_date/due_date', async () => {
   const app = createApp(makeTestPool());
-  const created = await request(app)
-    .post('/api/tasks')
+  const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web',
       start_date: '2026-08-05', due_date: '2026-08-10'
     });
-  const res = await request(app)
-    .put(`/api/tasks/${created.body.id}`)
+  const res = await asAdmin(request(app).put(`/api/tasks/${created.body.id}`))
     .send({ name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '0.backlog' }); // no dates
   assert.equal(res.status, 400);
 });
 
 test('PUT /api/tasks/:id with a non-numeric id returns 400', async () => {
   const app = createApp(makeTestPool());
-  const res = await request(app)
-    .put('/api/tasks/abc')
+  const res = await asAdmin(request(app).put('/api/tasks/abc'))
     .send({
       name: 'X', category: 'Product Foundation', platform: 'Web', status: '0.backlog',
       start_date: '2026-08-05', due_date: '2026-08-10'
@@ -154,8 +149,7 @@ test('PUT /api/tasks/:id with a non-numeric id returns 400', async () => {
 
 test('POST /api/tasks with a non-existent phase_id returns 400, not 500', async () => {
   const app = createApp(makeTestPool());
-  const res = await request(app)
-    .post('/api/tasks')
+  const res = await asAdmin(request(app).post('/api/tasks'))
     .send({
       name: 'X', category: 'Product Foundation', platform: 'Web', phase_id: 9999,
       start_date: '2026-08-05', due_date: '2026-08-10'
@@ -185,16 +179,14 @@ test('GET /api/tasks normalizes date fields to plain YYYY-MM-DD strings', async 
 
 test('PUT that changes start_date/due_date auto-records an activity log entry', async () => {
   const app = createApp(makeTestPool());
-  const created = await request(app)
-    .post('/api/tasks')
+  const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
       start_date: '2026-07-06', due_date: '2026-07-17'
     });
   const id = created.body.id;
 
-  await request(app)
-    .put(`/api/tasks/${id}`)
+  await asAdmin(request(app).put(`/api/tasks/${id}`))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
       start_date: '2026-07-15', due_date: '2026-07-26', date_overridden: true
@@ -202,13 +194,17 @@ test('PUT that changes start_date/due_date auto-records an activity log entry', 
 
   const logs = await request(app).get(`/api/tasks/${id}/logs`);
   assert.equal(logs.body.length, 1);
-  assert.equal(logs.body[0].note, 'Dịch ngày: 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
+  assert.equal(logs.body[0].note, 'Dịch ngày (quan.dang1): 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
 });
 
 test('PUT with an X-Actor-Name header attributes the date-change log entry to that name', async () => {
-  const app = createApp(makeTestPool());
-  const created = await request(app)
-    .post('/api/tasks')
+  const pool = makeTestPool();
+  // this test's whole point is the diacritic-encoding round-trip, so it
+  // deliberately uses a name outside the seeded fixed-list — give it an
+  // editor role locally so the new permission gate doesn't block the PUT.
+  await pool.query("INSERT INTO users (name, role) VALUES ('Quân', 'editor')");
+  const app = createApp(pool);
+  const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
       start_date: '2026-07-06', due_date: '2026-07-17'
@@ -232,16 +228,14 @@ test('PUT with an X-Actor-Name header attributes the date-change log entry to th
 
 test('PUT that leaves dates unchanged does not record an activity log entry', async () => {
   const app = createApp(makeTestPool());
-  const created = await request(app)
-    .post('/api/tasks')
+  const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
       start_date: '2026-07-06', due_date: '2026-07-17'
     });
   const id = created.body.id;
 
-  await request(app)
-    .put(`/api/tasks/${id}`)
+  await asAdmin(request(app).put(`/api/tasks/${id}`))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '2.in_test',
       start_date: '2026-07-06', due_date: '2026-07-17'

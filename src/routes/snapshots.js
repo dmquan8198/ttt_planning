@@ -3,6 +3,7 @@ const { asyncHandler } = require('../lib/asyncHandler');
 const { normalizeDate } = require('../lib/normalizeDate');
 const { getTodayVN } = require('../lib/today');
 const { computeSnapshotData } = require('../lib/computeSnapshotData');
+const { requireRole } = require('../lib/requireRole');
 
 async function loadPhasesAndTasks(pool) {
   const { rows: phasesRaw } = await pool.query(
@@ -35,7 +36,7 @@ function snapshotsRouter(pool) {
     res.json(rows.map((r) => ({ ...r, snapshot_date: normalizeDate(r.snapshot_date) })));
   }));
 
-  router.post('/', asyncHandler(async (req, res) => {
+  router.post('/', requireRole(pool, 'editor'), asyncHandler(async (req, res) => {
     const { phases, tasks } = await loadPhasesAndTasks(pool);
     const today = getTodayVN();
     const data = computeSnapshotData(phases, tasks, today);
@@ -47,7 +48,7 @@ function snapshotsRouter(pool) {
     res.status(201).json({ ...rows[0], snapshot_date: normalizeDate(rows[0].snapshot_date) });
   }));
 
-  router.delete('/:id', asyncHandler(async (req, res) => {
+  router.delete('/:id', requireRole(pool, 'admin'), asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) {
       return res.status(400).json({ error: 'id không hợp lệ' });

@@ -49,6 +49,25 @@ CREATE TABLE IF NOT EXISTS snapshots (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('admin','editor','viewer')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- seed the current fixed name list (see the login dropdown) with an
+-- initial role; ON CONFLICT DO NOTHING keeps this safe to re-run — it
+-- won't reset a role an admin later changed through the Users page.
+INSERT INTO users (name, role) VALUES
+  ('quan.dang1', 'admin'),
+  ('anh.nguyen80', 'editor'),
+  ('nghi.vo', 'editor'),
+  ('hung.le1', 'editor'),
+  ('uyen.ly', 'editor'),
+  ('toan.han', 'editor')
+ON CONFLICT (name) DO NOTHING;
+
 CREATE INDEX IF NOT EXISTS idx_tasks_phase ON tasks(phase_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_sprint ON tasks(sprint_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);

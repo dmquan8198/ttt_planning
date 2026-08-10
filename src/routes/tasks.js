@@ -4,6 +4,7 @@ const { normalizeDate } = require('../lib/normalizeDate');
 const { asyncHandler } = require('../lib/asyncHandler');
 const { isForeignKeyViolation } = require('../lib/dbErrors');
 const { buildDateChangeNote } = require('../lib/dateChangeNote');
+const { requireRole } = require('../lib/requireRole');
 
 function normalizeTaskDates(t) {
   return {
@@ -30,7 +31,7 @@ function tasksRouter(pool) {
     res.json(rows.map(normalizeTaskDates));
   }));
 
-  router.post('/', asyncHandler(async (req, res) => {
+  router.post('/', requireRole(pool, 'editor'), asyncHandler(async (req, res) => {
     const b = req.body;
     if (!b.name || !b.category || !b.platform || !b.start_date || !b.due_date) {
       return res.status(400).json({ error: 'name, category, platform, start_date, due_date là bắt buộc' });
@@ -60,7 +61,7 @@ function tasksRouter(pool) {
     }
   }));
 
-  router.put('/:id', asyncHandler(async (req, res) => {
+  router.put('/:id', requireRole(pool, 'editor'), asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) {
       return res.status(400).json({ error: 'id không hợp lệ' });
@@ -119,7 +120,7 @@ function tasksRouter(pool) {
     }
   }));
 
-  router.delete('/:id', asyncHandler(async (req, res) => {
+  router.delete('/:id', requireRole(pool, 'admin'), asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) {
       return res.status(400).json({ error: 'id không hợp lệ' });

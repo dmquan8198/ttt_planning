@@ -7,6 +7,7 @@ const logsRouter = require('./routes/logs');
 const allLogsRouter = require('./routes/allLogs');
 const authRouter = require('./routes/auth');
 const snapshotsRouter = require('./routes/snapshots');
+const usersRouter = require('./routes/users');
 
 function createApp(pool) {
   const app = express();
@@ -35,7 +36,7 @@ function createApp(pool) {
 
   app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-  app.use('/api', authRouter());
+  app.use('/api', authRouter(pool));
 
   app.use('/api/phases', phasesRouter(pool));
 
@@ -46,6 +47,8 @@ function createApp(pool) {
   app.use('/api/logs', allLogsRouter(pool));
 
   app.use('/api/snapshots', snapshotsRouter(pool));
+
+  app.use('/api/users', usersRouter(pool));
 
   app.use('/api/tasks', tasksRouter(pool));
 

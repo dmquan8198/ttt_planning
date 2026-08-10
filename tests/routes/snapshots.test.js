@@ -25,6 +25,12 @@ async function seedPhaseAndTask(pool) {
   return phase;
 }
 
+// migrations/001_init.sql seeds this as an admin.
+const ADMIN = 'quan.dang1';
+function asAdmin(req) {
+  return req.set('X-Actor-Name', encodeURIComponent(ADMIN));
+}
+
 test('GET /api/snapshots/current computes without persisting anything', async () => {
   const pool = makeTestPool();
   await seedPhaseAndTask(pool);
@@ -42,6 +48,10 @@ test('GET /api/snapshots/current computes without persisting anything', async ()
 test('POST /api/snapshots persists a snapshot and attributes the actor', async () => {
   const pool = makeTestPool();
   await seedPhaseAndTask(pool);
+  // this test's point is the diacritic-encoding round-trip, so it
+  // deliberately uses a name outside the seeded fixed-list — give it an
+  // editor role locally so the new permission gate doesn't block the POST.
+  await pool.query("INSERT INTO users (name, role) VALUES ('Quân', 'editor')");
   const app = createApp(pool);
 
   const created = await request(app)
@@ -57,14 +67,16 @@ test('POST /api/snapshots persists a snapshot and attributes the actor', async (
   assert.equal(list.body[0].id, created.body.id);
 });
 
-test('POST /api/snapshots without an actor header still saves (actor_name null)', async () => {
+test('POST /api/snapshots without an actor header is rejected (deny-by-default)', async () => {
   const pool = makeTestPool();
   await seedPhaseAndTask(pool);
   const app = createApp(pool);
 
   const created = await request(app).post('/api/snapshots').send({});
-  assert.equal(created.status, 201);
-  assert.equal(created.body.actor_name, null);
+  assert.equal(created.status, 403);
+
+  const list = await request(app).get('/api/snapshots');
+  assert.equal(list.body.length, 0);
 });
 
 test('GET /api/snapshots lists newest first', async () => {
@@ -72,8 +84,8 @@ test('GET /api/snapshots lists newest first', async () => {
   await seedPhaseAndTask(pool);
   const app = createApp(pool);
 
-  const first = await request(app).post('/api/snapshots').send({});
-  const second = await request(app).post('/api/snapshots').send({});
+  const first = await asAdmin(request(app).post('/api/snapshots')).send({});
+  const second = await asAdmin(request(app).post('/api/snapshots')).send({});
 
   const list = await request(app).get('/api/snapshots');
   assert.equal(list.body[0].id, second.body.id);
@@ -85,8 +97,8 @@ test('DELETE /api/snapshots/:id removes it', async () => {
   await seedPhaseAndTask(pool);
   const app = createApp(pool);
 
-  const created = await request(app).post('/api/snapshots').send({});
-  const deleted = await request(app).delete(`/api/snapshots/${created.body.id}`);
+  const created = await asAdmin(request(app).post('/api/snapshots')).send({});
+  const deleted = await asAdmin(request(app).delete(`/api/snapshots/${created.body.id}`));
   assert.equal(deleted.status, 204);
 
   const list = await request(app).get('/api/snapshots');
@@ -96,13 +108,13 @@ test('DELETE /api/snapshots/:id removes it', async () => {
 test('DELETE /api/snapshots/:id on a non-existent id returns 404', async () => {
   const pool = makeTestPool();
   const app = createApp(pool);
-  const res = await request(app).delete('/api/snapshots/999');
+  const res = await asAdmin(request(app).delete('/api/snapshots/999'));
   assert.equal(res.status, 404);
 });
 
 test('DELETE /api/snapshots/:id with a non-numeric id returns 400', async () => {
   const pool = makeTestPool();
   const app = createApp(pool);
-  const res = await request(app).delete('/api/snapshots/abc');
+  const res = await asAdmin(request(app).delete('/api/snapshots/abc'));
   assert.equal(res.status, 400);
 });

@@ -6,4 +6,10 @@ function isForeignKeyViolation(err) {
   return err.code === '23503' || /violates foreign key constraint/.test(err.message || '');
 }
 
-module.exports = { isForeignKeyViolation };
+// same real-Postgres-vs-pg-mem caveat as isForeignKeyViolation above:
+// SQLSTATE '23505' on real Postgres, message-text fallback for pg-mem.
+function isUniqueViolation(err) {
+  return err.code === '23505' || /duplicate key value violates unique constraint/.test(err.message || '');
+}
+
+module.exports = { isForeignKeyViolation, isUniqueViolation };

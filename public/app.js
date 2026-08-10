@@ -29,6 +29,16 @@ var statusLabel = {0:'0. Backlog', 1:'1. Ready for Dev', 2:'2. In Dev', 3:'3. Re
 var STATUS_ORDER = ['0.backlog', '1.ready_for_dev', '2.in_test', '3.ready_for_staging', '4.done'];
 function statusDotToNum(status){ return STATUS_ORDER.indexOf(status); }
 
+// ---- light/dark theme toggle: persists the viewer's explicit choice in
+// localStorage; a tiny inline script in <head> (index.html) applies it
+// before first paint so there's no flash of the wrong theme. ----
+var THEME_KEY = 'ttt_theme';
+document.getElementById('themeToggle').addEventListener('click', function(){
+  var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem(THEME_KEY, next);
+});
+
 function escapeHtml(str){
   if (str === null || str === undefined) return '';
   return String(str).replace(/[&<>"']/g, function(c){
@@ -174,21 +184,34 @@ function openDrawer(mode, t){
   editingTaskWasOverridden = false;
   editingTaskStt = null;
 
+  // viewer: read-only (no save/delete, no adding a note, fields disabled) —
+  // still allowed to open the drawer and look, since "chỉ xem" means read
+  // access, not no access. editor: can save but not delete.
+  var canEdit = hasRole('editor');
+  var canDelete = hasRole('admin');
+
   document.getElementById('drawerTitle').textContent = isEdit ? 'Sửa nghiệp vụ' : 'Nghiệp vụ mới';
   document.getElementById('drawerSub').textContent = isEdit
     ? 'Cập nhật thông tin cho nghiệp vụ này'
     : 'Các trường giữ nguyên như sheet Nghiệp vụ hiện tại';
+  document.getElementById('saveBtn').style.display = canEdit ? '' : 'none';
   document.getElementById('saveBtn').textContent = isEdit ? 'Lưu thay đổi' : 'Lưu nghiệp vụ';
   document.getElementById('saveBtn').disabled = false;
-  document.getElementById('deleteBtn').style.display = isEdit ? 'block' : 'none';
+  document.getElementById('deleteBtn').style.display = (isEdit && canDelete) ? 'block' : 'none';
   document.getElementById('deleteBtn').textContent = 'Xoá nghiệp vụ';
   document.getElementById('deleteBtn').disabled = false;
   document.getElementById('logField').style.display = isEdit ? 'block' : 'none';
+  document.getElementById('f-newlog').style.display = canEdit ? '' : 'none';
+  document.getElementById('addLogBtn').style.display = canEdit ? '' : 'none';
   document.getElementById('f-notes').value = '';
   document.getElementById('f-newlog').value = '';
   document.getElementById('addLogBtn').textContent = 'Thêm';
   document.getElementById('addLogBtn').disabled = false;
   manualDateEdit = false;
+
+  ['f-cat', 'f-cat-new', 'f-name', 'f-platform', 'f-phase', 'f-sprint', 'f-status', 'f-start', 'f-due', 'f-notes'].forEach(function(id){
+    document.getElementById(id).disabled = !canEdit;
+  });
 
   overlay.classList.add('show'); drawer.classList.add('show');
 
@@ -290,8 +313,21 @@ function fetchJSON(url){
 // checked once client-side then remembered in localStorage; anyone reading
 // the page source or calling the API directly can bypass it entirely. ----
 var ACTOR_NAME_KEY = 'ttt_actor_name';
+var ACTOR_ROLE_KEY = 'ttt_actor_role';
 var LOGGED_IN_KEY = 'ttt_logged_in';
 function getActorName(){ return localStorage.getItem(ACTOR_NAME_KEY) || ''; }
+// safest default if a role was never stored (e.g. an older session from
+// before roles existed) — deny-by-default, matching the server's own
+// requireRole fallback for an unrecognized actor.
+function getActorRole(){ return localStorage.getItem(ACTOR_ROLE_KEY) || 'viewer'; }
+var ROLE_LEVEL = { viewer: 0, editor: 1, admin: 2 };
+// mirrors src/lib/roles.js's roleAtLeast — this is ONLY for showing/hiding
+// controls; the server re-checks the real role on every mutating request,
+// since a client-side check can't actually stop anyone.
+function hasRole(minRole){
+  var level = ROLE_LEVEL[getActorRole()];
+  return level !== undefined && level >= ROLE_LEVEL[minRole];
+}
 function authFetch(url, options){
   options = options || {};
   // HTTP headers aren't reliably UTF-8 transparent (Node decodes them as
@@ -300,6 +336,54 @@ function authFetch(url, options){
   options.headers = Object.assign({}, options.headers, { 'X-Actor-Name': encodeURIComponent(getActorName()) });
   return fetch(url, options);
 }
+
+// show/hide the controls a role can't use — hides "+ Nghiệp vụ mới" and the
+// Users nav item (admin only). Board/Timeline/Sprint/snapshots render at
+// page load, BEFORE login finishes (the overlay just covers them visually,
+// it doesn't block that background rendering) — at that point the role is
+// still the pre-login default ('viewer'), so their drag handles/buttons
+// would be stuck looking read-only for a real editor/admin unless
+// something re-renders them once the actual role is known. refreshAllViews
+// is a hoisted function declaration (defined further down), so calling it
+// here — even though this runs earlier in the file — is safe.
+// re-fetches the current actor's role from the server rather than trusting
+// whatever's cached in localStorage — covers both a session left open from
+// before roles existed (no cached role at all) and an admin changing
+// someone's role while they're still logged in from an earlier page load.
+function refreshActorRole(){
+  var name = getActorName();
+  if (!name) return Promise.resolve();
+  return fetchJSON('/api/users').then(function(users){
+    var match = users.filter(function(u){ return u.name === name; })[0];
+    localStorage.setItem(ACTOR_ROLE_KEY, match ? match.role : 'viewer');
+  }).catch(function(err){
+    console.error('Failed to refresh actor role', err);
+  });
+}
+
+function applyRoleUI(){
+  document.getElementById('openDrawer').style.display = hasRole('editor') ? '' : 'none';
+  document.getElementById('navUsers').style.display = hasRole('admin') ? '' : 'none';
+  var captureBtn = document.getElementById('captureSnapshotBtn');
+  if (captureBtn) captureBtn.style.display = hasRole('editor') ? '' : 'none';
+  if (typeof refreshAllViews === 'function') refreshAllViews();
+}
+
+// populate the login dropdown from the real user list so anyone an admin
+// adds via the Users page can actually log in — keeps the 6 hardcoded
+// options as a fallback (in case this fetch fails, e.g. a Neon cold start)
+// and only adds names not already present, rather than replacing them.
+fetchJSON('/api/users').then(function(users){
+  var sel = document.getElementById('login-name');
+  var existing = Array.from(sel.options).map(function(o){ return o.value; });
+  users.forEach(function(u){
+    if (existing.indexOf(u.name) === -1){
+      var opt = document.createElement('option');
+      opt.value = u.name; opt.textContent = u.name;
+      sel.appendChild(opt);
+    }
+  });
+}).catch(function(err){ console.error('Failed to load users for login dropdown', err); });
 
 (function initLogin(){
   var overlay = document.getElementById('loginOverlay');
@@ -312,6 +396,7 @@ function authFetch(url, options){
 
   if (localStorage.getItem(LOGGED_IN_KEY) === '1' && getActorName()){
     overlay.style.display = 'none';
+    refreshActorRole().then(applyRoleUI);
     return;
   }
 
@@ -337,8 +422,10 @@ function authFetch(url, options){
         return;
       }
       localStorage.setItem(ACTOR_NAME_KEY, name);
+      localStorage.setItem(ACTOR_ROLE_KEY, result.body.role || 'viewer');
       localStorage.setItem(LOGGED_IN_KEY, '1');
       overlay.style.display = 'none';
+      applyRoleUI();
     }).catch(function(err){
       showError('Lỗi kết nối: ' + err.message);
     });
@@ -671,8 +758,8 @@ function renderSprintOverviewTable(sprints, tasks, currentSprintId, nextSprintId
           var chip = document.createElement('span');
           chip.className = 'sprint-overview-task-chip st-' + n;
           chip.textContent = t.name;
-          chip.title = t.name + ' · kéo để đổi sprint';
-          chip.draggable = true;
+          chip.title = hasRole('editor') ? (t.name + ' · kéo để đổi sprint') : t.name;
+          chip.draggable = hasRole('editor');
           chip.addEventListener('click', function(){ openDrawer('edit', t); });
           chip.addEventListener('dragstart', function(e){
             _draggingSprintOverviewTaskId = t.id;
@@ -985,11 +1072,12 @@ function renderSnapshotList(){
     return;
   }
   var card = document.createElement('div'); card.className = 'risk-group';
+  var canDelete = hasRole('admin');
   _snapshotList.forEach(function(s){
     var row = document.createElement('div'); row.className = 'risk-task';
     row.innerHTML =
       '<div class="risk-task-name">' + fmtDateTime(s.created_at) + (s.actor_name ? ' — ' + escapeHtml(s.actor_name) : '') + '</div>' +
-      '<div class="risk-task-meta"><button type="button" class="chip snapshot-delete-btn" data-id="' + s.id + '">Xoá</button></div>';
+      '<div class="risk-task-meta">' + (canDelete ? '<button type="button" class="chip snapshot-delete-btn" data-id="' + s.id + '">Xoá</button>' : '') + '</div>';
     card.appendChild(row);
   });
   wrap.appendChild(card);
@@ -1031,6 +1119,99 @@ document.getElementById('captureSnapshotBtn').addEventListener('click', function
     })
     .finally(function(){ btn.disabled = false; });
 });
+
+// ---- users & permissions (admin only) — the view itself is hidden for
+// non-admins via applyRoleUI(), and every write here is re-checked
+// server-side by requireRole regardless of what the client shows. ----
+var ROLE_OPTIONS = ['viewer', 'editor', 'admin'];
+var ROLE_DISPLAY = { viewer: 'Viewer', editor: 'Editor', admin: 'Admin' };
+
+function renderUsersList(users){
+  var wrap = document.getElementById('usersListWrap');
+  wrap.innerHTML = '';
+  if (users.length === 0){
+    wrap.innerHTML = '<div class="view-sub">Chưa có user nào.</div>';
+    return;
+  }
+  var card = document.createElement('div'); card.className = 'risk-group';
+  users.forEach(function(u){
+    var row = document.createElement('div'); row.className = 'risk-task';
+    var nameEl = document.createElement('div'); nameEl.className = 'risk-task-name';
+    nameEl.textContent = u.name;
+    row.appendChild(nameEl);
+
+    var meta = document.createElement('div'); meta.className = 'risk-task-meta';
+    var roleSelect = document.createElement('select');
+    ROLE_OPTIONS.forEach(function(r){
+      var opt = document.createElement('option');
+      opt.value = r; opt.textContent = ROLE_DISPLAY[r];
+      if (r === u.role) opt.selected = true;
+      roleSelect.appendChild(opt);
+    });
+    roleSelect.addEventListener('change', function(){
+      var newRole = roleSelect.value;
+      authFetch('/api/users/' + u.id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole })
+      }).then(function(res){
+        if (!res.ok){
+          return res.json().catch(function(){ return {}; }).then(function(errBody){
+            throw new Error(errBody.error || ('HTTP ' + res.status));
+          });
+        }
+        u.role = newRole;
+        toastSuccess('Đã đổi quyền của "' + u.name + '" thành ' + ROLE_DISPLAY[newRole]);
+      }).catch(function(err){
+        console.error('Failed to change role', err);
+        toastError('Không đổi được quyền: ' + err.message);
+        roleSelect.value = u.role; // revert the select to the last known-good role
+      });
+    });
+    meta.appendChild(roleSelect);
+    row.appendChild(meta);
+    card.appendChild(row);
+  });
+  wrap.appendChild(card);
+}
+
+function loadUsersView(){
+  return fetchJSON('/api/users').then(renderUsersList).catch(function(err){
+    console.error('Failed to load users', err);
+    document.getElementById('usersListWrap').innerHTML = '<div class="view-sub">Không tải được danh sách user.</div>';
+  });
+}
+
+document.getElementById('addUserBtn').addEventListener('click', function(){
+  var nameInput = document.getElementById('newUserName');
+  var name = nameInput.value.trim();
+  var role = document.getElementById('newUserRole').value;
+  if (!name){
+    toastError('Vui lòng nhập tên đăng nhập.');
+    return;
+  }
+  authFetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, role: role })
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+    return res.json();
+  }).then(function(){
+    nameInput.value = '';
+    toastSuccess('Đã thêm user "' + name + '"');
+    return loadUsersView();
+  }).catch(function(err){
+    console.error('Failed to add user', err);
+    toastError('Không thêm được user: ' + err.message);
+  });
+});
+
+loadUsersView();
 
 document.getElementById('snapshotCompareSelect').addEventListener('change', function(){
   _snapshotCompareId = this.value;
@@ -1371,6 +1552,7 @@ function renderGantt(tasks, sprints, phases){
   // axis scale as the bars themselves, live-previews the bar during the drag,
   // and on drop persists the new start/due via updateTaskDates().
   function startBarDrag(mode, downEvent, task, barEl, trackEl, origStart, origEnd, markDragged){
+    if (!hasRole('editor')) return; // viewer: read-only, ignore the drag entirely
     var startX = downEvent.clientX;
     var trackWidth = trackEl.getBoundingClientRect().width;
     var msPerDay = 24 * 60 * 60 * 1000;
@@ -1482,8 +1664,8 @@ function renderGantt(tasks, sprints, phases){
       row.setAttribute('data-task-id', t.id);
       var label = document.createElement('div'); label.className = 'task-label';
       label.textContent = t.name;
-      label.draggable = true;
-      label.title = 'Bấm để sửa · Kéo để chuyển nhóm hoặc đổi vị trí';
+      label.draggable = hasRole('editor');
+      label.title = hasRole('editor') ? 'Bấm để sửa · Kéo để chuyển nhóm hoặc đổi vị trí' : 'Bấm để xem';
       label.addEventListener('dragstart', function(e){
         _draggingTimelineTaskId = t.id;
         row.classList.add('row-dragging');
@@ -1541,6 +1723,7 @@ function renderGantt(tasks, sprints, phases){
       bar.style.left = left + '%';
       bar.style.width = width + '%';
       bar.title = t.name + ' · ' + durationText + (t.sprint_code ? ' · ' + t.sprint_code : '');
+      if (!hasRole('editor')) bar.style.cursor = 'pointer';
 
       var durationLabel = document.createElement('span'); durationLabel.className = 'bar-duration';
       durationLabel.textContent = durationText;
@@ -1548,8 +1731,10 @@ function renderGantt(tasks, sprints, phases){
 
       var handleL = document.createElement('div'); handleL.className = 'bar-handle bar-handle-l';
       var handleR = document.createElement('div'); handleR.className = 'bar-handle bar-handle-r';
-      bar.appendChild(handleL);
-      bar.appendChild(handleR);
+      if (hasRole('editor')){
+        bar.appendChild(handleL);
+        bar.appendChild(handleR);
+      }
 
       var dragMoved = false;
       function markDragged(){ dragMoved = true; }
@@ -1716,7 +1901,7 @@ function renderBoard(tasks){
     head.innerHTML = '<span class="pill st-' + idx + '">' + escapeHtml(label) + '</span><span class="col-count">' + tasksInCol.length + '</span>';
     col.appendChild(head);
     tasksInCol.forEach(function(t){
-      var card = document.createElement('div'); card.className = 'card'; card.draggable = true;
+      var card = document.createElement('div'); card.className = 'card'; card.draggable = hasRole('editor');
       card.setAttribute('data-task-id', t.id);
       var sprintTag = t.sprint_code ? '<span class="tag tag-sprint">' + escapeHtml(t.sprint_code) + '</span>' : '';
       card.innerHTML = escapeHtml(t.name) +

@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { asyncHandler } = require('../lib/asyncHandler');
 const { isForeignKeyViolation } = require('../lib/dbErrors');
+const { requireRole } = require('../lib/requireRole');
 
 function logsRouter(pool) {
   const router = Router({ mergeParams: true });
@@ -17,7 +18,7 @@ function logsRouter(pool) {
     res.json(rows);
   }));
 
-  router.post('/', asyncHandler(async (req, res) => {
+  router.post('/', requireRole(pool, 'editor'), asyncHandler(async (req, res) => {
     const taskId = Number(req.params.taskId);
     if (!Number.isInteger(taskId)) {
       return res.status(400).json({ error: 'taskId không hợp lệ' });

@@ -14,6 +14,12 @@ function makeTestPool() {
   return new Pool();
 }
 
+// migrations/001_init.sql seeds this as an admin.
+const ADMIN = 'quan.dang1';
+function asAdmin(req) {
+  return req.set('X-Actor-Name', encodeURIComponent(ADMIN));
+}
+
 test('POST then GET activity log entries for a task', async () => {
   const pool = makeTestPool();
   const created = await pool.query(
@@ -22,19 +28,22 @@ test('POST then GET activity log entries for a task', async () => {
   const taskId = created.rows[0].id;
   const app = createApp(pool);
 
-  const post = await request(app)
-    .post(`/api/tasks/${taskId}/logs`)
+  const post = await asAdmin(request(app).post(`/api/tasks/${taskId}/logs`))
     .send({ note: 'Chuyển sang Ready for Dev, giao cho BE.' });
   assert.equal(post.status, 201);
 
   const list = await request(app).get(`/api/tasks/${taskId}/logs`);
   assert.equal(list.status, 200);
   assert.equal(list.body.length, 1);
-  assert.equal(list.body[0].note, 'Chuyển sang Ready for Dev, giao cho BE.');
+  assert.equal(list.body[0].note, 'Chuyển sang Ready for Dev, giao cho BE. — quan.dang1');
 });
 
 test('POST with an X-Actor-Name header appends " — <name>" to the note', async () => {
   const pool = makeTestPool();
+  // this test's point is the diacritic-encoding round-trip, so it
+  // deliberately uses a name outside the seeded fixed-list — give it an
+  // editor role locally so the new permission gate doesn't block the POST.
+  await pool.query("INSERT INTO users (name, role) VALUES ('Quân', 'editor')");
   const created = await pool.query(
     "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Task A','Web','2026-08-05','2026-08-10') RETURNING id"
   );
@@ -55,8 +64,7 @@ test('POST rejects an empty note', async () => {
     "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Task A','Web','2026-08-05','2026-08-10') RETURNING id"
   );
   const app = createApp(pool);
-  const res = await request(app)
-    .post(`/api/tasks/${created.rows[0].id}/logs`)
+  const res = await asAdmin(request(app).post(`/api/tasks/${created.rows[0].id}/logs`))
     .send({ note: '   ' });
   assert.equal(res.status, 400);
 });
@@ -69,7 +77,7 @@ test('GET logs for a non-numeric taskId returns 400', async () => {
 
 test('POST a log for a non-existent taskId returns 400 (foreign key violation), not 500', async () => {
   const app = createApp(makeTestPool());
-  const res = await request(app).post('/api/tasks/9999/logs').send({ note: 'test' });
+  const res = await asAdmin(request(app).post('/api/tasks/9999/logs')).send({ note: 'test' });
   assert.equal(res.status, 400);
 });
 
@@ -81,8 +89,8 @@ test('deleting a task cascades to delete its activity logs', async () => {
   const taskId = created.rows[0].id;
   const app = createApp(pool);
 
-  await request(app).post(`/api/tasks/${taskId}/logs`).send({ note: 'A log entry' });
-  await request(app).delete(`/api/tasks/${taskId}`);
+  await asAdmin(request(app).post(`/api/tasks/${taskId}/logs`)).send({ note: 'A log entry' });
+  await asAdmin(request(app).delete(`/api/tasks/${taskId}`));
 
   const { rows } = await pool.query('SELECT * FROM activity_logs WHERE task_id = $1', [taskId]);
   assert.equal(rows.length, 0);

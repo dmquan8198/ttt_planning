@@ -14,11 +14,20 @@ function makeTestPool() {
   return new Pool();
 }
 
-test('POST /api/login accepts the correct password and returns the name', async () => {
+test('POST /api/login accepts the correct password and returns the name and role', async () => {
   const app = createApp(makeTestPool());
   const res = await request(app).post('/api/login').send({ name: 'Quân', password: 'tuithantai' });
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, { ok: true, name: 'Quân' });
+  // 'Quân' isn't one of the seeded fixed-list names, so it has no row in
+  // users — defaults to 'viewer' (deny-by-default), not an error.
+  assert.deepEqual(res.body, { ok: true, name: 'Quân', role: 'viewer' });
+});
+
+test('POST /api/login returns the seeded role for a known name', async () => {
+  const app = createApp(makeTestPool());
+  const res = await request(app).post('/api/login').send({ name: 'quan.dang1', password: 'tuithantai' });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { ok: true, name: 'quan.dang1', role: 'admin' });
 });
 
 test('POST /api/login rejects a wrong password', async () => {
