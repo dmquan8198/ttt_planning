@@ -22,7 +22,7 @@ document.querySelectorAll('.nav-item').forEach(function(el){
 
 // ---- drawer: shared by "create" and "edit" ----
 var overlay = document.getElementById('overlay'), drawer = document.getElementById('drawer');
-var statusLabel = {0:'0. Backlog', 1:'1. Ready for Dev', 2:'2. In Dev', 3:'3. Ready for Staging', 4:'4. Done'};
+var statusLabel = {0:'0. Backlog', 1:'1. Ready for Dev', 2:'2. In Dev', 3:'3. Done UAT', 4:'4. Done'};
 
 // dotted status string (from the real API) -> numeric suffix used by the
 // existing .pill.st-N / .bar.st-N CSS classes and the statusLabel map above.
@@ -307,15 +307,19 @@ function fetchJSON(url){
   });
 }
 
-// ---- who's making the change: sent as a header on every mutating request so
-// the backend can attribute activity-log entries to a name, not just "someone".
-// This is a soft accountability gate, not real security — the password is
-// checked once client-side then remembered in localStorage; anyone reading
-// the page source or calling the API directly can bypass it entirely. ----
+// ---- who's making the change: sent as headers on every mutating request so
+// the backend can attribute activity-log entries to a display name, and look
+// up the actor's role by their verified Google email. This is a soft
+// accountability gate, not real security — Google sign-in only happens once
+// at login, then the email is just remembered in localStorage; anyone
+// reading the page source or calling the API directly can bypass it
+// entirely by sending whatever header they want. ----
 var ACTOR_NAME_KEY = 'ttt_actor_name';
+var ACTOR_EMAIL_KEY = 'ttt_actor_email';
 var ACTOR_ROLE_KEY = 'ttt_actor_role';
 var LOGGED_IN_KEY = 'ttt_logged_in';
 function getActorName(){ return localStorage.getItem(ACTOR_NAME_KEY) || ''; }
+function getActorEmail(){ return localStorage.getItem(ACTOR_EMAIL_KEY) || ''; }
 // safest default if a role was never stored (e.g. an older session from
 // before roles existed) — deny-by-default, matching the server's own
 // requireRole fallback for an unrecognized actor.
@@ -334,7 +338,10 @@ function authFetch(url, options){
   // HTTP headers aren't reliably UTF-8 transparent (Node decodes them as
   // latin1), so a name with Vietnamese diacritics would arrive mangled —
   // percent-encode it here, decoded server-side in src/app.js.
-  options.headers = Object.assign({}, options.headers, { 'X-Actor-Name': encodeURIComponent(getActorName()) });
+  options.headers = Object.assign({}, options.headers, {
+    'X-Actor-Name': encodeURIComponent(getActorName()),
+    'X-Actor-Email': encodeURIComponent(getActorEmail())
+  });
   return fetch(url, options);
 }
 
@@ -352,10 +359,10 @@ function authFetch(url, options){
 // before roles existed (no cached role at all) and an admin changing
 // someone's role while they're still logged in from an earlier page load.
 function refreshActorRole(){
-  var name = getActorName();
-  if (!name) return Promise.resolve();
+  var email = getActorEmail();
+  if (!email) return Promise.resolve();
   return fetchJSON('/api/users').then(function(users){
-    var match = users.filter(function(u){ return u.name === name; })[0];
+    var match = users.filter(function(u){ return u.email === email; })[0];
     localStorage.setItem(ACTOR_ROLE_KEY, match ? match.role : 'viewer');
   }).catch(function(err){
     console.error('Failed to refresh actor role', err);
@@ -374,27 +381,18 @@ function applyRoleUI(){
 
 function logout(){
   localStorage.removeItem(ACTOR_NAME_KEY);
+  localStorage.removeItem(ACTOR_EMAIL_KEY);
   localStorage.removeItem(ACTOR_ROLE_KEY);
   localStorage.removeItem(LOGGED_IN_KEY);
+  // otherwise Google's "One Tap" auto-select can silently sign the same
+  // browser profile straight back in on the next page load, defeating the
+  // point of an explicit logout.
+  if (window.google && window.google.accounts && window.google.accounts.id){
+    window.google.accounts.id.disableAutoSelect();
+  }
   location.reload();
 }
 document.getElementById('logoutBtn').addEventListener('click', logout);
-
-// populate the login dropdown from the real user list so anyone an admin
-// adds via the Users page can actually log in — keeps the 6 hardcoded
-// options as a fallback (in case this fetch fails, e.g. a Neon cold start)
-// and only adds names not already present, rather than replacing them.
-fetchJSON('/api/users').then(function(users){
-  var sel = document.getElementById('login-name');
-  var existing = Array.from(sel.options).map(function(o){ return o.value; });
-  users.forEach(function(u){
-    if (existing.indexOf(u.name) === -1){
-      var opt = document.createElement('option');
-      opt.value = u.name; opt.textContent = u.name;
-      sel.appendChild(opt);
-    }
-  });
-}).catch(function(err){ console.error('Failed to load users for login dropdown', err); });
 
 (function initLogin(){
   var overlay = document.getElementById('loginOverlay');
@@ -405,26 +403,22 @@ fetchJSON('/api/users').then(function(users){
     errEl.style.display = 'block';
   }
 
-  if (localStorage.getItem(LOGGED_IN_KEY) === '1' && getActorName()){
+  if (localStorage.getItem(LOGGED_IN_KEY) === '1' && getActorEmail()){
     overlay.style.display = 'none';
     refreshActorRole().then(applyRoleUI);
     return;
   }
 
-  document.getElementById('login-name').focus();
-
-  document.getElementById('loginBtn').addEventListener('click', function(){
-    var name = document.getElementById('login-name').value.trim();
-    var password = document.getElementById('login-password').value;
+  // the verified email is what actually matters (role lookup, log
+  // attribution security); the display name is Google's own name for
+  // that account, used only to make logs/toasts read like a person, not
+  // an email address.
+  function handleGoogleCredential(response){
     errEl.style.display = 'none';
-    if (!name || !password){
-      showError('Vui lòng nhập đầy đủ Tên và Password.');
-      return;
-    }
-    fetch('/api/login', {
+    fetch('/api/auth/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, password: password })
+      body: JSON.stringify({ credential: response.credential })
     }).then(function(res){
       return res.json().catch(function(){ return {}; }).then(function(body){ return { ok: res.ok, body: body }; });
     }).then(function(result){
@@ -432,7 +426,8 @@ fetchJSON('/api/users').then(function(users){
         showError(result.body.error || 'Đăng nhập thất bại.');
         return;
       }
-      localStorage.setItem(ACTOR_NAME_KEY, name);
+      localStorage.setItem(ACTOR_EMAIL_KEY, result.body.email);
+      localStorage.setItem(ACTOR_NAME_KEY, result.body.name || result.body.email);
       localStorage.setItem(ACTOR_ROLE_KEY, result.body.role || 'viewer');
       localStorage.setItem(LOGGED_IN_KEY, '1');
       overlay.style.display = 'none';
@@ -440,12 +435,33 @@ fetchJSON('/api/users').then(function(users){
     }).catch(function(err){
       showError('Lỗi kết nối: ' + err.message);
     });
-  });
+  }
 
-  ['login-name', 'login-password'].forEach(function(id){
-    document.getElementById(id).addEventListener('keydown', function(e){
-      if (e.key === 'Enter'){ document.getElementById('loginBtn').click(); }
+  fetchJSON('/api/config').then(function(config){
+    if (!config.googleClientId){
+      showError('Google Client ID chưa được cấu hình. Liên hệ admin.');
+      return;
+    }
+    // accounts.google.com/gsi/client loads async — GSI itself, not this
+    // fetch, is the slower of the two in practice, so by the time config
+    // arrives `google` is almost always already on window; poll briefly
+    // just in case the script is still loading.
+    function whenGoogleReady(cb){
+      if (window.google && window.google.accounts && window.google.accounts.id) return cb();
+      setTimeout(function(){ whenGoogleReady(cb); }, 50);
+    }
+    whenGoogleReady(function(){
+      google.accounts.id.initialize({
+        client_id: config.googleClientId,
+        callback: handleGoogleCredential
+      });
+      google.accounts.id.renderButton(document.getElementById('googleSignInButton'), {
+        theme: 'outline', size: 'large', width: 280
+      });
     });
+  }).catch(function(err){
+    console.error('Failed to load Google sign-in config', err);
+    showError('Không tải được cấu hình đăng nhập. Thử tải lại trang.');
   });
 })();
 
@@ -455,6 +471,19 @@ function fmtDMY(iso){ var p = iso.split('-'); return p[2] + '/' + p[1] + '/' + p
 function fmtRange(startIso, endIso){ return ddmm(startIso) + '–' + ddmm(endIso); }
 
 // ---- roadmap: phase cards + master axis (fetched from /api/phases) ----
+var _roadmapPctMode = 'done_dev_qc'; // 'done_dev_qc' (Done UAT) or 'golive'
+var _lastPhases = null;
+
+// headline %: backend's pct_complete is always done_dev_qc/total, so that
+// mode reads straight off it; golive mode is derived client-side from the
+// raw golive count so the toggle doesn't need a second backend field.
+function phasePct(phase){
+  if (_roadmapPctMode === 'golive'){
+    return phase.total === 0 ? null : Math.round((phase.golive / phase.total) * 1000) / 10;
+  }
+  return phase.pct_complete;
+}
+
 function funnelLine(label, count, total){
   if (total === 0) return '<div>' + label + ' <span class="n">–</span></div>';
   if (count === 0 || count === total) return '<div>' + label + ' <span class="n">' + count + '/' + total + '</span></div>';
@@ -462,24 +491,30 @@ function funnelLine(label, count, total){
   return '<div>' + label + ' <span class="n">' + count + '/' + total + ' · ' + pct + '%</span></div>';
 }
 function analystLine(count, total){
-  if (total === 0) return '<div>Analyst <span class="n">–</span></div>';
-  return '<div>Analyst <span class="n">' + count + '/' + total + '</span></div>';
+  if (total === 0) return '<div>Done Analyst <span class="n">–</span></div>';
+  return '<div>Done Analyst <span class="n">' + count + '/' + total + '</span></div>';
 }
 
 function isCurrentPhase(phase, allPhases){
-  var firstInProgress = allPhases.find(function(p){ return p.pct_complete !== null && p.pct_complete < 100; });
+  var firstInProgress = allPhases.find(function(p){ var pct = phasePct(p); return pct !== null && pct < 100; });
   return firstInProgress ? phase.code === firstInProgress.code : false;
 }
 
 function renderPhaseCard(phase, allPhases){
   var card = document.createElement('div');
   card.className = 'phase-card' + (isCurrentPhase(phase, allPhases) ? ' is-current' : '');
+  card.dataset.phaseId = phase.id;
 
-  var pctText = phase.pct_complete === null ? '—' : Math.round(phase.pct_complete) + '%';
-  var barWidth = phase.pct_complete === null ? 0 : phase.pct_complete;
-  var barColor = phase.pct_complete === null
+  var editBtnHtml = hasRole('admin')
+    ? '<button type="button" class="phase-edit-btn" title="Sửa mốc golive">✎</button>'
+    : '';
+
+  var pct = phasePct(phase);
+  var pctText = pct === null ? '—' : Math.round(pct) + '%';
+  var barWidth = pct === null ? 0 : pct;
+  var barColor = pct === null
     ? 'transparent'
-    : (phase.pct_complete === 100 ? 'var(--green-ink)' : 'var(--accent-ink)');
+    : (pct === 100 ? 'var(--green-ink)' : 'var(--accent-ink)');
 
   var daysText = phase.days_remaining >= 0
     ? 'còn ' + phase.days_remaining + ' ngày'
@@ -490,7 +525,10 @@ function renderPhaseCard(phase, allPhases){
 
   card.innerHTML =
     '<div class="phase-name">' + escapeHtml(phase.code) + ' · ' + escapeHtml(phase.name) + '</div>' +
-    '<div class="phase-target">Mốc đích ' + fmtDMY(phase.target_date) + '</div>' +
+    '<div class="phase-target-row">' +
+      '<div class="phase-target">Mốc đích ' + fmtDMY(phase.target_date) + '</div>' +
+      editBtnHtml +
+    '</div>' +
     '<div class="phase-meta">' +
       '<div class="phase-pct">' + pctText + '</div>' +
       '<div class="phase-days">' + daysHtml + '</div>' +
@@ -498,8 +536,8 @@ function renderPhaseCard(phase, allPhases){
     '<div class="stack"><i style="width:' + barWidth + '%; background:' + barColor + ';"></i></div>' +
     '<div class="funnel">' +
       analystLine(phase.done_analyst, phase.total) +
-      funnelLine('Dev', phase.done_dev, phase.total) +
-      funnelLine('UAT', phase.done_uat, phase.total) +
+      funnelLine('Done Dev,QC', phase.done_dev_qc, phase.total) +
+      funnelLine('Golive', phase.golive, phase.total) +
     '</div>';
   return card;
 }
@@ -529,7 +567,7 @@ function renderMasterAxis(phases){
     band.style.width = segWidth + '%';
     axis.appendChild(band);
 
-    var pct = p.pct_complete || 0;
+    var pct = phasePct(p) || 0;
     var fill = document.createElement('div');
     fill.className = 'axis-fill' + (pct === 100 ? ' is-done' : '');
     fill.style.left = segStartPct + '%';
@@ -555,19 +593,87 @@ function renderMasterAxis(phases){
   var tl = document.createElement('div'); tl.className='today-label'; tl.style.left=tp+'%'; tl.textContent='HÔM NAY'; axis.appendChild(tl);
 }
 
+function renderPhases(phases){
+  var row = document.getElementById('phaseRow');
+  row.innerHTML = '';
+  phases.forEach(function(phase){ row.appendChild(renderPhaseCard(phase, phases)); });
+  renderMasterAxis(phases);
+}
+
 function loadPhases(){
   var row = document.getElementById('phaseRow');
   return fetchJSON('/api/phases')
     .then(function(phases){
-      row.innerHTML = '';
-      phases.forEach(function(phase){ row.appendChild(renderPhaseCard(phase, phases)); });
-      renderMasterAxis(phases);
+      _lastPhases = phases;
+      renderPhases(phases);
     })
     .catch(function(err){
       console.error('Failed to load /api/phases', err);
       row.innerHTML = '<div class="view-sub">Không tải được dữ liệu Phase. Thử tải lại trang.</div>';
     });
 }
+
+function enterPhaseDateEdit(card, phase){
+  var row = card.querySelector('.phase-target-row');
+  row.classList.add('is-editing');
+  row.innerHTML =
+    '<input type="date" class="phase-date-input" value="' + phase.target_date + '">' +
+    '<button type="button" class="phase-date-save">Lưu</button>' +
+    '<button type="button" class="phase-date-cancel">Hủy</button>';
+}
+
+// admin-only inline editor for a phase's go-live date, with optimistic
+// concurrency: every save sends back the updated_at this admin last saw, so
+// if someone else changed the date in between, the server returns 409
+// instead of one edit silently clobbering the other.
+document.getElementById('phaseRow').addEventListener('click', function(e){
+  var editBtn = e.target.closest('.phase-edit-btn');
+  if (editBtn){
+    var card = editBtn.closest('.phase-card');
+    var phase = _lastPhases.find(function(p){ return String(p.id) === card.dataset.phaseId; });
+    if (phase) enterPhaseDateEdit(card, phase);
+    return;
+  }
+
+  if (e.target.closest('.phase-date-cancel')){
+    if (_lastPhases) renderPhases(_lastPhases);
+    return;
+  }
+
+  var saveBtn = e.target.closest('.phase-date-save');
+  if (saveBtn){
+    var saveCard = saveBtn.closest('.phase-card');
+    var phaseId = saveCard.dataset.phaseId;
+    var savePhase = _lastPhases.find(function(p){ return String(p.id) === phaseId; });
+    var newDate = saveCard.querySelector('.phase-date-input').value;
+    if (!newDate) return;
+
+    saveBtn.disabled = true;
+    authFetch('/api/phases/' + phaseId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_date: newDate, updated_at: savePhase.updated_at })
+    }).then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(body){
+        if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+        toastSuccess('Đã cập nhật mốc golive.');
+      });
+    }).catch(function(err){
+      toastError(err.message);
+    }).then(function(){
+      loadPhases();
+    });
+  }
+});
+
+document.querySelectorAll('#roadmapPctChips .chip').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#roadmapPctChips .chip').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    _roadmapPctMode = btn.dataset.pctMode;
+    if (_lastPhases) renderPhases(_lastPhases);
+  });
+});
 
 // ---- drawer's Phase <select>: id/code/name/target_date never change from this
 // task (only tasks are mutated), so this list is cached separately from the
@@ -630,7 +736,7 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks, latestLogByTaskId)
     return panel;
   }
 
-  // Done → Ready for Staging → In Dev → Ready for Dev → Backlog, so the
+  // Done → Done UAT → In Dev → Ready for Dev → Backlog, so the
   // finished/near-finished work is immediately visible without scrolling —
   // the whole point of this view being a compact one-page overview.
   var tasksList = (sprint.tasks || []).slice().sort(function(a, b){
@@ -662,7 +768,7 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks, latestLogByTaskId)
   panel.appendChild(listEl);
 
   // carry-over: tasks from sprints strictly before this one that haven't
-  // reached Ready for Staging yet — surfaced here (current sprint only) so
+  // reached Done UAT yet — surfaced here (current sprint only) so
   // lagging work from earlier sprints doesn't quietly fall out of view once
   // its own sprint ends. Each row tags its actual origin sprint since it's
   // not this panel's sprint.
@@ -693,20 +799,34 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks, latestLogByTaskId)
 }
 
 // cross-sprint view: EVERY task in EVERY sprint, one row per sprint, tasks
-// grouped by Platform within the row (the "who do I need" signal for
-// staffing) and colored by status — so a PM can scan all sprints in one
-// screen and still see what each task actually is, not just a count.
+// grouped within the row (default: Platform, the "who do I need" signal for
+// staffing — also selectable as Category or Status) and colored by status —
+// so a PM can scan all sprints in one screen and still see what each task
+// actually is, not just a count.
 var SPRINT_OVERVIEW_PLATFORMS = ['Web', 'App', 'BE', 'App/Auto'];
+var SPRINT_OVERVIEW_CATEGORIES = ['Product Foundation', 'Cross Service Integration', 'Internal features', 'Convert & Scale'];
+var _sprintOverviewGroupBy = 'platform';
+// cached inputs from the last renderSprintOverviewTable call, so switching
+// the group-by chip can just re-render instantly instead of refetching.
+var _lastSprintOverviewArgs = null;
 
-// canonical platforms first (fixed order), then any other platform value
-// found in the data (shouldn't normally happen — the drawer only offers
-// the 4 above — but avoids silently dropping a task with an odd value)
-function platformBucketsFor(sprintTasks){
+// canonical values first (fixed order), then any other value actually found
+// in the data (shouldn't normally happen for platform/category, since the
+// drawer only offers a fixed set — but avoids silently dropping a task with
+// an odd value), sorted alphabetically after the canonical ones.
+function bucketsForGroupBy(sprintTasks, groupBy){
+  if (groupBy === 'status'){
+    return STATUS_ORDER.map(function(s, idx){
+      return { key: s, label: statusLabel[idx].replace(/^\d+\.\s*/, '') };
+    });
+  }
+  var field = groupBy === 'category' ? 'category' : 'platform';
+  var canonical = groupBy === 'category' ? SPRINT_OVERVIEW_CATEGORIES : SPRINT_OVERVIEW_PLATFORMS;
   var extra = [];
   sprintTasks.forEach(function(t){
-    if (SPRINT_OVERVIEW_PLATFORMS.indexOf(t.platform) === -1 && extra.indexOf(t.platform) === -1) extra.push(t.platform);
+    if (canonical.indexOf(t[field]) === -1 && extra.indexOf(t[field]) === -1) extra.push(t[field]);
   });
-  return SPRINT_OVERVIEW_PLATFORMS.concat(extra.sort());
+  return canonical.concat(extra.sort()).map(function(v){ return { key: v, label: v }; });
 }
 
 // updates just a task's sprint (+ derived dates from that sprint, same as
@@ -799,13 +919,14 @@ function renderSprintOverviewTable(sprints, tasks, currentSprintId, nextSprintId
       row.appendChild(empty);
     } else {
       var body = document.createElement('div'); body.className = 'sprint-overview-row-body';
-      platformBucketsFor(sprintTasks).forEach(function(p){
-        var platformTasks = sprintTasks.filter(function(t){ return t.platform === p; });
-        if (platformTasks.length === 0) return;
+      var groupByField = _sprintOverviewGroupBy === 'status' ? 'status' : (_sprintOverviewGroupBy === 'category' ? 'category' : 'platform');
+      bucketsForGroupBy(sprintTasks, _sprintOverviewGroupBy).forEach(function(bucket){
+        var bucketTasks = sprintTasks.filter(function(t){ return t[groupByField] === bucket.key; });
+        if (bucketTasks.length === 0) return;
         var group = document.createElement('div'); group.className = 'sprint-overview-platform-group';
-        var label = document.createElement('span'); label.className = 'sprint-overview-platform-label'; label.textContent = p;
+        var label = document.createElement('span'); label.className = 'sprint-overview-platform-label'; label.textContent = bucket.label;
         group.appendChild(label);
-        platformTasks.forEach(function(t){
+        bucketTasks.forEach(function(t){
           var n = statusDotToNum(t.status);
           var chip = document.createElement('span');
           chip.className = 'sprint-overview-task-chip st-' + n;
@@ -848,7 +969,8 @@ function loadSprintView(){
         if (!(l.task_id in latestLogByTaskId)) latestLogByTaskId[l.task_id] = l;
       });
 
-      renderSprintOverviewTable(sprints, tasks, data.current ? data.current.id : null, data.next ? data.next.id : null);
+      _lastSprintOverviewArgs = [sprints, tasks, data.current ? data.current.id : null, data.next ? data.next.id : null];
+      renderSprintOverviewTable.apply(null, _lastSprintOverviewArgs);
 
       var carryOver = [];
       if (data.current){
@@ -877,18 +999,30 @@ function loadSprintView(){
     });
 }
 
-var SPRINT_TAB_SUB = {
-  overview: 'Toàn bộ nghiệp vụ mỗi sprint, nhóm theo Platform — để phân bổ nhân sự, bấm vào 1 nghiệp vụ để sửa',
-  'current-next': 'Biết ngay tuần này đang làm gì, tuần sau sắp tới gì — bấm vào 1 nghiệp vụ để sửa'
-};
+var GROUP_BY_LABEL = { platform: 'Platform', category: 'Category', status: 'Status' };
+var _sprintActiveTab = 'overview';
+function updateSprintTabSub(){
+  document.getElementById('sprintTabSub').textContent = _sprintActiveTab === 'overview'
+    ? 'Toàn bộ nghiệp vụ mỗi sprint, nhóm theo ' + GROUP_BY_LABEL[_sprintOverviewGroupBy] + ' — bấm vào 1 nghiệp vụ để sửa'
+    : 'Biết ngay tuần này đang làm gì, tuần sau sắp tới gì — bấm vào 1 nghiệp vụ để sửa';
+}
 document.querySelectorAll('#sprintTabChips .chip').forEach(function(btn){
   btn.addEventListener('click', function(){
     document.querySelectorAll('#sprintTabChips .chip').forEach(function(b){ b.classList.remove('active'); });
     btn.classList.add('active');
-    var tab = btn.dataset.tab;
-    document.getElementById('sprintTabOverview').style.display = tab === 'overview' ? '' : 'none';
-    document.getElementById('sprintTabCurrentNext').style.display = tab === 'current-next' ? '' : 'none';
-    document.getElementById('sprintTabSub').textContent = SPRINT_TAB_SUB[tab];
+    _sprintActiveTab = btn.dataset.tab;
+    document.getElementById('sprintTabOverview').style.display = _sprintActiveTab === 'overview' ? '' : 'none';
+    document.getElementById('sprintTabCurrentNext').style.display = _sprintActiveTab === 'current-next' ? '' : 'none';
+    updateSprintTabSub();
+  });
+});
+document.querySelectorAll('#sprintOverviewGroupChips .chip').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#sprintOverviewGroupChips .chip').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    _sprintOverviewGroupBy = btn.dataset.groupby;
+    updateSprintTabSub();
+    if (_lastSprintOverviewArgs) renderSprintOverviewTable.apply(null, _lastSprintOverviewArgs);
   });
 });
 
@@ -940,8 +1074,8 @@ function renderRiskGroups(containerId, riskTasks, groupList, groupKeyFn, today, 
 }
 
 // which status a task must have reached to no longer count as "at risk";
-// STATUS_ORDER index, so 3 = Ready for Staging, 4 = Done. Default per product
-// call: Ready for Staging counts as "basically shipped", so only Backlog/Ready
+// STATUS_ORDER index, so 3 = Done UAT, 4 = Done. Default per product
+// call: Done UAT counts as "basically shipped", so only Backlog/Ready
 // for Dev/In Dev tasks are flagged once overdue.
 var _riskThreshold = 3;
 
@@ -973,7 +1107,7 @@ function loadRiskReports(){
   var phaseEl = document.getElementById('riskByPhase');
   var dueSoonSprintEl = document.getElementById('dueSoonBySprint');
   var dueSoonPhaseEl = document.getElementById('dueSoonByPhase');
-  var thresholdLabel = _riskThreshold === 4 ? 'Done' : 'Ready for Staging';
+  var thresholdLabel = _riskThreshold === 4 ? 'Done' : 'Done UAT';
   var subText = 'Nghiệp vụ đã quá due date nhưng chưa tới ' + thresholdLabel;
   document.getElementById('riskSubSprint').textContent = subText;
   document.getElementById('riskSubPhase').textContent = subText;
@@ -1195,7 +1329,10 @@ function renderUsersList(users){
   users.forEach(function(u){
     var row = document.createElement('div'); row.className = 'risk-task';
     var nameEl = document.createElement('div'); nameEl.className = 'risk-task-name';
-    nameEl.textContent = u.name;
+    // before their first Google login, an admin-pre-provisioned row may
+    // have no display name yet — fall back to the email so the row isn't
+    // blank.
+    nameEl.textContent = u.email + (u.name && u.name !== u.email ? ' · ' + u.name : '');
     row.appendChild(nameEl);
 
     var meta = document.createElement('div'); meta.className = 'risk-task-meta';
@@ -1219,7 +1356,7 @@ function renderUsersList(users){
           });
         }
         u.role = newRole;
-        toastSuccess('Đã đổi quyền của "' + u.name + '" thành ' + ROLE_DISPLAY[newRole]);
+        toastSuccess('Đã đổi quyền của "' + u.email + '" thành ' + ROLE_DISPLAY[newRole]);
       }).catch(function(err){
         console.error('Failed to change role', err);
         toastError('Không đổi được quyền: ' + err.message);
@@ -1241,17 +1378,17 @@ function loadUsersView(){
 }
 
 document.getElementById('addUserBtn').addEventListener('click', function(){
-  var nameInput = document.getElementById('newUserName');
-  var name = nameInput.value.trim();
+  var emailInput = document.getElementById('newUserEmail');
+  var email = emailInput.value.trim();
   var role = document.getElementById('newUserRole').value;
-  if (!name){
-    toastError('Vui lòng nhập tên đăng nhập.');
+  if (!email){
+    toastError('Vui lòng nhập email Google.');
     return;
   }
   authFetch('/api/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name, role: role })
+    body: JSON.stringify({ email: email, role: role })
   }).then(function(res){
     if (!res.ok){
       return res.json().catch(function(){ return {}; }).then(function(errBody){
@@ -1260,8 +1397,8 @@ document.getElementById('addUserBtn').addEventListener('click', function(){
     }
     return res.json();
   }).then(function(){
-    nameInput.value = '';
-    toastSuccess('Đã thêm user "' + name + '"');
+    emailInput.value = '';
+    toastSuccess('Đã thêm user "' + email + '"');
     return loadUsersView();
   }).catch(function(err){
     console.error('Failed to add user', err);
@@ -1843,6 +1980,23 @@ function renderGantt(tasks, sprints, phases){
     overlayEl.appendChild(gLine);
     gd.setDate(gd.getDate() + 1);
   }
+  // phase go-live milestones (P1/P2/P3/P4 target_date) — same guarded
+  // pattern as the "today" line below: only drawn if the milestone falls
+  // within the axis this render happens to have (sprint/task dates), so a
+  // phase filter that narrows the axis simply hides milestones outside it
+  // rather than stretching the whole Timeline to fit every phase.
+  phases.forEach(function(p){
+    var pct = pctPos(new Date(p.target_date));
+    if (pct < 0 || pct > 100) return;
+    var pLine = document.createElement('div');
+    pLine.className = 'gantt-phase-line';
+    pLine.style.left = (pct / 100 * trackPxWidth) + 'px';
+    var pLabel = document.createElement('div');
+    pLabel.className = 'gantt-phase-line-label';
+    pLabel.textContent = p.code;
+    pLine.appendChild(pLabel);
+    overlayEl.appendChild(pLine);
+  });
   var todayPct = pctPos(new Date());
   if (todayPct >= 0 && todayPct <= 100){
     var line = document.createElement('div');
@@ -2255,6 +2409,23 @@ function loadLogView(){
       wrap.innerHTML = '<div class="view-sub">Không tải được log. Thử tải lại trang.</div>';
     });
 }
+
+// keep the Tasks column visible while scrolling the Timeline horizontally.
+// .gantt-corner (in the header) has no scrolling ancestor between it and
+// .gantt, so its own position:sticky already works. .task-label rows sit
+// inside .gantt-body, which independently scrolls vertically
+// (overflow-y:auto) — that alone makes .gantt-body the nearest CSS
+// "scrolling ancestor" for sticky purposes regardless of its overflow-x, so
+// a pure-CSS sticky left:0 on .task-label never actually tracks .gantt's
+// horizontal scroll (verified empirically). Shifting it by the live
+// scrollLeft via transform gets the same frozen-column look without
+// touching the working vertical-scroll setup.
+document.querySelector('.gantt').addEventListener('scroll', function(){
+  var shift = this.scrollLeft + 'px';
+  document.querySelectorAll('.task-label').forEach(function(el){
+    el.style.transform = 'translateX(' + shift + ')';
+  });
+});
 
 loadTimelineView();
 loadBoardView();

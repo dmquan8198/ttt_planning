@@ -18,8 +18,11 @@ function makeTestPool() {
 // actor for these CRUD tests keeps them focused on task behavior rather
 // than on the separate permissions feature (see tests/routes/permissions.test.js).
 const ADMIN = 'quan.dang1';
+const ADMIN_EMAIL = 'dmquan8198@gmail.com'; // role lookup is by email now
 function asAdmin(req) {
-  return req.set('X-Actor-Name', encodeURIComponent(ADMIN));
+  return req
+    .set('X-Actor-Name', encodeURIComponent(ADMIN))
+    .set('X-Actor-Email', encodeURIComponent(ADMIN_EMAIL));
 }
 
 test('POST /api/tasks rejects a task missing required fields', async () => {
@@ -202,7 +205,7 @@ test('PUT with an X-Actor-Name header attributes the date-change log entry to th
   // this test's whole point is the diacritic-encoding round-trip, so it
   // deliberately uses a name outside the seeded fixed-list — give it an
   // editor role locally so the new permission gate doesn't block the PUT.
-  await pool.query("INSERT INTO users (name, role) VALUES ('Quân', 'editor')");
+  await pool.query("INSERT INTO users (email, name, role) VALUES ('quan-test@example.com', 'Quân', 'editor')");
   const app = createApp(pool);
   const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
@@ -217,6 +220,7 @@ test('PUT with an X-Actor-Name header attributes the date-change log entry to th
   await request(app)
     .put(`/api/tasks/${id}`)
     .set('X-Actor-Name', encodeURIComponent('Quân'))
+    .set('X-Actor-Email', encodeURIComponent('quan-test@example.com'))
     .send({
       name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
       start_date: '2026-07-15', due_date: '2026-07-26', date_overridden: true

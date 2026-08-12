@@ -27,8 +27,11 @@ async function seedPhaseAndTask(pool) {
 
 // migrations/001_init.sql seeds this as an admin.
 const ADMIN = 'quan.dang1';
+const ADMIN_EMAIL = 'dmquan8198@gmail.com'; // role lookup is by email now
 function asAdmin(req) {
-  return req.set('X-Actor-Name', encodeURIComponent(ADMIN));
+  return req
+    .set('X-Actor-Name', encodeURIComponent(ADMIN))
+    .set('X-Actor-Email', encodeURIComponent(ADMIN_EMAIL));
 }
 
 test('GET /api/snapshots/current computes without persisting anything', async () => {
@@ -51,12 +54,13 @@ test('POST /api/snapshots persists a snapshot and attributes the actor', async (
   // this test's point is the diacritic-encoding round-trip, so it
   // deliberately uses a name outside the seeded fixed-list — give it an
   // editor role locally so the new permission gate doesn't block the POST.
-  await pool.query("INSERT INTO users (name, role) VALUES ('Quân', 'editor')");
+  await pool.query("INSERT INTO users (email, name, role) VALUES ('quan-test@example.com', 'Quân', 'editor')");
   const app = createApp(pool);
 
   const created = await request(app)
     .post('/api/snapshots')
     .set('X-Actor-Name', encodeURIComponent('Quân'))
+    .set('X-Actor-Email', encodeURIComponent('quan-test@example.com'))
     .send({});
   assert.equal(created.status, 201);
   assert.equal(created.body.actor_name, 'Quân');

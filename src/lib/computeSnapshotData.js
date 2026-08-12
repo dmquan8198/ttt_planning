@@ -4,7 +4,8 @@ const { STATUS_CODES } = require('./statusCodes');
 // fixed definition of "at risk" / "due soon" for weekly snapshots, so a
 // snapshot captured today stays comparable to one captured weeks ago even if
 // the Roadmap page's threshold/window chips get toggled in between. Matches
-// the Roadmap UI's own defaults (Ready for Staging, 7 days).
+// the Roadmap UI's own original defaults (Done UAT threshold, 7 days) —
+// fixed here independent of whatever the UI's own chips currently default to.
 const RISK_THRESHOLD = 3;
 const DUE_SOON_WINDOW_DAYS = 7;
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TTT New — Quản lý dự án</title>
+<title>Túi Thần Tài — Quản lý dự án</title>
 <script>
 // applied before the stylesheet paints, so a saved theme choice (or the
 // OS preference, on first visit) shows immediately — no flash of the
@@ -15,31 +15,16 @@
 })();
 </script>
 <link rel="stylesheet" href="styles.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
 <div class="login-overlay" id="loginOverlay">
   <div class="login-card">
-    <div class="login-title">TTT New</div>
-    <div class="login-sub">Nhập tên và password để vào hệ thống</div>
-    <div class="field">
-      <label>Tên</label>
-      <select id="login-name">
-        <option value="">— Chọn tên —</option>
-        <option>quan.dang1</option>
-        <option>anh.nguyen80</option>
-        <option>nghi.vo</option>
-        <option>hung.le1</option>
-        <option>uyen.ly</option>
-        <option>toan.han</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>Password</label>
-      <input id="login-password" type="password" placeholder="Password" autocomplete="current-password">
-    </div>
+    <div class="login-title">Túi Thần Tài</div>
+    <div class="login-sub">Đăng nhập bằng Google để vào hệ thống</div>
+    <div class="google-signin-wrap" id="googleSignInButton"></div>
     <div class="login-error" id="loginError" style="display:none;"></div>
-    <button class="save-btn" id="loginBtn">Đăng nhập</button>
   </div>
 </div>
 
@@ -54,7 +39,7 @@
   </div>
   <div class="body-wrap">
     <nav class="rail">
-      <div class="brand">TTT New<small>Quản lý dự án</small></div>
+      <div class="brand">Túi Thần Tài<small>Quản lý dự án</small></div>
       <div class="nav-group">
         <div class="nav-item active" data-view="roadmap">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 15h3l2-5 3 8 2-11 2 6h4"/></svg>
@@ -101,6 +86,12 @@
           </div>
         </div>
 
+        <div class="groupby-chips" id="roadmapPctChips">
+          <span class="chip-label">% Roadmap theo</span>
+          <button type="button" class="chip active" data-pct-mode="done_dev_qc">Done UAT</button>
+          <button type="button" class="chip" data-pct-mode="golive">Golive</button>
+        </div>
+
         <div class="phase-row" id="phaseRow"></div>
 
         <div class="axis-wrap">
@@ -111,7 +102,7 @@
         <div class="risk-threshold-chips" id="riskThresholdChips">
           <span class="chip-label">Trễ hạn tính đến khi chưa tới</span>
           <button type="button" class="chip" data-threshold="4">Done</button>
-          <button type="button" class="chip active" data-threshold="3">Ready for Staging</button>
+          <button type="button" class="chip active" data-threshold="3">Done UAT</button>
         </div>
         <div class="risk-wrap">
           <div class="risk-col">
@@ -171,6 +162,12 @@
         <div class="gantt-legend" id="sprintLegend"></div>
 
         <div id="sprintTabOverview">
+          <div class="groupby-chips" id="sprintOverviewGroupChips">
+            <span class="chip-label">Nhóm theo</span>
+            <button type="button" class="chip active" data-groupby="platform">Platform</button>
+            <button type="button" class="chip" data-groupby="category">Category</button>
+            <button type="button" class="chip" data-groupby="status">Status</button>
+          </div>
           <div id="sprintOverviewWrap"></div>
         </div>
 
@@ -283,8 +280,8 @@
 
         <div class="field-row" style="align-items:flex-end; margin-bottom:20px;">
           <div class="field">
-            <label>Tên đăng nhập mới</label>
-            <input id="newUserName" type="text" placeholder="Vd: minh.tran">
+            <label>Email Google</label>
+            <input id="newUserEmail" type="email" placeholder="Vd: minh.tran@gmail.com">
           </div>
           <div class="field">
             <label>Quyền</label>
@@ -296,6 +293,7 @@
           </div>
           <button class="save-btn" id="addUserBtn" style="width:auto; padding:9px 18px; margin-bottom:0;">+ Thêm user</button>
         </div>
+        <div class="view-sub" style="margin-top:-12px; margin-bottom:20px;">Thêm trước bằng email để gán sẵn quyền — người đó vẫn đăng nhập bằng Google như thường, chỉ cần dùng đúng email này.</div>
 
         <div id="usersListWrap"></div>
       </section>
@@ -347,7 +345,7 @@
         <option value="0.backlog">0. Backlog</option>
         <option value="1.ready_for_dev">1. Ready for Dev</option>
         <option value="2.in_test">2. In Dev</option>
-        <option value="3.ready_for_staging">3. Ready for Staging</option>
+        <option value="3.ready_for_staging">3. Done UAT</option>
         <option value="4.done">4. Done</option>
       </select>
     </div>
@@ -367,13 +365,15 @@
     <textarea id="f-notes" placeholder="Thêm ghi chú cập nhật..."></textarea>
   </div>
 
-  <button class="save-btn" id="saveBtn">Lưu nghiệp vụ</button>
-  <button class="save-btn" id="deleteBtn" style="background:var(--red-ink); display:none;">Xoá nghiệp vụ</button>
+  <div class="drawer-actions">
+    <button class="save-btn" id="saveBtn">Lưu nghiệp vụ</button>
+    <button class="save-btn save-btn-delete" id="deleteBtn" style="display:none;">Xoá nghiệp vụ</button>
+  </div>
 
   <div class="field" id="logField" style="margin-top:22px;">
     <label>Activity log (thay cho cột Note theo ngày)</label>
-    <div class="field-row" style="margin-bottom:8px;">
-      <input id="f-newlog" type="text" placeholder="Ghi chú mới...">
+    <div class="log-input-row" style="margin-bottom:8px;">
+      <textarea id="f-newlog" placeholder="Ghi chú mới..." rows="3"></textarea>
       <button class="save-btn" id="addLogBtn" style="width:auto; padding:8px 14px;">Thêm</button>
     </div>
     <div class="log-preview" id="logPreview"></div>

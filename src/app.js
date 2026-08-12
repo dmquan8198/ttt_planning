@@ -8,35 +8,46 @@ const allLogsRouter = require('./routes/allLogs');
 const authRouter = require('./routes/auth');
 const snapshotsRouter = require('./routes/snapshots');
 const usersRouter = require('./routes/users');
+const { verifyGoogleToken } = require('./lib/googleAuth');
 
-function createApp(pool) {
+function decodeActorHeader(raw) {
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw).trim() || null;
+  } catch (err) {
+    return raw.trim() || null;
+  }
+}
+
+function createApp(pool, googleTokenVerifier) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json());
 
-  // whoever is signed in on the client sends their name on every mutating
-  // request via this header; route handlers read req.actorName to attribute
-  // activity-log entries. No session/token — see routes/auth.js for why.
-  // The header is percent-encoded client-side (public/app.js's authFetch)
-  // since Node decodes headers as latin1, which would otherwise mangle
-  // Vietnamese diacritics.
+  // whoever is signed in on the client sends two headers on every mutating
+  // request: X-Actor-Name (their Google display name — free text, used
+  // only to attribute activity-log entries) and X-Actor-Email (the email
+  // Google verified at login — the actual identity key requireRole looks
+  // up against the users table). No session/token beyond that — see
+  // routes/auth.js for why. Both are percent-encoded client-side
+  // (public/app.js's authFetch) since Node decodes headers as latin1,
+  // which would otherwise mangle Vietnamese diacritics.
   app.use((req, res, next) => {
-    const raw = req.headers['x-actor-name'];
-    let name = null;
-    if (raw) {
-      try {
-        name = decodeURIComponent(raw).trim() || null;
-      } catch (err) {
-        name = raw.trim() || null;
-      }
-    }
-    req.actorName = name;
+    req.actorName = decodeActorHeader(req.headers['x-actor-name']);
+    req.actorEmail = decodeActorHeader(req.headers['x-actor-email']);
     next();
   });
 
   app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-  app.use('/api', authRouter(pool));
+  // not secret — a Google OAuth Client ID is meant to be embedded in
+  // client-side code — just kept in an env var instead of hardcoded so
+  // local/dev/prod can each point at their own registered origin.
+  app.get('/api/config', (req, res) => {
+    res.json({ googleClientId: process.env.GOOGLE_CLIENT_ID || null });
+  });
+
+  app.use('/api', authRouter(pool, googleTokenVerifier || verifyGoogleToken));
 
   app.use('/api/phases', phasesRouter(pool));
 

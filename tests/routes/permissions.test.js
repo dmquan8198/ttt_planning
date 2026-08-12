@@ -6,10 +6,16 @@ const path = require('node:path');
 const { newDb } = require('pg-mem');
 const createApp = require('../../src/app');
 
-// migrations/001_init.sql seeds these three at admin/editor/editor respectively.
+// migrations/001_init.sql seeds these two by email at admin/editor.
 const ADMIN = 'quan.dang1';
 const EDITOR = 'anh.nguyen80';
 const VIEWER_NAME = 'no.such.actor'; // not seeded — defaults to viewer
+
+// role lookup is by email (see src/lib/requireRole.js); name is only for
+// log-attribution text. Known names map to their seeded email; anything
+// else (the viewer/"unrecognized actor" cases) gets a made-up email that
+// deliberately matches no seeded row, which is the whole point of those tests.
+const KNOWN_EMAILS = { 'quan.dang1': 'dmquan8198@gmail.com', 'anh.nguyen80': 'anh.nguyen80@gmail.com' };
 
 function makeTestPool() {
   const db = newDb();
@@ -20,7 +26,10 @@ function makeTestPool() {
 }
 
 function asActor(req, name) {
-  return req.set('X-Actor-Name', encodeURIComponent(name));
+  const email = KNOWN_EMAILS[name] || (name.replace(/\s+/g, '.') + '@example.com');
+  return req
+    .set('X-Actor-Name', encodeURIComponent(name))
+    .set('X-Actor-Email', encodeURIComponent(email));
 }
 
 async function seedTask(pool) {

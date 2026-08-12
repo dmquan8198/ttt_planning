@@ -11,7 +11,7 @@ async function loadPhasesAndTasks(pool) {
   );
   const phases = phasesRaw.map((p) => ({ ...p, target_date: normalizeDate(p.target_date) }));
   const { rows: tasksRaw } = await pool.query(
-    'SELECT phase_id, status, due_date, done_analyst, done_dev, done_uat FROM tasks'
+    'SELECT phase_id, status, due_date FROM tasks'
   );
   const tasks = tasksRaw.map((t) => ({ ...t, due_date: normalizeDate(t.due_date) }));
   return { phases, tasks };

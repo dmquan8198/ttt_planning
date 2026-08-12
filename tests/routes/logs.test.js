@@ -16,8 +16,11 @@ function makeTestPool() {
 
 // migrations/001_init.sql seeds this as an admin.
 const ADMIN = 'quan.dang1';
+const ADMIN_EMAIL = 'dmquan8198@gmail.com'; // role lookup is by email now
 function asAdmin(req) {
-  return req.set('X-Actor-Name', encodeURIComponent(ADMIN));
+  return req
+    .set('X-Actor-Name', encodeURIComponent(ADMIN))
+    .set('X-Actor-Email', encodeURIComponent(ADMIN_EMAIL));
 }
 
 test('POST then GET activity log entries for a task', async () => {
@@ -43,7 +46,7 @@ test('POST with an X-Actor-Name header appends " — <name>" to the note', async
   // this test's point is the diacritic-encoding round-trip, so it
   // deliberately uses a name outside the seeded fixed-list — give it an
   // editor role locally so the new permission gate doesn't block the POST.
-  await pool.query("INSERT INTO users (name, role) VALUES ('Quân', 'editor')");
+  await pool.query("INSERT INTO users (email, name, role) VALUES ('quan-test@example.com', 'Quân', 'editor')");
   const created = await pool.query(
     "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Task A','Web','2026-08-05','2026-08-10') RETURNING id"
   );
@@ -53,6 +56,7 @@ test('POST with an X-Actor-Name header appends " — <name>" to the note', async
   const post = await request(app)
     .post(`/api/tasks/${taskId}/logs`)
     .set('X-Actor-Name', encodeURIComponent('Quân'))
+    .set('X-Actor-Email', encodeURIComponent('quan-test@example.com'))
     .send({ note: 'Chuyển sang Ready for Dev, giao cho BE.' });
   assert.equal(post.status, 201);
   assert.equal(post.body.note, 'Chuyển sang Ready for Dev, giao cho BE. — Quân');
