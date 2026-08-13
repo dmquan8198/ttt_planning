@@ -43,13 +43,13 @@ function tasksRouter(pool) {
       const { rows } = await pool.query(
         `INSERT INTO tasks
            (stt, category, name, platform, phase_id, sprint_id, status,
-            done_analyst, done_dev, done_uat, done_staging, start_date, due_date, date_overridden)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            done_analyst, done_dev, done_uat, done_staging, start_date, due_date, date_overridden, why)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
          RETURNING *`,
         [
           b.stt || null, b.category, b.name, b.platform, b.phase_id || null, b.sprint_id || null,
           b.status || STATUS_CODES[0], !!b.done_analyst, !!b.done_dev, !!b.done_uat, !!b.done_staging,
-          b.start_date, b.due_date, !!b.date_overridden
+          b.start_date, b.due_date, !!b.date_overridden, (b.why || '').trim() || null
         ]
       );
       res.status(201).json(normalizeTaskDates(rows[0]));
@@ -92,13 +92,14 @@ function tasksRouter(pool) {
         `UPDATE tasks SET
            category=$1, name=$2, platform=$3, phase_id=$4, sprint_id=$5, status=$6,
            done_analyst=$7, done_dev=$8, done_uat=$9, done_staging=$10,
-           start_date=$11, due_date=$12, date_overridden=$13, stt=$14, updated_at=now()
-         WHERE id=$15
+           start_date=$11, due_date=$12, date_overridden=$13, stt=$14, why=$15, updated_at=now()
+         WHERE id=$16
          RETURNING *`,
         [
           b.category, b.name, b.platform, b.phase_id || null, b.sprint_id || null, b.status,
           !!b.done_analyst, !!b.done_dev, !!b.done_uat, !!b.done_staging,
-          b.start_date, b.due_date, !!b.date_overridden, b.stt != null ? b.stt : null, id
+          b.start_date, b.due_date, !!b.date_overridden, b.stt != null ? b.stt : null,
+          (b.why || '').trim() || null, id
         ]
       );
       if (rows.length === 0) {

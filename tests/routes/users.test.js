@@ -111,3 +111,37 @@ test('PUT /api/users/:id rejects an invalid role', async () => {
   const res = await asActor(request(app).put(`/api/users/${target.id}`), ADMIN).send({ role: 'nope' });
   assert.equal(res.status, 400);
 });
+
+test('DELETE /api/users/:id as admin removes the user', async () => {
+  const app = createApp(makeTestPool());
+  const list = await request(app).get('/api/users');
+  const target = list.body.find((u) => u.email === 'toan.han@gmail.com');
+
+  const res = await asActor(request(app).delete(`/api/users/${target.id}`), ADMIN);
+  assert.equal(res.status, 204);
+
+  const after = await request(app).get('/api/users');
+  assert.equal(after.body.length, 5);
+  assert.ok(!after.body.some((u) => u.email === 'toan.han@gmail.com'));
+});
+
+test('DELETE /api/users/:id as editor is rejected', async () => {
+  const app = createApp(makeTestPool());
+  const list = await request(app).get('/api/users');
+  const target = list.body.find((u) => u.email === 'toan.han@gmail.com');
+
+  const res = await asActor(request(app).delete(`/api/users/${target.id}`), EDITOR);
+  assert.equal(res.status, 403);
+});
+
+test('DELETE /api/users/:id on a non-existent id returns 404', async () => {
+  const app = createApp(makeTestPool());
+  const res = await asActor(request(app).delete('/api/users/9999'), ADMIN);
+  assert.equal(res.status, 404);
+});
+
+test('DELETE /api/users/:id with a non-numeric id returns 400', async () => {
+  const app = createApp(makeTestPool());
+  const res = await asActor(request(app).delete('/api/users/abc'), ADMIN);
+  assert.equal(res.status, 400);
+});

@@ -30,7 +30,7 @@ function sprintsRouter(pool) {
     for (const [key, sprint] of [['current', current], ['next', next]]) {
       if (!sprint) continue;
       const { rows: tasks } = await pool.query(
-        `SELECT id, name, category, platform, status
+        `SELECT id, name, category, platform, status, why
          FROM tasks WHERE sprint_id = $1 ORDER BY stt`,
         [sprint.id]
       );

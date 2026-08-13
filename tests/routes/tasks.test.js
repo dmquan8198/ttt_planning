@@ -75,6 +75,45 @@ test('full CRUD lifecycle: create, list, update, delete', async () => {
   assert.equal(listedAfter.body.length, 0);
 });
 
+test('why is optional on create and defaults to null when omitted', async () => {
+  const app = createApp(makeTestPool());
+  const created = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.why, null);
+});
+
+test('why is persisted on create and update', async () => {
+  const app = createApp(makeTestPool());
+  const created = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', why: 'Yêu cầu từ VCB',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.why, 'Yêu cầu từ VCB');
+
+  const updated = await asAdmin(request(app).put(`/api/tasks/${created.body.id}`))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '0.backlog', why: 'Đổi lý do',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.why, 'Đổi lý do');
+
+  // a PUT that omits why clears it, same full-replace contract as every
+  // other field — every frontend mutation call site must pass it through.
+  const cleared = await asAdmin(request(app).put(`/api/tasks/${created.body.id}`))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '0.backlog',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  assert.equal(cleared.body.why, null);
+});
+
 test('PUT persists stt when given (Timeline drag-to-reorder relies on this) — full-replace, so every caller must pass the task\'s current stt or it clears', async () => {
   const app = createApp(makeTestPool());
   const created = await asAdmin(request(app).post('/api/tasks'))

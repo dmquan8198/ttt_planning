@@ -44,9 +44,14 @@ CREATE TABLE IF NOT EXISTS tasks (
   start_date DATE NOT NULL,
   due_date DATE NOT NULL,
   date_overridden BOOLEAN NOT NULL DEFAULT FALSE,
+  why TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- tasks table predates why; add it for the already-created prod table
+-- (CREATE TABLE IF NOT EXISTS above is a no-op there).
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS why TEXT;
 
 CREATE TABLE IF NOT EXISTS activity_logs (
   id SERIAL PRIMARY KEY,

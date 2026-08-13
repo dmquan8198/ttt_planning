@@ -38,36 +38,41 @@
     </button>
   </div>
   <div class="body-wrap">
-    <nav class="rail">
-      <div class="brand">Túi Thần Tài<small>Quản lý dự án</small></div>
+    <nav class="rail" id="rail">
+      <div class="brand-row">
+        <div class="brand"><span class="brand-text">Túi Thần Tài<small>Quản lý dự án</small></span></div>
+        <button type="button" class="rail-toggle" id="railToggle" title="Thu gọn/mở rộng menu">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12.5 4.5 7 10l5.5 5.5"/></svg>
+        </button>
+      </div>
       <div class="nav-group">
-        <div class="nav-item active" data-view="roadmap">
+        <div class="nav-item active" data-view="roadmap" title="Roadmap">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 15h3l2-5 3 8 2-11 2 6h4"/></svg>
-          Roadmap
+          <span class="nav-label">Roadmap</span>
         </div>
-        <div class="nav-item" data-view="sprint">
+        <div class="nav-item" data-view="sprint" title="Sprint">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6.5" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="13.5" cy="10" r="1.1" fill="currentColor" stroke="none"/><rect x="2.5" y="4" width="15" height="13" rx="1.5"/><path d="M2.5 7.5h15"/></svg>
-          Sprint
+          <span class="nav-label">Sprint</span>
         </div>
-        <div class="nav-item" data-view="timeline">
+        <div class="nav-item" data-view="timeline" title="Timeline">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="13" rx="1.5"/><path d="M2.5 8h15M7 2.5v3M13 2.5v3"/></svg>
-          Timeline
+          <span class="nav-label">Timeline</span>
         </div>
-        <div class="nav-item" data-view="board">
+        <div class="nav-item" data-view="board" title="Board">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M7.5 3v14M12.5 3v14"/></svg>
-          Board
+          <span class="nav-label">Board</span>
         </div>
-        <div class="nav-item" data-view="log">
+        <div class="nav-item" data-view="log" title="Log">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3.5h9l3 3v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M13 3.5V7h3"/><path d="M6 10.5h6M6 13.5h6"/></svg>
-          Log
+          <span class="nav-label">Log</span>
         </div>
-        <div class="nav-item" data-view="users" id="navUsers" style="display:none;">
+        <div class="nav-item" data-view="users" id="navUsers" style="display:none;" title="Người dùng">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7.5" cy="6.5" r="2.7"/><path d="M2.5 16.5c0-2.8 2.2-5 5-5s5 2.2 5 5"/><circle cx="14.5" cy="7" r="2.1"/><path d="M13 11.7c1.9.2 3.5 1.9 3.5 4.3"/></svg>
-          Người dùng
+          <span class="nav-label">Người dùng</span>
         </div>
       </div>
       <div class="rail-footer">
-        <button class="btn-new" id="openDrawer">+ Nghiệp vụ mới</button>
+        <button class="btn-new" id="openDrawer" title="Nghiệp vụ mới"><span class="nav-label">+ Nghiệp vụ mới</span><span class="btn-new-compact">+</span></button>
         <div class="user-chip">
           <span id="userChipName"></span>
           <button type="button" id="logoutBtn" title="Đăng xuất">Đăng xuất</button>
@@ -157,6 +162,7 @@
         <div class="groupby-chips" id="sprintTabChips">
           <button type="button" class="chip active" data-tab="overview">Overview tất cả Sprint</button>
           <button type="button" class="chip" data-tab="current-next">Sprint hiện tại &amp; sau</button>
+          <button type="button" class="chip" data-tab="report">Báo cáo Sprint hiện tại</button>
         </div>
 
         <div class="gantt-legend" id="sprintLegend"></div>
@@ -173,6 +179,10 @@
 
         <div id="sprintTabCurrentNext" style="display:none;">
           <div class="sprint-columns" id="sprintColumns"></div>
+        </div>
+
+        <div id="sprintTabReport" style="display:none;">
+          <div id="sprintReportWrap"></div>
         </div>
       </section>
 
@@ -305,6 +315,7 @@
 <div class="log-hover-popup" id="logHoverPopup"></div>
 <div class="overlay" id="overlay"></div>
 <div class="drawer" id="drawer">
+  <div class="drawer-loading" id="drawerLoading" style="display:none;"><div class="spinner"></div><span id="drawerLoadingText">Đang tải...</span></div>
   <button class="drawer-close" id="closeDrawer">&#10005;</button>
   <h3 id="drawerTitle">Nghiệp vụ mới</h3>
   <div class="drawer-sub" id="drawerSub">Các trường giữ nguyên như sheet Nghiệp vụ hiện tại</div>
@@ -323,6 +334,10 @@
   <div class="field">
     <label>Tên nghiệp vụ</label>
     <input id="f-name" type="text" placeholder="Vd: Xóa hợp đồng ủy thác đầu tư">
+  </div>
+  <div class="field">
+    <label>Tại sao cần làm (Optional)</label>
+    <textarea id="f-why" placeholder="Lý do/mục tiêu của nghiệp vụ này..." rows="2"></textarea>
   </div>
   <div class="field-row">
     <div class="field">

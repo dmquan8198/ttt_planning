@@ -85,6 +85,82 @@ test('POST a log for a non-existent taskId returns 400 (foreign key violation), 
   assert.equal(res.status, 400);
 });
 
+test('PUT edits a manually-typed log note, re-attributing it to whoever edited it', async () => {
+  const pool = makeTestPool();
+  const created = await pool.query(
+    "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Task A','Web','2026-08-05','2026-08-10') RETURNING id"
+  );
+  const taskId = created.rows[0].id;
+  const app = createApp(pool);
+
+  const post = await asAdmin(request(app).post(`/api/tasks/${taskId}/logs`)).send({ note: 'Ghi chú gốc' });
+  const logId = post.body.id;
+
+  const put = await asAdmin(request(app).put(`/api/tasks/${taskId}/logs/${logId}`)).send({ note: 'Ghi chú đã sửa' });
+  assert.equal(put.status, 200);
+  assert.equal(put.body.note, 'Ghi chú đã sửa — quan.dang1');
+});
+
+test('PUT as editor is rejected', async () => {
+  const pool = makeTestPool();
+  const created = await pool.query(
+    "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Task A','Web','2026-08-05','2026-08-10') RETURNING id"
+  );
+  const taskId = created.rows[0].id;
+  const app = createApp(pool);
+  const post = await asAdmin(request(app).post(`/api/tasks/${taskId}/logs`)).send({ note: 'Ghi chú gốc' });
+
+  const res = await request(app)
+    .put(`/api/tasks/${taskId}/logs/${post.body.id}`)
+    .send({ note: 'Sửa trộm' });
+  assert.equal(res.status, 403);
+});
+
+test('PUT rejects editing an auto-generated date-change note', async () => {
+  const pool = makeTestPool();
+  const created = await pool.query(
+    `INSERT INTO tasks (category, name, platform, status, start_date, due_date)
+     VALUES ('Product Foundation','Task A','Web','1.ready_for_dev','2026-08-05','2026-08-10') RETURNING id`
+  );
+  const taskId = created.rows[0].id;
+  const app = createApp(pool);
+
+  await asAdmin(request(app).put(`/api/tasks/${taskId}`)).send({
+    name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+    start_date: '2026-08-06', due_date: '2026-08-11'
+  });
+  const logs = await request(app).get(`/api/tasks/${taskId}/logs`);
+  const dateChangeLog = logs.body[0];
+  assert.match(dateChangeLog.note, /^Dịch ngày/);
+
+  const res = await asAdmin(request(app).put(`/api/tasks/${taskId}/logs/${dateChangeLog.id}`))
+    .send({ note: 'Cố sửa log tự động' });
+  assert.equal(res.status, 400);
+});
+
+test('PUT on a non-existent log returns 404', async () => {
+  const pool = makeTestPool();
+  const created = await pool.query(
+    "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Task A','Web','2026-08-05','2026-08-10') RETURNING id"
+  );
+  const app = createApp(pool);
+  const res = await asAdmin(request(app).put(`/api/tasks/${created.rows[0].id}/logs/9999`)).send({ note: 'x' });
+  assert.equal(res.status, 404);
+});
+
+test('PUT rejects an empty note', async () => {
+  const pool = makeTestPool();
+  const created = await pool.query(
+    "INSERT INTO tasks (category, name, platform, start_date, due_date) VALUES ('Product Foundation','Task A','Web','2026-08-05','2026-08-10') RETURNING id"
+  );
+  const taskId = created.rows[0].id;
+  const app = createApp(pool);
+  const post = await asAdmin(request(app).post(`/api/tasks/${taskId}/logs`)).send({ note: 'Ghi chú gốc' });
+
+  const res = await asAdmin(request(app).put(`/api/tasks/${taskId}/logs/${post.body.id}`)).send({ note: '   ' });
+  assert.equal(res.status, 400);
+});
+
 test('deleting a task cascades to delete its activity logs', async () => {
   const pool = makeTestPool();
   const created = await pool.query(

@@ -46,4 +46,11 @@ function buildDateChangeNote(before, after, actorName) {
   return `Đổi ngày${who}: ${parts.join(', ')}`;
 }
 
-module.exports = { buildDateChangeNote };
+// mirrors public/app.js's own isDateChangeNote (no shared module system
+// between client/server here) — used server-side to keep the auto-generated
+// date-change audit trail immutable via the log-edit endpoint.
+function isDateChangeNote(note) {
+  return /^(Dịch ngày|Đổi ngày)\b/.test(note);
+}
+
+module.exports = { buildDateChangeNote, isDateChangeNote };

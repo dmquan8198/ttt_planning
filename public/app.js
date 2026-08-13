@@ -39,6 +39,17 @@ document.getElementById('themeToggle').addEventListener('click', function(){
   localStorage.setItem(THEME_KEY, next);
 });
 
+// ---- nav rail collapse: persisted, plus a CSS-only hover "peek" (see
+// .rail.collapsed:hover in styles.css) that temporarily widens the rail
+// back out without touching this saved state. ----
+var RAIL_COLLAPSED_KEY = 'ttt_rail_collapsed';
+var rail = document.getElementById('rail');
+if (localStorage.getItem(RAIL_COLLAPSED_KEY) === '1') rail.classList.add('collapsed');
+document.getElementById('railToggle').addEventListener('click', function(){
+  var collapsed = rail.classList.toggle('collapsed');
+  localStorage.setItem(RAIL_COLLAPSED_KEY, collapsed ? '1' : '0');
+});
+
 function escapeHtml(str){
   if (str === null || str === undefined) return '';
   return String(str).replace(/[&<>"']/g, function(c){
@@ -111,6 +122,11 @@ function captureFlipPositions(container, keyAttr){
 
 // id of the task currently being edited, or null when the drawer is in "create" mode
 var editingTaskId = null;
+// bumped on every openDrawer call — lets a load's async .then()/.catch() tell
+// whether it's still the MOST RECENT open (and so should hide the loading
+// overlay / populate fields) or a stale one superseded by a newer open
+// (close+reopen before the first load finished), in which case it no-ops.
+var _drawerLoadToken = 0;
 // the Analyst/Dev/UAT/Staging completion flags of the task currently being edited.
 // These have no form fields in this drawer (they come from the Excel import and
 // are tracked separately from the Kanban `status`) — we must pass them straight
@@ -149,18 +165,81 @@ function populateSelectOptions(selectEl, items, labelFn, noneLabel){
   return previousValue;
 }
 
+// only manually-typed notes are editable — a date-change note is an
+// auto-generated audit record (see dateChangeNote.js) the server itself
+// refuses to modify, so there's no point offering an edit control for it.
+function renderLogPreviewList(taskId, logs){
+  var preview = document.getElementById('logPreview');
+  if (logs.length === 0){
+    preview.innerHTML = '<div class="view-sub">Chưa có ghi chú nào.</div>';
+    return;
+  }
+  preview.innerHTML = '';
+  logs.forEach(function(l){
+    var canEditThis = hasRole('editor') && !isDateChangeNote(l.note);
+    var actor = parseActorFromNote(l.note);
+    var item = document.createElement('div'); item.className = 'log-item';
+    item.innerHTML =
+      '<div class="log-item-head">' +
+        '<span class="log-date">' + fmtDMY(String(l.created_at).slice(0,10)) + '</span>' +
+        (canEditThis ? '<button type="button" class="log-edit-btn">Sửa</button>' : '') +
+      '</div>' +
+      '<div class="log-item-note">' + escapeHtml(stripActorSuffix(l.note)) + '</div>' +
+      (actor ? '<span class="tag tag-actor">' + escapeHtml(actor) + '</span>' : '');
+    if (canEditThis){
+      item.querySelector('.log-edit-btn').addEventListener('click', function(){
+        startEditingLog(taskId, l, item);
+      });
+    }
+    preview.appendChild(item);
+  });
+}
+
+function startEditingLog(taskId, log, itemEl){
+  var noteText = stripActorSuffix(log.note);
+  itemEl.innerHTML =
+    '<textarea class="log-edit-textarea" rows="3"></textarea>' +
+    '<div class="log-edit-actions">' +
+      '<button type="button" class="save-btn log-edit-save" style="width:auto; padding:6px 12px; margin-bottom:0;">Lưu</button>' +
+      '<button type="button" class="chip log-edit-cancel">Hủy</button>' +
+    '</div>';
+  var textarea = itemEl.querySelector('.log-edit-textarea');
+  textarea.value = noteText; // set as a value, not interpolated into innerHTML, so it round-trips exactly
+  textarea.focus();
+  itemEl.querySelector('.log-edit-cancel').addEventListener('click', function(){
+    fetchAndRenderLogs(taskId);
+  });
+  itemEl.querySelector('.log-edit-save').addEventListener('click', function(){
+    var newNote = textarea.value.trim();
+    if (!newNote){
+      toastError('Ghi chú không được để trống.');
+      return;
+    }
+    authFetch('/api/tasks/' + taskId + '/logs/' + log.id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: newNote })
+    }).then(function(res){
+      if (!res.ok){
+        return res.json().catch(function(){ return {}; }).then(function(errBody){
+          throw new Error(errBody.error || ('HTTP ' + res.status));
+        });
+      }
+      toastSuccess('Đã cập nhật log');
+      return fetchAndRenderLogs(taskId);
+    }).catch(function(err){
+      console.error('Failed to update log', err);
+      toastError('Không cập nhật được: ' + err.message);
+    });
+  });
+}
+
 function fetchAndRenderLogs(taskId){
   var preview = document.getElementById('logPreview');
   preview.innerHTML = '<div class="view-sub">Đang tải...</div>';
   return fetchJSON('/api/tasks/' + taskId + '/logs')
     .then(function(logs){
-      if (logs.length === 0){
-        preview.innerHTML = '<div class="view-sub">Chưa có ghi chú nào.</div>';
-        return;
-      }
-      preview.innerHTML = logs.map(function(l){
-        return '<div class="log-item"><span class="log-date">' + fmtDMY(String(l.created_at).slice(0,10)) + '</span>' + escapeHtml(l.note) + '</div>';
-      }).join('');
+      renderLogPreviewList(taskId, logs);
     })
     .catch(function(err){
       console.error('Failed to load activity log', err);
@@ -171,6 +250,7 @@ function fetchAndRenderLogs(taskId){
 function openDrawer(mode, t){
   t = t || {};
   var isEdit = mode === 'edit';
+  var loadToken = ++_drawerLoadToken;
 
   // Bind editingTaskId synchronously, to the id we're actually opening for,
   // BEFORE any async load starts — never wait for the Promise.all below to
@@ -209,14 +289,17 @@ function openDrawer(mode, t){
   document.getElementById('addLogBtn').disabled = false;
   manualDateEdit = false;
 
-  ['f-cat', 'f-cat-new', 'f-name', 'f-platform', 'f-phase', 'f-sprint', 'f-status', 'f-start', 'f-due', 'f-notes'].forEach(function(id){
+  ['f-cat', 'f-cat-new', 'f-name', 'f-why', 'f-platform', 'f-phase', 'f-sprint', 'f-status', 'f-start', 'f-due', 'f-notes'].forEach(function(id){
     document.getElementById(id).disabled = !canEdit;
   });
 
   overlay.classList.add('show'); drawer.classList.add('show');
+  document.getElementById('drawerLoadingText').textContent = 'Đang tải...';
+  document.getElementById('drawerLoading').style.display = 'flex';
 
   Promise.all([loadPhasesList(), loadSprints(), isEdit ? loadTasks() : Promise.resolve(null), fetchJSON('/api/sprints/current-next')])
     .then(function(results){
+      if (loadToken !== _drawerLoadToken) return; // superseded by a newer openDrawer call
       var phases = results[0], sprints = results[1], allTasks = results[2], currentNext = results[3];
       var currentSprintId = currentNext.current ? currentNext.current.id : null;
 
@@ -238,6 +321,7 @@ function openDrawer(mode, t){
         editingTaskWasOverridden = !!full.date_overridden;
         editingTaskStt = full.stt != null ? full.stt : null;
         document.getElementById('f-name').value = full.name || '';
+        document.getElementById('f-why').value = full.why || '';
         addCategoryOptionIfMissing(full.category);
         document.getElementById('f-cat').value = full.category || '';
         document.getElementById('f-cat-new').style.display = 'none';
@@ -250,6 +334,7 @@ function openDrawer(mode, t){
         fetchAndRenderLogs(full.id);
       } else {
         document.getElementById('f-name').value = '';
+        document.getElementById('f-why').value = '';
         document.getElementById('f-cat').value = 'Product Foundation';
         document.getElementById('f-cat-new').style.display = 'none';
         document.getElementById('f-platform').selectedIndex = 0;
@@ -260,9 +345,12 @@ function openDrawer(mode, t){
         document.getElementById('f-due').value = '';
         document.getElementById('logPreview').innerHTML = '';
       }
+      document.getElementById('drawerLoading').style.display = 'none';
     })
     .catch(function(err){
+      if (loadToken !== _drawerLoadToken) return; // superseded by a newer openDrawer call
       console.error('Failed to load drawer reference data', err);
+      document.getElementById('drawerLoading').style.display = 'none';
       alert('Không tải được nghiệp vụ. Vui lòng thử lại.');
       // a failed load must never leave a drawer open bound to a stale
       // editingTaskId/editingTaskDoneFlags — close it outright rather than
@@ -798,6 +886,115 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks, latestLogByTaskId)
   return panel;
 }
 
+// compact status report covering the current sprint + the next 2: one row
+// per task with exactly the 3 things a reader needs — what it is, why it
+// matters, and what happened most recently — instead of the card layout
+// above, which is built for scanning/dragging rather than reading straight
+// through. Only the note text is shown for "latest activity" (no date/actor
+// meta) and it preserves line breaks the author actually typed, so a
+// manually-written multi-line update doesn't read as one run-on line.
+function formatLatestActivityCell(log){
+  if (!log) return '<span class="sprint-report-empty">Chưa có log</span>';
+  return escapeHtml(stripActorSuffix(log.note));
+}
+
+// name + why share one column (why as a muted second line right under the
+// name, only when set) so the activity column — usually the longest text —
+// gets most of the width instead of being squeezed by 2 narrower columns.
+// status is already visible on the Overview/Card views, so it's left out
+// here on purpose — every cell wraps instead of truncating, so nothing is
+// ever hidden behind an ellipsis.
+// a row briefly flashes when its task was updated moments ago (any way —
+// drawer save, drag-and-drop, direct API) so a refresh reads as visibly
+// "this just changed" instead of a silent, easy-to-miss DOM swap.
+function isRecentlyUpdated(t){
+  return !!t.updated_at && (Date.now() - new Date(t.updated_at).getTime()) < 10000;
+}
+
+function renderSprintReportRow(t, latestLogByTaskId, showSprintTag){
+  var row = document.createElement('tr'); row.className = 'sprint-report-row';
+  if (isRecentlyUpdated(t)) row.classList.add('sprint-report-row-flash');
+  row.innerHTML =
+    '<td class="sprint-report-name">' +
+      '<div>' +
+        (showSprintTag ? '<span class="tag tag-sprint">' + escapeHtml(t.sprint_code || '') + '</span> ' : '') +
+        escapeHtml(t.name) + ' ' +
+        '<span class="tag sprint-report-category">' + escapeHtml(t.category) + '</span>' +
+      '</div>' +
+      (t.why ? '<div class="sprint-report-why">Lý do: ' + escapeHtml(t.why) + '</div>' : '') +
+    '</td>' +
+    '<td class="sprint-report-activity">' + formatLatestActivityCell(latestLogByTaskId[t.id]) + '</td>';
+  row.addEventListener('click', function(){ openDrawer('edit', t); });
+  return row;
+}
+
+// canonical category order first (matches the Sprint Overview's own
+// grouping), any other value sorted alphabetically after — same fallback
+// bucketsForGroupBy uses. Status desc within a category is a tie-breaker,
+// so near-done work still surfaces first within its own group.
+function categorySortIndex(category){
+  var idx = SPRINT_OVERVIEW_CATEGORIES.indexOf(category);
+  return idx === -1 ? SPRINT_OVERVIEW_CATEGORIES.length : idx;
+}
+
+function renderSprintReportSection(sprint, tasksForSprint, carryOverTasks, latestLogByTaskId){
+  var section = document.createElement('div'); section.className = 'sprint-report-block';
+
+  var tasksList = tasksForSprint.slice().sort(function(a, b){
+    var catDelta = categorySortIndex(a.category) - categorySortIndex(b.category);
+    if (catDelta !== 0) return catDelta;
+    if (a.category !== b.category) return a.category < b.category ? -1 : 1;
+    return statusDotToNum(b.status) - statusDotToNum(a.status);
+  });
+
+  var head = document.createElement('div'); head.className = 'sprint-report-head';
+  head.innerHTML =
+    '<div class="sprint-report-title">' + escapeHtml(sprint.code) + ' (' + fmtRange(sprint.start_date, sprint.end_date) + ')</div>' +
+    '<div class="view-sub">' + tasksList.length + ' nghiệp vụ' +
+      (carryOverTasks && carryOverTasks.length ? ' · ' + carryOverTasks.length + ' việc tồn từ sprint trước' : '') + '</div>';
+  section.appendChild(head);
+
+  var table = document.createElement('table'); table.className = 'sprint-report-table';
+  table.innerHTML = '<thead><tr><th>Nghiệp vụ</th><th>Hoạt động gần nhất</th></tr></thead>';
+  var tbody = document.createElement('tbody');
+  tasksList.forEach(function(t){ tbody.appendChild(renderSprintReportRow(t, latestLogByTaskId, false)); });
+  if (carryOverTasks && carryOverTasks.length > 0){
+    var sectionRow = document.createElement('tr'); sectionRow.className = 'sprint-report-section';
+    sectionRow.innerHTML = '<td colspan="2">Việc tồn từ sprint trước</td>';
+    tbody.appendChild(sectionRow);
+    carryOverTasks.forEach(function(t){ tbody.appendChild(renderSprintReportRow(t, latestLogByTaskId, true)); });
+  }
+  table.appendChild(tbody);
+  var scroll = document.createElement('div'); scroll.className = 'sprint-report-scroll';
+  scroll.appendChild(table);
+  section.appendChild(scroll);
+  return section;
+}
+
+// reportSprints: current sprint + the next 2, in order. tasksBySprintId:
+// every task grouped by sprint_id (built from the full task list, not the
+// current-next endpoint's own hand-picked columns — see the comment on
+// sprints.js's query for why that was missing fields before). carryOver
+// only ever applies to reportSprints[0] (the current sprint).
+function renderSprintReport(reportSprints, tasksBySprintId, carryOverTasks, latestLogByTaskId){
+  var wrap = document.getElementById('sprintReportWrap');
+  wrap.innerHTML = '';
+  if (!reportSprints || reportSprints.length === 0){
+    wrap.innerHTML = '<div class="view-sub">Không có sprint hiện tại.</div>';
+    return;
+  }
+  // side-by-side columns (current | next | next+1) instead of stacking, so
+  // all 3 sprints are visible together without scrolling the whole page —
+  // each column still scrolls independently if that sprint has many tasks.
+  var columns = document.createElement('div'); columns.className = 'sprint-report-columns';
+  reportSprints.forEach(function(sprint, idx){
+    var tasksForSprint = tasksBySprintId[sprint.id] || [];
+    var carry = idx === 0 ? carryOverTasks : null;
+    columns.appendChild(renderSprintReportSection(sprint, tasksForSprint, carry, latestLogByTaskId));
+  });
+  wrap.appendChild(columns);
+}
+
 // cross-sprint view: EVERY task in EVERY sprint, one row per sprint, tasks
 // grouped within the row (default: Platform, the "who do I need" signal for
 // staffing — also selectable as Category or Status) and colored by status —
@@ -839,6 +1036,7 @@ function updateTaskSprint(task, newSprintId, sprints){
   var body = {
     category: task.category, name: task.name, platform: task.platform, status: task.status,
     phase_id: task.phase_id, sprint_id: newSprintId, stt: task.stt,
+    why: task.why,
     done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
     start_date: sprint ? sprint.start_date : task.start_date,
     due_date: sprint ? sprint.end_date : task.due_date,
@@ -956,6 +1154,12 @@ function renderSprintOverviewTable(sprints, tasks, currentSprintId, nextSprintId
 
 function loadSprintView(){
   var col = document.getElementById('sprintColumns');
+  var reportWrap = document.getElementById('sprintReportWrap');
+  // col isn't touched here (it FLIP-animates from its current contents once
+  // data arrives — wiping it early would leave nothing to animate from);
+  // the report has no such animation, so it gets an explicit loading state
+  // for slow loads (e.g. a Neon cold start) instead of sitting there stale.
+  reportWrap.innerHTML = '<div class="view-sub">Đang tải...</div>';
   return Promise.all([fetchJSON('/api/sprints/current-next'), loadTasks(), loadSprints(), fetchJSON('/api/logs')])
     .then(function(results){
       var data = results[0], tasks = results[1], sprints = results[2], allLogs = results[3];
@@ -972,10 +1176,11 @@ function loadSprintView(){
       _lastSprintOverviewArgs = [sprints, tasks, data.current ? data.current.id : null, data.next ? data.next.id : null];
       renderSprintOverviewTable.apply(null, _lastSprintOverviewArgs);
 
+      var sprintById = {};
+      sprints.forEach(function(s){ sprintById[s.id] = s; });
+
       var carryOver = [];
       if (data.current){
-        var sprintById = {};
-        sprints.forEach(function(s){ sprintById[s.id] = s; });
         var currentStart = new Date(data.current.start_date);
         var earlierSprintIds = sprints
           .filter(function(s){ return new Date(s.end_date) < currentStart; })
@@ -991,20 +1196,39 @@ function loadSprintView(){
 
       col.appendChild(renderSprintPanel(data.current, true, carryOver, latestLogByTaskId));
       col.appendChild(renderSprintPanel(data.next, false, null, latestLogByTaskId));
+
+      // report covers current + next 2 sprints, derived from the full task
+      // list (grouped by sprint_id) rather than current-next's own task
+      // list, so it always has every column (why, etc.) without needing
+      // that endpoint's SELECT kept in sync.
+      var tasksBySprintId = {};
+      tasks.forEach(function(t){
+        if (t.sprint_id == null) return;
+        if (!tasksBySprintId[t.sprint_id]) tasksBySprintId[t.sprint_id] = [];
+        tasksBySprintId[t.sprint_id].push(t);
+      });
+      var currentIdx = data.current ? sprints.findIndex(function(s){ return s.id === data.current.id; }) : -1;
+      var reportSprints = currentIdx === -1 ? [] : sprints.slice(currentIdx, currentIdx + 3);
+      renderSprintReport(reportSprints, tasksBySprintId, carryOver, latestLogByTaskId);
+
       playFlip();
     })
     .catch(function(err){
       console.error('Failed to load /api/sprints/current-next', err);
       col.innerHTML = '<div class="view-sub">Không tải được dữ liệu Sprint. Thử tải lại trang.</div>';
+      reportWrap.innerHTML = '<div class="view-sub">Không tải được dữ liệu Sprint. Thử tải lại trang.</div>';
     });
 }
 
 var GROUP_BY_LABEL = { platform: 'Platform', category: 'Category', status: 'Status' };
 var _sprintActiveTab = 'overview';
+var SPRINT_TAB_SUB = {
+  overview: function(){ return 'Toàn bộ nghiệp vụ mỗi sprint, nhóm theo ' + GROUP_BY_LABEL[_sprintOverviewGroupBy] + ' — bấm vào 1 nghiệp vụ để sửa'; },
+  'current-next': function(){ return 'Biết ngay tuần này đang làm gì, tuần sau sắp tới gì — bấm vào 1 nghiệp vụ để sửa'; },
+  report: function(){ return 'Mỗi nghiệp vụ: tên, tại sao cần làm, hoạt động gần nhất — bấm vào 1 dòng để sửa'; }
+};
 function updateSprintTabSub(){
-  document.getElementById('sprintTabSub').textContent = _sprintActiveTab === 'overview'
-    ? 'Toàn bộ nghiệp vụ mỗi sprint, nhóm theo ' + GROUP_BY_LABEL[_sprintOverviewGroupBy] + ' — bấm vào 1 nghiệp vụ để sửa'
-    : 'Biết ngay tuần này đang làm gì, tuần sau sắp tới gì — bấm vào 1 nghiệp vụ để sửa';
+  document.getElementById('sprintTabSub').textContent = SPRINT_TAB_SUB[_sprintActiveTab]();
 }
 document.querySelectorAll('#sprintTabChips .chip').forEach(function(btn){
   btn.addEventListener('click', function(){
@@ -1013,6 +1237,7 @@ document.querySelectorAll('#sprintTabChips .chip').forEach(function(btn){
     _sprintActiveTab = btn.dataset.tab;
     document.getElementById('sprintTabOverview').style.display = _sprintActiveTab === 'overview' ? '' : 'none';
     document.getElementById('sprintTabCurrentNext').style.display = _sprintActiveTab === 'current-next' ? '' : 'none';
+    document.getElementById('sprintTabReport').style.display = _sprintActiveTab === 'report' ? '' : 'none';
     updateSprintTabSub();
   });
 });
@@ -1364,6 +1589,27 @@ function renderUsersList(users){
       });
     });
     meta.appendChild(roleSelect);
+
+    var deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button'; deleteBtn.className = 'chip user-delete-btn';
+    deleteBtn.textContent = 'Xoá';
+    deleteBtn.addEventListener('click', function(){
+      if (!confirm('Xoá user "' + u.email + '"?')) return;
+      authFetch('/api/users/' + u.id, { method: 'DELETE' }).then(function(res){
+        if (!res.ok){
+          return res.json().catch(function(){ return {}; }).then(function(errBody){
+            throw new Error(errBody.error || ('HTTP ' + res.status));
+          });
+        }
+        toastSuccess('Đã xoá user "' + u.email + '"');
+        return loadUsersView();
+      }).catch(function(err){
+        console.error('Failed to delete user', err);
+        toastError('Không xoá được: ' + err.message);
+      });
+    });
+    meta.appendChild(deleteBtn);
+
     row.appendChild(meta);
     card.appendChild(row);
   });
@@ -1525,6 +1771,7 @@ function updateTaskDates(task, newStartIso, newDueIso){
   var body = {
     category: task.category, name: task.name, platform: task.platform, status: task.status,
     phase_id: task.phase_id, sprint_id: task.sprint_id, stt: task.stt,
+    why: task.why,
     done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
     start_date: newStartIso, due_date: newDueIso, date_overridden: true
   };
@@ -1610,6 +1857,7 @@ function buildGroupChangeBody(task, groupKey, sprints){
   var body = {
     category: task.category, name: task.name, platform: task.platform, status: task.status,
     phase_id: task.phase_id, sprint_id: task.sprint_id, stt: task.stt,
+    why: task.why,
     done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
     start_date: task.start_date, due_date: task.due_date, date_overridden: task.date_overridden
   };
@@ -1671,7 +1919,7 @@ function reorderTimelineTask(draggedTask, targetTask){
 
   Promise.all(updates.map(function(u){
     var body = {
-      category: u.task.category, name: u.task.name, platform: u.task.platform, status: u.task.status,
+      category: u.task.category, name: u.task.name, why: u.task.why, platform: u.task.platform, status: u.task.status,
       phase_id: u.task.phase_id, sprint_id: u.task.sprint_id, stt: u.newStt,
       done_analyst: u.task.done_analyst, done_dev: u.task.done_dev, done_uat: u.task.done_uat, done_staging: u.task.done_staging,
       start_date: u.task.start_date, due_date: u.task.due_date, date_overridden: u.task.date_overridden
@@ -2084,6 +2332,7 @@ function updateTaskStatus(task, newStatus){
   var body = {
     category: task.category, name: task.name, platform: task.platform, status: newStatus,
     phase_id: task.phase_id, sprint_id: task.sprint_id, stt: task.stt,
+    why: task.why,
     done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
     start_date: task.start_date, due_date: task.due_date, date_overridden: task.date_overridden
   };
@@ -2526,6 +2775,7 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   var body = {
     category: category,
     name: name,
+    why: document.getElementById('f-why').value.trim() || null,
     platform: platform,
     status: status,
     phase_id: phaseVal ? Number(phaseVal) : null,
@@ -2558,6 +2808,8 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   saveBtnEl.disabled = true;
   deleteBtnEl.disabled = true;
   saveBtnEl.textContent = isCreate ? 'Đang lưu...' : 'Đang lưu thay đổi...';
+  document.getElementById('drawerLoadingText').textContent = isCreate ? 'Đang lưu...' : 'Đang lưu thay đổi...';
+  document.getElementById('drawerLoading').style.display = 'flex';
 
   authFetch(url, {
     method: method,
@@ -2597,6 +2849,7 @@ document.getElementById('saveBtn').addEventListener('click', function(){
     saveBtnEl.disabled = false;
     deleteBtnEl.disabled = false;
     saveBtnEl.textContent = isCreate ? 'Lưu nghiệp vụ' : 'Lưu thay đổi';
+    document.getElementById('drawerLoading').style.display = 'none';
   });
 });
 
