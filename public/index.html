@@ -38,13 +38,8 @@
     </button>
   </div>
   <div class="body-wrap">
-    <nav class="rail" id="rail">
-      <div class="brand-row">
-        <div class="brand"><span class="brand-text">Túi Thần Tài<small>Quản lý dự án</small></span></div>
-        <button type="button" class="rail-toggle" id="railToggle" title="Thu gọn/mở rộng menu">
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12.5 4.5 7 10l5.5 5.5"/></svg>
-        </button>
-      </div>
+    <nav class="rail collapsed" id="rail">
+      <div class="brand"><span class="brand-text">Túi Thần Tài<small>Quản lý dự án</small></span></div>
       <div class="nav-group">
         <div class="nav-item active" data-view="roadmap" title="Roadmap">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 15h3l2-5 3 8 2-11 2 6h4"/></svg>
@@ -91,36 +86,66 @@
           </div>
         </div>
 
+        <div class="feature-intro">
+          <div class="feature-intro-head">
+            <div class="feature-intro-title">Bạn có thể làm gì ở đây?</div>
+            <div class="feature-intro-sub">Tổng quan nhanh các chức năng chính của Túi Thần Tài</div>
+          </div>
+          <div class="feature-intro-grid">
+            <div class="feature-intro-item">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 15h3l2-5 3 8 2-11 2 6h4"/></svg>
+              <div>
+                <div class="feature-intro-item-title">Roadmap</div>
+                <div class="feature-intro-item-desc">Xem % hoàn thành từng phase so với mốc go-live, lọc theo category để soi riêng từng mảng.</div>
+              </div>
+            </div>
+            <div class="feature-intro-item">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6.5" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="13.5" cy="10" r="1.1" fill="currentColor" stroke="none"/><rect x="2.5" y="4" width="15" height="13" rx="1.5"/><path d="M2.5 7.5h15"/></svg>
+              <div>
+                <div class="feature-intro-item-title">Sprint</div>
+                <div class="feature-intro-item-desc">Xem toàn cảnh mọi sprint, sprint hiện tại &amp; kế tiếp, và báo cáo gọn để cập nhật trạng thái nhanh.</div>
+              </div>
+            </div>
+            <div class="feature-intro-item">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="13" rx="1.5"/><path d="M2.5 8h15M7 2.5v3M13 2.5v3"/></svg>
+              <div>
+                <div class="feature-intro-item-title">Timeline</div>
+                <div class="feature-intro-item-desc">Xem lịch trình từng nghiệp vụ theo ngày, kéo thả để đổi ngày, lọc theo phase/category/platform/status.</div>
+              </div>
+            </div>
+            <div class="feature-intro-item">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M7.5 3v14M12.5 3v14"/></svg>
+              <div>
+                <div class="feature-intro-item-title">Board</div>
+                <div class="feature-intro-item-desc">Theo dõi trạng thái từng nghiệp vụ kiểu Kanban, kéo thả để cập nhật nhanh.</div>
+              </div>
+            </div>
+            <div class="feature-intro-item">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3.5h9l3 3v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M13 3.5V7h3"/><path d="M6 10.5h6M6 13.5h6"/></svg>
+              <div>
+                <div class="feature-intro-item-title">Log</div>
+                <div class="feature-intro-item-desc">Xem toàn bộ lịch sử hoạt động của từng nghiệp vụ, sửa lại ghi chú nếu gõ nhầm.</div>
+              </div>
+            </div>
+            <div class="feature-intro-item">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7.5" cy="6.5" r="2.7"/><path d="M2.5 16.5c0-2.8 2.2-5 5-5s5 2.2 5 5"/><circle cx="14.5" cy="7" r="2.1"/><path d="M13 11.7c1.9.2 3.5 1.9 3.5 4.3"/></svg>
+              <div>
+                <div class="feature-intro-item-title">Người dùng</div>
+                <div class="feature-intro-item-desc">Quản lý quyền truy cập của từng thành viên — Admin/Editor/Viewer (dành cho Admin).</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="groupby-chips" id="roadmapPctChips">
           <span class="chip-label">% Roadmap theo</span>
           <button type="button" class="chip active" data-pct-mode="done_dev_qc">Done UAT</button>
           <button type="button" class="chip" data-pct-mode="golive">Golive</button>
+          <span class="chip-label" style="margin-left:10px;">Lọc theo</span>
+          <div id="roadmapCategoryFilter"></div>
         </div>
 
         <div class="phase-row" id="phaseRow"></div>
-
-        <div class="axis-wrap">
-          <div class="axis-label">Trục thời gian toàn dự án · 06/2026 → 01/2027</div>
-          <div class="axis" id="masterAxis"></div>
-        </div>
-
-        <div class="risk-threshold-chips" id="riskThresholdChips">
-          <span class="chip-label">Trễ hạn tính đến khi chưa tới</span>
-          <button type="button" class="chip" data-threshold="4">Done</button>
-          <button type="button" class="chip active" data-threshold="3">Done UAT</button>
-        </div>
-        <div class="risk-wrap">
-          <div class="risk-col">
-            <div class="risk-col-title">Risk theo Sprint</div>
-            <div class="view-sub" style="margin-bottom:12px;" id="riskSubSprint"></div>
-            <div id="riskBySprint"></div>
-          </div>
-          <div class="risk-col">
-            <div class="risk-col-title">Risk theo Phase</div>
-            <div class="view-sub" style="margin-bottom:12px;" id="riskSubPhase"></div>
-            <div id="riskByPhase"></div>
-          </div>
-        </div>
 
         <div class="risk-threshold-chips" id="dueSoonWindowChips">
           <span class="chip-label">Sắp đến hạn trong</span>
@@ -182,6 +207,10 @@
         </div>
 
         <div id="sprintTabReport" style="display:none;">
+          <div class="groupby-chips">
+            <span class="chip-label">Lọc theo</span>
+            <div id="sprintReportCategoryFilter"></div>
+          </div>
           <div id="sprintReportWrap"></div>
         </div>
       </section>
@@ -194,21 +223,10 @@
             <div class="view-sub">Mỗi thanh là một nghiệp vụ theo đúng ngày bắt đầu/kết thúc, bấm để sửa</div>
           </div>
           <div class="view-head-controls">
-            <select id="filter-phase"><option value="">Phase</option></select>
-            <select id="filter-category">
-              <option value="">Category</option>
-              <option>Product Foundation</option>
-              <option>Cross Service Integration</option>
-              <option>Convert &amp; Scale</option>
-              <option>Internal features</option>
-            </select>
-            <select id="filter-platform">
-              <option value="">Platform</option>
-              <option>Web</option>
-              <option>App</option>
-              <option>App/Auto</option>
-              <option>BE</option>
-            </select>
+            <div id="filter-phase-ms"></div>
+            <div id="filter-category-ms"></div>
+            <div id="filter-platform-ms"></div>
+            <div id="filter-status-ms"></div>
             <div class="groupby-chips" id="groupByChips" title="Xem Timeline theo góc nhìn Sprint / Category / Phase / Platform">
               <span class="chip-label">Xem theo</span>
               <button type="button" class="chip active" data-groupby="sprint">Sprint</button>
@@ -323,10 +341,10 @@
   <div class="field">
     <label>Category</label>
     <select id="f-cat">
-      <option>Product Foundation</option>
-      <option>Cross Service Integration</option>
-      <option>Internal features</option>
-      <option>Convert &amp; Scale</option>
+      <option>TTT New - Product Foundation</option>
+      <option>TTT New - Cross Service Integration</option>
+      <option>TTT New - Internal Features</option>
+      <option>TTT New - Convert &amp; Scale</option>
       <option value="__add_new__">+ Thêm category mới...</option>
     </select>
     <input id="f-cat-new" type="text" placeholder="Nhập tên category mới, Enter để xác nhận" style="display:none; margin-top:6px;">

@@ -39,16 +39,9 @@ document.getElementById('themeToggle').addEventListener('click', function(){
   localStorage.setItem(THEME_KEY, next);
 });
 
-// ---- nav rail collapse: persisted, plus a CSS-only hover "peek" (see
-// .rail.collapsed:hover in styles.css) that temporarily widens the rail
-// back out without touching this saved state. ----
-var RAIL_COLLAPSED_KEY = 'ttt_rail_collapsed';
-var rail = document.getElementById('rail');
-if (localStorage.getItem(RAIL_COLLAPSED_KEY) === '1') rail.classList.add('collapsed');
-document.getElementById('railToggle').addEventListener('click', function(){
-  var collapsed = rail.classList.toggle('collapsed');
-  localStorage.setItem(RAIL_COLLAPSED_KEY, collapsed ? '1' : '0');
-});
+// ---- nav rail: always collapsed to icons by default — .rail.collapsed:hover
+// in styles.css handles the temporary "peek" expand on hover, no persisted
+// toggle/expanded state anymore.
 
 function escapeHtml(str){
   if (str === null || str === undefined) return '';
@@ -56,6 +49,93 @@ function escapeHtml(str){
     return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
   });
 }
+
+// ---- reusable multi-select dropdown filter (Timeline/Roadmap/Sprint Report) ----
+// containerEl: element to render into (its content is fully replaced) — so
+// callers must only invoke this on a genuine data reload (new option list),
+// never from inside onChange, or every checkbox click would tear down and
+// re-close the panel the user is still working in.
+// buttonLabel: text shown on the closed button (plus a live "(N)" count).
+// options: [{key, label}]. selected: the array to read/mutate in place —
+// callers own this array's identity, so external code can also read or
+// reset it directly. onChange(selected): called after every toggle.
+// defaultSelectAll: if true, the FIRST time this is ever called for a given
+// `selected` array, it's populated with every option key (a flag stashed on
+// the array itself makes this one-time — later rebuilds, e.g. after a real
+// data reload, never stomp a selection the user already made, including an
+// intentionally-cleared one).
+function renderMultiSelectDropdown(containerEl, buttonLabel, options, selected, onChange, defaultSelectAll){
+  if (defaultSelectAll && !selected._msInitialized){
+    selected._msInitialized = true;
+    options.forEach(function(opt){ if (selected.indexOf(opt.key) === -1) selected.push(opt.key); });
+  }
+  containerEl.innerHTML = '';
+  var wrap = document.createElement('div'); wrap.className = 'multiselect';
+  var btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'multiselect-btn';
+  var panel = document.createElement('div'); panel.className = 'multiselect-panel';
+  panel.style.display = 'none';
+
+  function updateBtn(){
+    btn.textContent = buttonLabel + (selected.length ? ' (' + selected.length + ')' : '');
+    btn.classList.toggle('active', selected.length > 0);
+  }
+
+  var actions = document.createElement('div'); actions.className = 'multiselect-actions';
+  var selectAllBtn = document.createElement('button');
+  selectAllBtn.type = 'button'; selectAllBtn.className = 'multiselect-action-btn'; selectAllBtn.textContent = 'Chọn tất cả';
+  var clearBtn = document.createElement('button');
+  clearBtn.type = 'button'; clearBtn.className = 'multiselect-action-btn'; clearBtn.textContent = 'Bỏ chọn';
+  actions.appendChild(selectAllBtn); actions.appendChild(clearBtn);
+  panel.appendChild(actions);
+
+  var checkboxes = [];
+  options.forEach(function(opt){
+    var row = document.createElement('label'); row.className = 'multiselect-option';
+    var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selected.indexOf(opt.key) !== -1;
+    cb.addEventListener('change', function(){
+      var idx = selected.indexOf(opt.key);
+      if (cb.checked && idx === -1) selected.push(opt.key);
+      else if (!cb.checked && idx !== -1) selected.splice(idx, 1);
+      updateBtn();
+      onChange(selected);
+    });
+    row.appendChild(cb);
+    row.appendChild(document.createTextNode(opt.label));
+    panel.appendChild(row);
+    checkboxes.push({ cb: cb, key: opt.key });
+  });
+
+  selectAllBtn.addEventListener('click', function(){
+    selected.length = 0;
+    options.forEach(function(opt){ selected.push(opt.key); });
+    checkboxes.forEach(function(c){ c.cb.checked = true; });
+    updateBtn();
+    onChange(selected);
+  });
+  clearBtn.addEventListener('click', function(){
+    selected.length = 0;
+    checkboxes.forEach(function(c){ c.cb.checked = false; });
+    updateBtn();
+    onChange(selected);
+  });
+
+  btn.addEventListener('click', function(e){
+    e.stopPropagation();
+    var willOpen = panel.style.display === 'none';
+    document.querySelectorAll('.multiselect-panel').forEach(function(p){ p.style.display = 'none'; });
+    panel.style.display = willOpen ? 'flex' : 'none';
+  });
+  panel.addEventListener('click', function(e){ e.stopPropagation(); });
+
+  updateBtn();
+  wrap.appendChild(btn);
+  wrap.appendChild(panel);
+  containerEl.appendChild(wrap);
+}
+document.addEventListener('click', function(){
+  document.querySelectorAll('.multiselect-panel').forEach(function(p){ p.style.display = 'none'; });
+});
 
 // ---- toast: non-blocking success/failure feedback for every mutating
 // action (drag, save, delete, ...) — replaces alert(), which freezes the
@@ -335,7 +415,7 @@ function openDrawer(mode, t){
       } else {
         document.getElementById('f-name').value = '';
         document.getElementById('f-why').value = '';
-        document.getElementById('f-cat').value = 'Product Foundation';
+        document.getElementById('f-cat').value = 'TTT New - Product Foundation';
         document.getElementById('f-cat-new').style.display = 'none';
         document.getElementById('f-platform').selectedIndex = 0;
         document.getElementById('f-status').value = STATUS_ORDER[0];
@@ -626,74 +706,77 @@ function renderPhaseCard(phase, allPhases){
       analystLine(phase.done_analyst, phase.total) +
       funnelLine('Done Dev,QC', phase.done_dev_qc, phase.total) +
       funnelLine('Golive', phase.golive, phase.total) +
-    '</div>';
+    '</div>' +
+    '<button type="button" class="phase-not-done-cta">Những task chưa done dev/QC →</button>';
   return card;
-}
-
-function renderMasterAxis(phases){
-  var axis = document.getElementById('masterAxis');
-  axis.innerHTML = '';
-  var start = new Date('2026-06-01'), end = new Date('2027-01-15');
-  var span = end - start;
-  function pos(d){ return ((d - start) / span * 100).toFixed(2); }
-
-  // alternating phase-segment bands behind the ticks, so the axis reads as a
-  // detail view of the phase cards above it instead of a disconnected ruler —
-  // each segment also gets its OWN progress fill using that phase's own
-  // pct_complete (same number as the .phase-pct/.stack bar on its card above),
-  // colored green once done, so the axis is a literal continuation of the
-  // cards rather than a separate "elapsed time" concept.
-  var segStart = start;
-  phases.forEach(function(p, idx){
-    var segEnd = new Date(p.target_date);
-    var segStartPct = parseFloat(pos(segStart)), segEndPct = parseFloat(pos(segEnd));
-    var segWidth = segEndPct - segStartPct;
-
-    var band = document.createElement('div');
-    band.className = 'axis-band' + (idx % 2 === 1 ? ' alt' : '');
-    band.style.left = segStartPct + '%';
-    band.style.width = segWidth + '%';
-    axis.appendChild(band);
-
-    var pct = phasePct(p) || 0;
-    var fill = document.createElement('div');
-    fill.className = 'axis-fill' + (pct === 100 ? ' is-done' : '');
-    fill.style.left = segStartPct + '%';
-    fill.style.width = (segWidth * pct / 100) + '%';
-    axis.appendChild(fill);
-
-    segStart = segEnd;
-  });
-
-  function addTick(d, label){
-    var p = pos(d);
-    var t = document.createElement('div'); t.className='tick'; t.style.left=p+'%'; axis.appendChild(t);
-    var lb = document.createElement('div'); lb.className='tick-label'; lb.style.left=p+'%'; lb.textContent=label; axis.appendChild(lb);
-  }
-  addTick(new Date('2026-06-01'), '06/2026');
-  phases.forEach(function(p){
-    addTick(new Date(p.target_date), p.code + ' · ' + ddmm(p.target_date));
-  });
-  // today marker — the real current date, not a frozen literal
-  var today = new Date(), tp = pos(today);
-  var tm = document.createElement('div'); tm.className='today-mark'; tm.style.left=tp+'%'; axis.appendChild(tm);
-  var td = document.createElement('div'); td.className='today-dot'; td.style.left=tp+'%'; axis.appendChild(td);
-  var tl = document.createElement('div'); tl.className='today-label'; tl.style.left=tp+'%'; tl.textContent='HÔM NAY'; axis.appendChild(tl);
 }
 
 function renderPhases(phases){
   var row = document.getElementById('phaseRow');
   row.innerHTML = '';
   phases.forEach(function(phase){ row.appendChild(renderPhaseCard(phase, phases)); });
-  renderMasterAxis(phases);
+}
+
+// empty selection = no filter (whole-project rollup, straight from the
+// server). When categories are selected, each phase's counts/% are
+// recomputed client-side from the full task list — same cumulative-funnel
+// math as src/lib/phaseRollup.js's computePhaseRollup, just scoped to
+// tasks in the selected categories, since the backend rollup has no
+// per-category breakdown to ask for.
+var _roadmapPhaseCategoryFilter = [];
+
+function computePhaseRollupClient(phase, tasksForPhase){
+  var total = tasksForPhase.length;
+  var doneAnalyst = tasksForPhase.filter(function(t){ return statusDotToNum(t.status) >= 1; }).length;
+  var doneDevQc = tasksForPhase.filter(function(t){ return statusDotToNum(t.status) >= 3; }).length;
+  var golive = tasksForPhase.filter(function(t){ return statusDotToNum(t.status) >= 4; }).length;
+  var pctComplete = total === 0 ? null : Math.round((doneDevQc / total) * 1000) / 10;
+  return {
+    id: phase.id, code: phase.code, name: phase.name, target_date: phase.target_date,
+    updated_at: phase.updated_at, days_remaining: phase.days_remaining,
+    total: total, done_analyst: doneAnalyst, done_dev_qc: doneDevQc, golive: golive, pct_complete: pctComplete
+  };
+}
+
+// cached from the last real fetch, so a checkbox toggle can re-render just
+// the phase cards (renderPhasesDisplay) without re-fetching or rebuilding
+// the category dropdown itself — rebuilding it would reset panel.style.display
+// and close the dropdown mid-selection.
+var _lastPhasesRaw = null;
+var _lastTasksForPhaseFilter = null;
+
+function renderRoadmapCategoryFilter(allTasks){
+  renderMultiSelectDropdown(
+    document.getElementById('roadmapCategoryFilter'), 'Category',
+    bucketsForGroupBy(allTasks, 'category'),
+    _roadmapPhaseCategoryFilter,
+    function(){ renderPhasesDisplay(); },
+    true
+  );
+}
+
+function renderPhasesDisplay(){
+  if (!_lastPhasesRaw || !_lastTasksForPhaseFilter) return;
+  var displayPhases = _roadmapPhaseCategoryFilter.length === 0
+    ? _lastPhasesRaw
+    : _lastPhasesRaw.map(function(p){
+        var tasksForPhase = _lastTasksForPhaseFilter.filter(function(t){
+          return t.phase_id === p.id && _roadmapPhaseCategoryFilter.indexOf(t.category) !== -1;
+        });
+        return computePhaseRollupClient(p, tasksForPhase);
+      });
+  _lastPhases = displayPhases;
+  renderPhases(displayPhases);
 }
 
 function loadPhases(){
   var row = document.getElementById('phaseRow');
-  return fetchJSON('/api/phases')
-    .then(function(phases){
-      _lastPhases = phases;
-      renderPhases(phases);
+  return Promise.all([fetchJSON('/api/phases'), loadTasks()])
+    .then(function(results){
+      _lastPhasesRaw = results[0];
+      _lastTasksForPhaseFilter = results[1];
+      renderRoadmapCategoryFilter(_lastTasksForPhaseFilter);
+      renderPhasesDisplay();
     })
     .catch(function(err){
       console.error('Failed to load /api/phases', err);
@@ -714,7 +797,32 @@ function enterPhaseDateEdit(card, phase){
 // concurrency: every save sends back the updated_at this admin last saw, so
 // if someone else changed the date in between, the server returns 409
 // instead of one edit silently clobbering the other.
+// jumps to the Timeline pre-filtered to this phase + every status short of
+// Done UAT (Backlog/Ready for Dev/In Dev) — "what's still not done dev/QC
+// for this phase", one click from the roadmap card that flags it.
+function goToTimelineNotYetDoneDevQc(phase){
+  var notYetDoneDevQc = STATUS_ORDER.slice(0, STATUS_ORDER.indexOf('3.ready_for_staging'));
+  _timelineFilterPhase.length = 0; _timelineFilterPhase.push(String(phase.id));
+  _timelineFilterStatus.length = 0; notYetDoneDevQc.forEach(function(s){ _timelineFilterStatus.push(s); });
+  _timelineFilterCategory.length = 0;
+  _timelineFilterPlatform.length = 0;
+  var navItem = document.querySelector('.nav-item[data-view="timeline"]');
+  if (navItem) navItem.click();
+  if (_lastTimelineTasks && _lastTimelinePhases){
+    renderTimelineFilterDropdowns(_lastTimelineTasks, _lastTimelinePhases);
+    renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+  }
+}
+
 document.getElementById('phaseRow').addEventListener('click', function(e){
+  var notDoneCta = e.target.closest('.phase-not-done-cta');
+  if (notDoneCta){
+    var ctaCard = notDoneCta.closest('.phase-card');
+    var ctaPhase = _lastPhases.find(function(p){ return String(p.id) === ctaCard.dataset.phaseId; });
+    if (ctaPhase) goToTimelineNotYetDoneDevQc(ctaPhase);
+    return;
+  }
+
   var editBtn = e.target.closest('.phase-edit-btn');
   if (editBtn){
     var card = editBtn.closest('.phase-card');
@@ -971,12 +1079,38 @@ function renderSprintReportSection(sprint, tasksForSprint, carryOverTasks, lates
   return section;
 }
 
+// empty selection = no filter (show every category) — same convention as
+// the rest of this app's chip filters.
+var _sprintReportCategoryFilter = [];
+// cached inputs from the last renderSprintReport call, so toggling a
+// category chip can just re-render instantly instead of refetching.
+var _lastSprintReportArgs = null;
+
+function categoryFilterMatches(t){
+  return _sprintReportCategoryFilter.length === 0 || _sprintReportCategoryFilter.indexOf(t.category) !== -1;
+}
+
+// built from whatever categories actually appear across the reported
+// sprints (canonical order first, then any others alphabetically — same
+// fallback bucketsForGroupBy uses), not a hardcoded list, so an unusual
+// category value is still filterable instead of silently unreachable.
+function renderSprintReportCategoryFilter(allReportTasks){
+  renderMultiSelectDropdown(
+    document.getElementById('sprintReportCategoryFilter'), 'Category',
+    bucketsForGroupBy(allReportTasks, 'category'),
+    _sprintReportCategoryFilter,
+    function(){ if (_lastSprintReportArgs) renderSprintReport.apply(null, _lastSprintReportArgs); },
+    true
+  );
+}
+
 // reportSprints: current sprint + the next 2, in order. tasksBySprintId:
 // every task grouped by sprint_id (built from the full task list, not the
 // current-next endpoint's own hand-picked columns — see the comment on
 // sprints.js's query for why that was missing fields before). carryOver
 // only ever applies to reportSprints[0] (the current sprint).
 function renderSprintReport(reportSprints, tasksBySprintId, carryOverTasks, latestLogByTaskId){
+  _lastSprintReportArgs = [reportSprints, tasksBySprintId, carryOverTasks, latestLogByTaskId];
   var wrap = document.getElementById('sprintReportWrap');
   wrap.innerHTML = '';
   if (!reportSprints || reportSprints.length === 0){
@@ -988,8 +1122,8 @@ function renderSprintReport(reportSprints, tasksBySprintId, carryOverTasks, late
   // each column still scrolls independently if that sprint has many tasks.
   var columns = document.createElement('div'); columns.className = 'sprint-report-columns';
   reportSprints.forEach(function(sprint, idx){
-    var tasksForSprint = tasksBySprintId[sprint.id] || [];
-    var carry = idx === 0 ? carryOverTasks : null;
+    var tasksForSprint = (tasksBySprintId[sprint.id] || []).filter(categoryFilterMatches);
+    var carry = idx === 0 && carryOverTasks ? carryOverTasks.filter(categoryFilterMatches) : null;
     columns.appendChild(renderSprintReportSection(sprint, tasksForSprint, carry, latestLogByTaskId));
   });
   wrap.appendChild(columns);
@@ -1001,7 +1135,10 @@ function renderSprintReport(reportSprints, tasksBySprintId, carryOverTasks, late
 // so a PM can scan all sprints in one screen and still see what each task
 // actually is, not just a count.
 var SPRINT_OVERVIEW_PLATFORMS = ['Web', 'App', 'BE', 'App/Auto'];
-var SPRINT_OVERVIEW_CATEGORIES = ['Product Foundation', 'Cross Service Integration', 'Internal features', 'Convert & Scale'];
+var SPRINT_OVERVIEW_CATEGORIES = [
+  'TTT New - Product Foundation', 'TTT New - Cross Service Integration',
+  'TTT New - Internal Features', 'TTT New - Convert & Scale'
+];
 var _sprintOverviewGroupBy = 'platform';
 // cached inputs from the last renderSprintOverviewTable call, so switching
 // the group-by chip can just re-render instantly instead of refetching.
@@ -1209,6 +1346,10 @@ function loadSprintView(){
       });
       var currentIdx = data.current ? sprints.findIndex(function(s){ return s.id === data.current.id; }) : -1;
       var reportSprints = currentIdx === -1 ? [] : sprints.slice(currentIdx, currentIdx + 3);
+      var allReportTasks = [];
+      reportSprints.forEach(function(s){ allReportTasks = allReportTasks.concat(tasksBySprintId[s.id] || []); });
+      allReportTasks = allReportTasks.concat(carryOver);
+      renderSprintReportCategoryFilter(allReportTasks);
       renderSprintReport(reportSprints, tasksBySprintId, carryOver, latestLogByTaskId);
 
       playFlip();
@@ -1298,20 +1439,11 @@ function renderRiskGroups(containerId, riskTasks, groupList, groupKeyFn, today, 
   }
 }
 
-// which status a task must have reached to no longer count as "at risk";
-// STATUS_ORDER index, so 3 = Done UAT, 4 = Done. Default per product
-// call: Done UAT counts as "basically shipped", so only Backlog/Ready
-// for Dev/In Dev tasks are flagged once overdue.
+// which status a task must have reached to no longer count as "at risk"
+// for due-soon filtering below; STATUS_ORDER index, so 3 = Done UAT.
+// Default per product call: Done UAT counts as "basically shipped", so
+// only Backlog/Ready for Dev/In Dev tasks are flagged once overdue.
 var _riskThreshold = 3;
-
-document.querySelectorAll('#riskThresholdChips .chip').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    document.querySelectorAll('#riskThresholdChips .chip').forEach(function(b){ b.classList.remove('active'); });
-    btn.classList.add('active');
-    _riskThreshold = Number(btn.dataset.threshold);
-    loadRiskReports();
-  });
-});
 
 // how many days ahead counts as "sắp đến hạn" (due soon) — a forward-looking
 // companion to the overdue risk report above, so a PM can act before a task
@@ -1328,14 +1460,9 @@ document.querySelectorAll('#dueSoonWindowChips .chip').forEach(function(btn){
 });
 
 function loadRiskReports(){
-  var sprintEl = document.getElementById('riskBySprint');
-  var phaseEl = document.getElementById('riskByPhase');
   var dueSoonSprintEl = document.getElementById('dueSoonBySprint');
   var dueSoonPhaseEl = document.getElementById('dueSoonByPhase');
   var thresholdLabel = _riskThreshold === 4 ? 'Done' : 'Done UAT';
-  var subText = 'Nghiệp vụ đã quá due date nhưng chưa tới ' + thresholdLabel;
-  document.getElementById('riskSubSprint').textContent = subText;
-  document.getElementById('riskSubPhase').textContent = subText;
   var dueSoonSubText = 'Nghiệp vụ due trong ' + _dueSoonWindow + ' ngày tới nhưng chưa tới ' + thresholdLabel;
   document.getElementById('dueSoonSubSprint').textContent = dueSoonSubText;
   document.getElementById('dueSoonSubPhase').textContent = dueSoonSubText;
@@ -1345,9 +1472,6 @@ function loadRiskReports(){
       var tasks = results[0], sprints = results[1], phases = results[2];
       var today = new Date(); today.setHours(0, 0, 0, 0);
       var todayIso = toIsoDate(today);
-      var riskTasks = tasks.filter(function(t){
-        return statusDotToNum(t.status) < _riskThreshold && t.due_date < todayIso;
-      });
       var dueSoonEndIso = toIsoDate(new Date(today.getTime() + _dueSoonWindow * 24 * 60 * 60 * 1000));
       var dueSoonTasks = tasks.filter(function(t){
         return statusDotToNum(t.status) < _riskThreshold && t.due_date >= todayIso && t.due_date <= dueSoonEndIso;
@@ -1357,9 +1481,6 @@ function loadRiskReports(){
       sprintGroups.push({ key: null, label: 'Chưa gán sprint' });
       var phaseGroups = phases.map(function(p){ return { key: p.id, label: p.code + ': ' + p.name }; });
       phaseGroups.push({ key: null, label: 'Chưa gán phase' });
-
-      renderRiskGroups('riskBySprint', riskTasks, sprintGroups, function(t){ return t.sprint_id; }, today);
-      renderRiskGroups('riskByPhase', riskTasks, phaseGroups, function(t){ return t.phase_id; }, today);
 
       var dueSoonOpts = {
         countLabel: function(n){ return n + ' sắp đến hạn'; },
@@ -1375,7 +1496,6 @@ function loadRiskReports(){
     })
     .catch(function(err){
       console.error('Failed to load risk reports', err);
-      sprintEl.innerHTML = phaseEl.innerHTML = '<div class="view-sub">Không tải được risk report.</div>';
       dueSoonSprintEl.innerHTML = dueSoonPhaseEl.innerHTML = '<div class="view-sub">Không tải được report.</div>';
     });
 }
@@ -2269,18 +2389,45 @@ function renderStatusLegend(elementId){
 renderStatusLegend('ganttLegend');
 renderStatusLegend('sprintLegend');
 
-// dynamic Phase <select> options for the Timeline filter row (kept in sync with
-// the real phase codes/names from the API rather than a hardcoded guess)
-loadPhasesList().then(function(phases){
-  var sel = document.getElementById('filter-phase');
-  if (!sel) return;
-  phases.forEach(function(p){
-    var opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = p.code + ': ' + p.name;
-    sel.appendChild(opt);
-  });
-}).catch(function(err){ console.error('Failed to load phases for Timeline filter', err); });
+// Timeline filters: multi-select dropdowns (Phase/Category/Platform/Status).
+// Empty selection = no filter (show everything), same convention as every
+// other filter in this app. Arrays are read by reference from
+// renderMultiSelectDropdown, so an in-progress selection survives a rebuild.
+var _timelineFilterPhase = [];
+var _timelineFilterCategory = [];
+var _timelineFilterPlatform = [];
+var _timelineFilterStatus = [];
+
+function timelineFilterOnChange(){
+  if (_lastTimelineTasks && _lastTimelineSprints && _lastTimelinePhases){
+    renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+  }
+}
+
+// rebuilt each time Timeline data loads, so option lists (phases especially)
+// stay in sync with real data.
+function renderTimelineFilterDropdowns(tasks, phases){
+  renderMultiSelectDropdown(
+    document.getElementById('filter-phase-ms'), 'Phase',
+    phases.map(function(p){ return { key: String(p.id), label: p.code + ': ' + p.name }; }),
+    _timelineFilterPhase, timelineFilterOnChange
+  );
+  renderMultiSelectDropdown(
+    document.getElementById('filter-category-ms'), 'Category',
+    bucketsForGroupBy(tasks, 'category'),
+    _timelineFilterCategory, timelineFilterOnChange, true
+  );
+  renderMultiSelectDropdown(
+    document.getElementById('filter-platform-ms'), 'Platform',
+    bucketsForGroupBy(tasks, 'platform'),
+    _timelineFilterPlatform, timelineFilterOnChange
+  );
+  renderMultiSelectDropdown(
+    document.getElementById('filter-status-ms'), 'Status',
+    STATUS_ORDER.map(function(s, idx){ return { key: s, label: statusLabel[idx].replace(/^\d+\.\s*/, '') }; }),
+    _timelineFilterStatus, timelineFilterOnChange
+  );
+}
 
 // last tasks/sprints/phases fetched for the Timeline, so changing a filter or
 // group-by chip can re-render instantly without refetching from the API
@@ -2289,24 +2436,14 @@ var _lastTimelineSprints = null;
 var _lastTimelinePhases = null;
 
 function applyTimelineFilters(tasks){
-  var phaseId = document.getElementById('filter-phase').value;
-  var category = document.getElementById('filter-category').value;
-  var platform = document.getElementById('filter-platform').value;
   return tasks.filter(function(t){
-    if (phaseId && String(t.phase_id) !== String(phaseId)) return false;
-    if (category && t.category !== category) return false;
-    if (platform && t.platform !== platform) return false;
+    if (_timelineFilterPhase.length && _timelineFilterPhase.indexOf(String(t.phase_id)) === -1) return false;
+    if (_timelineFilterCategory.length && _timelineFilterCategory.indexOf(t.category) === -1) return false;
+    if (_timelineFilterPlatform.length && _timelineFilterPlatform.indexOf(t.platform) === -1) return false;
+    if (_timelineFilterStatus.length && _timelineFilterStatus.indexOf(t.status) === -1) return false;
     return true;
   });
 }
-
-['filter-phase', 'filter-category', 'filter-platform'].forEach(function(id){
-  document.getElementById(id).addEventListener('change', function(){
-    if (_lastTimelineTasks && _lastTimelineSprints && _lastTimelinePhases){
-      renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
-    }
-  });
-});
 
 function loadTimelineView(){
   var body = document.getElementById('ganttBody');
@@ -2315,6 +2452,7 @@ function loadTimelineView(){
       _lastTimelineTasks = results[0];
       _lastTimelineSprints = results[1];
       _lastTimelinePhases = results[2];
+      renderTimelineFilterDropdowns(_lastTimelineTasks, _lastTimelinePhases);
       renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
     })
     .catch(function(err){
@@ -2705,7 +2843,7 @@ function commitNewCategory(){
   var newInput = document.getElementById('f-cat-new');
   var name = newInput.value.trim();
   newInput.style.display = 'none';
-  if (!name) { sel.value = 'Product Foundation'; return; }
+  if (!name) { sel.value = 'TTT New - Product Foundation'; return; }
   addCategoryOptionIfMissing(name);
   sel.value = name;
 }
