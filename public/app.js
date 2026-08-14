@@ -425,6 +425,7 @@ function openDrawer(mode, t){
         document.getElementById('f-due').value = '';
         document.getElementById('logPreview').innerHTML = '';
       }
+      updateGenerateWhyBtnState();
       document.getElementById('drawerLoading').style.display = 'none';
     })
     .catch(function(err){
@@ -463,6 +464,55 @@ document.getElementById('f-sprint').addEventListener('change', function(){
 });
 ['f-start', 'f-due'].forEach(function(id){
   document.getElementById(id).addEventListener('input', function(){ manualDateEdit = true; });
+});
+
+// ---- AI "why" suggestion — enabled only once Tên nghiệp vụ is filled (an
+// empty/placeholder name gives the LLM nothing to reason about), and only
+// for whoever could actually save the result (editor+, same as every other
+// field in this drawer). Purely fills the textarea client-side — nothing
+// is persisted until the user hits Lưu like normal. ----
+function updateGenerateWhyBtnState(){
+  var btn = document.getElementById('generateWhyBtn');
+  var hasName = document.getElementById('f-name').value.trim().length > 0;
+  var canUse = hasRole('editor') && hasName;
+  btn.disabled = !canUse;
+  btn.title = canUse ? '' : 'Nhập Tên nghiệp vụ trước';
+}
+document.getElementById('f-name').addEventListener('input', updateGenerateWhyBtnState);
+
+document.getElementById('generateWhyBtn').addEventListener('click', function(){
+  var btn = this;
+  var name = document.getElementById('f-name').value.trim();
+  if (!name) return;
+  var category = document.getElementById('f-cat').value;
+  if (category === '__add_new__') category = document.getElementById('f-cat-new').value.trim();
+  var platform = document.getElementById('f-platform').value;
+
+  btn.disabled = true;
+  var originalLabel = btn.textContent;
+  btn.textContent = 'Đang tạo...';
+  authFetch('/api/ai-suggestions/why', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, category: category, platform: platform })
+  })
+    .then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(body){
+        if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+        return body;
+      });
+    })
+    .then(function(body){
+      document.getElementById('f-why').value = body.content || '';
+    })
+    .catch(function(err){
+      console.error('Failed to generate why suggestion', err);
+      toastError('Không tạo được gợi ý: ' + err.message);
+    })
+    .finally(function(){
+      btn.textContent = originalLabel;
+      updateGenerateWhyBtnState();
+    });
 });
 
 // ---- shared fetch helper: throws on network failure AND non-2xx responses ----
@@ -514,8 +564,8 @@ function authFetch(url, options){
 }
 
 // show/hide the controls a role can't use — hides "+ Nghiệp vụ mới" and the
-// Users nav item (admin only). Board/Timeline/Sprint/snapshots render at
-// page load, BEFORE login finishes (the overlay just covers them visually,
+// Users nav item (admin only). Board/Timeline/Sprint render at page load,
+// BEFORE login finishes (the overlay just covers them visually,
 // it doesn't block that background rendering) — at that point the role is
 // still the pre-login default ('viewer'), so their drag handles/buttons
 // would be stuck looking read-only for a real editor/admin unless
@@ -540,8 +590,6 @@ function refreshActorRole(){
 function applyRoleUI(){
   document.getElementById('openDrawer').style.display = hasRole('editor') ? '' : 'none';
   document.getElementById('navUsers').style.display = hasRole('admin') ? '' : 'none';
-  var captureBtn = document.getElementById('captureSnapshotBtn');
-  if (captureBtn) captureBtn.style.display = hasRole('editor') ? '' : 'none';
   var nameEl = document.getElementById('userChipName');
   if (nameEl) nameEl.textContent = getActorName() + ' · ' + ROLE_DISPLAY[getActorRole()];
   if (typeof refreshAllViews === 'function') refreshAllViews();
@@ -862,6 +910,105 @@ document.getElementById('phaseRow').addEventListener('click', function(e){
   }
 });
 
+// ---- onboarding spotlight: "Bạn có thể làm gì ở đây?" cards on Roadmap
+// don't just describe a feature, they take the user there — either by
+// switching view/tab (the target is somewhere else) or, when the target is
+// already on screen (nav rail buttons, the AI assessment button further
+// down this same page), by pulsing a ring around it so "bấm vào đây" has
+// an obvious, hard-to-miss landing spot. Clearing on the target's own next
+// click (not just a timeout) means a slow reader doesn't get the ring
+// pulled out from under them right as they reach for it. ----
+function spotlightElement(el){
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('onboarding-spotlight');
+  var cleared = false;
+  function clear(){
+    if (cleared) return;
+    cleared = true;
+    el.classList.remove('onboarding-spotlight');
+    el.removeEventListener('click', clear);
+  }
+  el.addEventListener('click', clear);
+  setTimeout(clear, 6000);
+}
+
+// resets scroll before switching views via one of these onboarding cards,
+// so the user lands at the top of wherever they were just sent — carrying
+// over Roadmap's own scroll position into a different view would bury the
+// thing they just asked to see.
+function goToViewFromIntro(view){
+  document.querySelector('.main').scrollTop = 0;
+  var navItem = document.querySelector('.nav-item[data-view="' + view + '"]');
+  if (navItem) navItem.click();
+}
+
+document.getElementById('introGoSprintOverview').addEventListener('click', function(){
+  goToViewFromIntro('sprint');
+  var overviewChip = document.querySelector('#sprintTabChips [data-tab="overview"]');
+  if (overviewChip) overviewChip.click();
+  setTimeout(function(){
+    // today can fall in the gap between two sprint cycles (see
+    // pickCurrentAndNextSprint), in which case there's no .is-current row
+    // at all — falling back to .is-next keeps this from silently doing
+    // nothing, and still lands on the most relevant "sprint sắp tới" row.
+    spotlightElement(
+      document.querySelector('.sprint-overview-row.is-current') ||
+      document.querySelector('.sprint-overview-row.is-next')
+    );
+  }, 350);
+});
+
+document.getElementById('introGoSprintReport').addEventListener('click', function(){
+  goToViewFromIntro('sprint');
+  var reportChip = document.querySelector('#sprintTabChips [data-tab="report"]');
+  if (reportChip) reportChip.click();
+});
+
+document.getElementById('introGoTimeline').addEventListener('click', function(){
+  goToViewFromIntro('timeline');
+});
+
+// polls #drawerLoading instead of a blind setTimeout — the drawer's own
+// open fetches phases/sprints/tasks over the network, so a fixed delay
+// would either spotlight before the fields are ready or make the user
+// wait longer than necessary. Gives up after ~4s so a slow/failed load
+// can't leave this hanging forever.
+function waitForDrawerReady(callback, attemptsLeft){
+  attemptsLeft = attemptsLeft == null ? 40 : attemptsLeft;
+  var loading = document.getElementById('drawerLoading');
+  if (loading.style.display === 'none' || attemptsLeft <= 0){
+    callback();
+  } else {
+    setTimeout(function(){ waitForDrawerReady(callback, attemptsLeft - 1); }, 100);
+  }
+}
+
+document.getElementById('introUpdateTaskProgress').addEventListener('click', function(){
+  goToViewFromIntro('sprint');
+  var reportChip = document.querySelector('#sprintTabChips [data-tab="report"]');
+  if (reportChip) reportChip.click();
+  setTimeout(function(){
+    var firstTask = document.querySelector('.sprint-report-block .sprint-report-task');
+    if (!firstTask) return;
+    firstTask.click(); // opens the edit drawer for this task
+    waitForDrawerReady(function(){
+      spotlightElement(document.getElementById('logField'));
+    });
+  }, 350);
+});
+
+document.getElementById('introSpotlightNewTask').addEventListener('click', function(){
+  var rail = document.getElementById('rail');
+  rail.classList.add('peek');
+  spotlightElement(document.getElementById('openDrawer'));
+  setTimeout(function(){ rail.classList.remove('peek'); }, 6000);
+});
+
+document.getElementById('introSpotlightAssessment').addEventListener('click', function(){
+  spotlightElement(document.getElementById('generateAssessmentBtn'));
+});
+
 document.querySelectorAll('#roadmapPctChips .chip').forEach(function(btn){
   btn.addEventListener('click', function(){
     document.querySelectorAll('#roadmapPctChips .chip').forEach(function(b){ b.classList.remove('active'); });
@@ -994,7 +1141,7 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks, latestLogByTaskId)
   return panel;
 }
 
-// compact status report covering the current sprint + the next 2: one row
+// compact status report covering the current sprint + the next 1: one row
 // per task with exactly the 3 things a reader needs — what it is, why it
 // matters, and what happened most recently — instead of the card layout
 // above, which is built for scanning/dragging rather than reading straight
@@ -1006,34 +1153,71 @@ function formatLatestActivityCell(log){
   return escapeHtml(stripActorSuffix(log.note));
 }
 
-// name + why share one column (why as a muted second line right under the
-// name, only when set) so the activity column — usually the longest text —
-// gets most of the width instead of being squeezed by 2 narrower columns.
-// status is already visible on the Overview/Card views, so it's left out
-// here on purpose — every cell wraps instead of truncating, so nothing is
-// ever hidden behind an ellipsis.
-// a row briefly flashes when its task was updated moments ago (any way —
-// drawer save, drag-and-drop, direct API) so a refresh reads as visibly
-// "this just changed" instead of a silent, easy-to-miss DOM swap.
+// a task briefly flashes when it was updated moments ago (any way — drawer
+// save, drag-and-drop, direct API) so a refresh reads as visibly "this just
+// changed" instead of a silent, easy-to-miss DOM swap.
 function isRecentlyUpdated(t){
   return !!t.updated_at && (Date.now() - new Date(t.updated_at).getTime()) < 10000;
 }
 
-function renderSprintReportRow(t, latestLogByTaskId, showSprintTag){
-  var row = document.createElement('tr'); row.className = 'sprint-report-row';
-  if (isRecentlyUpdated(t)) row.classList.add('sprint-report-row-flash');
-  row.innerHTML =
-    '<td class="sprint-report-name">' +
-      '<div>' +
-        (showSprintTag ? '<span class="tag tag-sprint">' + escapeHtml(t.sprint_code || '') + '</span> ' : '') +
-        escapeHtml(t.name) + ' ' +
-        '<span class="tag sprint-report-category">' + escapeHtml(t.category) + '</span>' +
+// same st-N pill used everywhere else (Board, Timeline legend) — status is
+// the single most important "how far along is this" signal when reading
+// the report out loud, so it leads each task line rather than being left
+// out or buried in the activity-note text.
+function sprintReportStatusPill(t){
+  var idx = statusDotToNum(t.status);
+  return '<span class="pill st-' + idx + '">' + escapeHtml(statusLabel[idx].replace(/^\d+\.\s*/, '')) + '</span>';
+}
+
+// one task, presentation-ready: status at a glance, then name, then why
+// (the "what/why" a reader needs), then the latest activity note as
+// supporting detail — everything wraps instead of truncating, so nothing
+// is ever hidden behind an ellipsis while presenting live.
+// no per-task sprint/category tag here on purpose — which sprint or
+// category a task belongs to is already conveyed once by the group it sits
+// under (renderSprintReportGroup), so repeating it as a little pill on
+// every single line would just be visual noise for no new information.
+// two balanced columns: status + name + why on the left (what/why), latest
+// activity on the right (what happened) — read left-to-right instead of
+// top-to-bottom, so the two kinds of information stay visually distinct.
+function renderSprintReportTask(t, latestLogByTaskId){
+  var el = document.createElement('div'); el.className = 'sprint-report-task';
+  if (isRecentlyUpdated(t)) el.classList.add('sprint-report-row-flash');
+  el.innerHTML =
+    '<div class="sprint-report-task-left">' +
+      '<div class="sprint-report-task-top">' +
+        sprintReportStatusPill(t) +
+        '<span class="sprint-report-task-name">' + escapeHtml(t.name) + '</span>' +
       '</div>' +
       (t.why ? '<div class="sprint-report-why">Lý do: ' + escapeHtml(t.why) + '</div>' : '') +
-    '</td>' +
-    '<td class="sprint-report-activity">' + formatLatestActivityCell(latestLogByTaskId[t.id]) + '</td>';
-  row.addEventListener('click', function(){ openDrawer('edit', t); });
-  return row;
+    '</div>' +
+    '<div class="sprint-report-activity">' + formatLatestActivityCell(latestLogByTaskId[t.id]) + '</div>';
+  el.addEventListener('click', function(){ openDrawer('edit', t); });
+  return el;
+}
+
+// "effectively complete" threshold for progress headlines — same call the
+// Roadmap's own default % uses (see _riskThreshold): literal '4.done' lags
+// behind a formal golive event and stays near-zero for most of a sprint's
+// life, which would make an in-progress sprint look falsely empty in front
+// of an audience. Done UAT is the point work is realistically finished.
+function isEffectivelyDone(t){ return statusDotToNum(t.status) >= 3; }
+
+// one group (category, or — for carry-over — origin sprint) within a
+// sprint column, with its own mini progress count — lets a presenter say
+// "nhóm Product Foundation, 3/5 xong" without having to eyeball-count
+// pills, and is also what carries the "which sprint/category" context so
+// individual task rows don't need to repeat it.
+function renderSprintReportGroup(groupLabel, tasksInGroup, latestLogByTaskId){
+  var group = document.createElement('div'); group.className = 'sprint-report-group';
+  var doneCount = tasksInGroup.filter(isEffectivelyDone).length;
+  var head = document.createElement('div'); head.className = 'sprint-report-group-head';
+  head.innerHTML =
+    '<span class="sprint-report-group-name">' + escapeHtml(groupLabel) + '</span>' +
+    '<span class="sprint-report-group-count">' + doneCount + '/' + tasksInGroup.length + '</span>';
+  group.appendChild(head);
+  tasksInGroup.forEach(function(t){ group.appendChild(renderSprintReportTask(t, latestLogByTaskId)); });
+  return group;
 }
 
 // canonical category order first (matches the Sprint Overview's own
@@ -1045,37 +1229,66 @@ function categorySortIndex(category){
   return idx === -1 ? SPRINT_OVERVIEW_CATEGORIES.length : idx;
 }
 
+// presentation-ready sprint column: a headline progress bar first (the
+// "tiến độ tới đâu" a boss asks for before anything else), then tasks
+// grouped by category ("nhóm công việc") instead of one flat list, so a
+// presenter can walk through it group by group ("nhóm Product Foundation
+// đang làm 3 việc, 2 xong rồi...") rather than reading a raw table.
 function renderSprintReportSection(sprint, tasksForSprint, carryOverTasks, latestLogByTaskId){
   var section = document.createElement('div'); section.className = 'sprint-report-block';
 
-  var tasksList = tasksForSprint.slice().sort(function(a, b){
-    var catDelta = categorySortIndex(a.category) - categorySortIndex(b.category);
-    if (catDelta !== 0) return catDelta;
-    if (a.category !== b.category) return a.category < b.category ? -1 : 1;
-    return statusDotToNum(b.status) - statusDotToNum(a.status);
-  });
+  var totalCount = tasksForSprint.length;
+  var doneCount = tasksForSprint.filter(isEffectivelyDone).length;
+  var pct = totalCount === 0 ? 0 : Math.round((doneCount / totalCount) * 100);
 
   var head = document.createElement('div'); head.className = 'sprint-report-head';
   head.innerHTML =
     '<div class="sprint-report-title">' + escapeHtml(sprint.code) + ' (' + fmtRange(sprint.start_date, sprint.end_date) + ')</div>' +
-    '<div class="view-sub">' + tasksList.length + ' nghiệp vụ' +
-      (carryOverTasks && carryOverTasks.length ? ' · ' + carryOverTasks.length + ' việc tồn từ sprint trước' : '') + '</div>';
+    '<div class="sprint-report-progress-row">' +
+      '<div class="stack"><i style="width:' + pct + '%; background:var(--green-ink);"></i></div>' +
+      '<div class="sprint-report-progress-label">' + doneCount + '/' + totalCount + ' Done UAT · ' + pct + '%' +
+        (carryOverTasks && carryOverTasks.length ? ' · ' + carryOverTasks.length + ' việc tồn' : '') +
+      '</div>' +
+    '</div>';
   section.appendChild(head);
 
-  var table = document.createElement('table'); table.className = 'sprint-report-table';
-  table.innerHTML = '<thead><tr><th>Nghiệp vụ</th><th>Hoạt động gần nhất</th></tr></thead>';
-  var tbody = document.createElement('tbody');
-  tasksList.forEach(function(t){ tbody.appendChild(renderSprintReportRow(t, latestLogByTaskId, false)); });
-  if (carryOverTasks && carryOverTasks.length > 0){
-    var sectionRow = document.createElement('tr'); sectionRow.className = 'sprint-report-section';
-    sectionRow.innerHTML = '<td colspan="2">Việc tồn từ sprint trước</td>';
-    tbody.appendChild(sectionRow);
-    carryOverTasks.forEach(function(t){ tbody.appendChild(renderSprintReportRow(t, latestLogByTaskId, true)); });
+  var list = document.createElement('div'); list.className = 'sprint-report-list';
+  if (totalCount === 0 && (!carryOverTasks || carryOverTasks.length === 0)){
+    list.innerHTML = '<div class="sprint-report-empty-state">Không có nghiệp vụ nào.</div>';
+  } else {
+    var byCategory = {};
+    tasksForSprint.forEach(function(t){
+      if (!byCategory[t.category]) byCategory[t.category] = [];
+      byCategory[t.category].push(t);
+    });
+    Object.keys(byCategory).sort(function(a, b){
+      var catDelta = categorySortIndex(a) - categorySortIndex(b);
+      return catDelta !== 0 ? catDelta : (a < b ? -1 : a > b ? 1 : 0);
+    }).forEach(function(cat){
+      var tasksInCat = byCategory[cat].slice().sort(function(a, b){
+        return statusDotToNum(b.status) - statusDotToNum(a.status);
+      });
+      list.appendChild(renderSprintReportGroup(cat, tasksInCat, latestLogByTaskId));
+    });
+    if (carryOverTasks && carryOverTasks.length > 0){
+      var carryHead = document.createElement('div'); carryHead.className = 'sprint-report-carryover-head';
+      carryHead.textContent = 'Việc tồn từ sprint trước';
+      list.appendChild(carryHead);
+      // grouped by origin sprint (carryOverTasks is already sorted oldest
+      // sprint first) instead of tagging each task's own line — same
+      // "context lives on the group, not repeated per row" rule as category.
+      var byOriginSprint = {}; var originOrder = [];
+      carryOverTasks.forEach(function(t){
+        var code = t.sprint_code || '?';
+        if (!byOriginSprint[code]){ byOriginSprint[code] = []; originOrder.push(code); }
+        byOriginSprint[code].push(t);
+      });
+      originOrder.forEach(function(code){
+        list.appendChild(renderSprintReportGroup('Từ ' + code, byOriginSprint[code], latestLogByTaskId));
+      });
+    }
   }
-  table.appendChild(tbody);
-  var scroll = document.createElement('div'); scroll.className = 'sprint-report-scroll';
-  scroll.appendChild(table);
-  section.appendChild(scroll);
+  section.appendChild(list);
   return section;
 }
 
@@ -1104,7 +1317,7 @@ function renderSprintReportCategoryFilter(allReportTasks){
   );
 }
 
-// reportSprints: current sprint + the next 2, in order. tasksBySprintId:
+// reportSprints: current sprint + the next 1, in order. tasksBySprintId:
 // every task grouped by sprint_id (built from the full task list, not the
 // current-next endpoint's own hand-picked columns — see the comment on
 // sprints.js's query for why that was missing fields before). carryOver
@@ -1117,9 +1330,8 @@ function renderSprintReport(reportSprints, tasksBySprintId, carryOverTasks, late
     wrap.innerHTML = '<div class="view-sub">Không có sprint hiện tại.</div>';
     return;
   }
-  // side-by-side columns (current | next | next+1) instead of stacking, so
-  // all 3 sprints are visible together without scrolling the whole page —
-  // each column still scrolls independently if that sprint has many tasks.
+  // stacked (current on top, next below), not side-by-side — full page
+  // width per sprint reads better than splitting it into narrow columns.
   var columns = document.createElement('div'); columns.className = 'sprint-report-columns';
   reportSprints.forEach(function(sprint, idx){
     var tasksForSprint = (tasksBySprintId[sprint.id] || []).filter(categoryFilterMatches);
@@ -1334,7 +1546,7 @@ function loadSprintView(){
       col.appendChild(renderSprintPanel(data.current, true, carryOver, latestLogByTaskId));
       col.appendChild(renderSprintPanel(data.next, false, null, latestLogByTaskId));
 
-      // report covers current + next 2 sprints, derived from the full task
+      // report covers current + next 1 sprint, derived from the full task
       // list (grouped by sprint_id) rather than current-next's own task
       // list, so it always has every column (why, etc.) without needing
       // that endpoint's SELECT kept in sync.
@@ -1344,8 +1556,13 @@ function loadSprintView(){
         if (!tasksBySprintId[t.sprint_id]) tasksBySprintId[t.sprint_id] = [];
         tasksBySprintId[t.sprint_id].push(t);
       });
-      var currentIdx = data.current ? sprints.findIndex(function(s){ return s.id === data.current.id; }) : -1;
-      var reportSprints = currentIdx === -1 ? [] : sprints.slice(currentIdx, currentIdx + 3);
+      // today can fall in the gap between two sprint cycles (see
+      // pickCurrentAndNextSprint), in which case data.current is null —
+      // fall back to data.next so the report still shows something useful
+      // instead of a dead "Không có sprint hiện tại" during those few days.
+      var reportAnchor = data.current || data.next;
+      var currentIdx = reportAnchor ? sprints.findIndex(function(s){ return s.id === reportAnchor.id; }) : -1;
+      var reportSprints = currentIdx === -1 ? [] : sprints.slice(currentIdx, currentIdx + 2);
       var allReportTasks = [];
       reportSprints.forEach(function(s){ allReportTasks = allReportTasks.concat(tasksBySprintId[s.id] || []); });
       allReportTasks = allReportTasks.concat(carryOver);
@@ -1379,6 +1596,7 @@ document.querySelectorAll('#sprintTabChips .chip').forEach(function(btn){
     document.getElementById('sprintTabOverview').style.display = _sprintActiveTab === 'overview' ? '' : 'none';
     document.getElementById('sprintTabCurrentNext').style.display = _sprintActiveTab === 'current-next' ? '' : 'none';
     document.getElementById('sprintTabReport').style.display = _sprintActiveTab === 'report' ? '' : 'none';
+    document.getElementById('sprintOverviewGroupChips').style.display = _sprintActiveTab === 'overview' ? '' : 'none';
     updateSprintTabSub();
   });
 });
@@ -1500,160 +1718,186 @@ function loadRiskReports(){
     });
 }
 
-// ---- weekly snapshot report: a manual "chụp báo cáo" captures today's
-// phase rollup + risk/due-soon counts into a saved row, so a PM can compare
-// against a chosen earlier week instead of only ever seeing a live "as of
-// now" view with no trend. Deliberately manual (no cron) — this app has no
-// background worker, and Render's free tier sleeps when idle, so a
-// scheduled job can't be trusted to fire on time anyway. ----
-var _snapshotList = [];
-var _snapshotCurrent = null;
-var _snapshotCompareId = '';
+// ---- AI-generated project assessment (Roadmap page) — a manual "Đánh giá"
+// click sends current phase/sprint/task data to an LLM and shows the result;
+// nothing is written to the DB until the user explicitly clicks "Lưu" on a
+// result they've already read. ----
+var _aiAssessmentCurrent = null; // { loading } | { error } | { content, generated_at, saved }
+var _aiAssessmentHistory = [];
 
-function loadSnapshotSection(){
-  return Promise.all([
-    fetchJSON('/api/snapshots/current'),
-    fetchJSON('/api/snapshots')
-  ]).then(function(results){
-    _snapshotCurrent = results[0];
-    _snapshotList = results[1];
-    renderSnapshotControls();
-    renderSnapshotCompare();
-    renderSnapshotList();
-  }).catch(function(err){
-    console.error('Failed to load snapshot report', err);
-    document.getElementById('snapshotListWrap').innerHTML = '<div class="view-sub">Không tải được báo cáo tuần.</div>';
+// intentionally minimal — the prompt only ever asks for ## headings, "- "
+// bullets and **bold**, so pulling in a full markdown library would be
+// overkill for rendering it back.
+function renderSimpleMarkdown(text){
+  var lines = escapeHtml(text).split('\n');
+  var html = '';
+  var inList = false;
+  function closeList(){ if (inList){ html += '</ul>'; inList = false; } }
+  lines.forEach(function(line){
+    var headingMatch = line.match(/^#{2,4}\s+(.*)$/);
+    var bulletMatch = line.match(/^[-*]\s+(.*)$/);
+    if (headingMatch){
+      closeList();
+      html += '<h4>' + headingMatch[1] + '</h4>';
+    } else if (bulletMatch){
+      if (!inList){ html += '<ul>'; inList = true; }
+      html += '<li>' + bulletMatch[1] + '</li>';
+    } else if (line.trim() === ''){
+      closeList();
+    } else {
+      closeList();
+      html += '<p>' + line + '</p>';
+    }
   });
+  closeList();
+  return html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 }
 
-function renderSnapshotControls(){
-  var sel = document.getElementById('snapshotCompareSelect');
-  var stillValid = _snapshotList.some(function(s){ return String(s.id) === String(_snapshotCompareId); });
-  sel.innerHTML = '<option value="">— Chọn snapshot cũ —</option>';
-  _snapshotList.forEach(function(s){
-    var opt = document.createElement('option');
-    opt.value = s.id;
-    opt.textContent = fmtDMY(s.snapshot_date) + (s.actor_name ? ' (' + s.actor_name + ')' : '');
-    sel.appendChild(opt);
-  });
-  _snapshotCompareId = stillValid ? _snapshotCompareId : '';
-  sel.value = _snapshotCompareId;
-}
-
-// goodDirection: 1 = higher is better (VD: % hoàn thành), -1 = lower is
-// better (VD: số task trễ hạn), 0 = trung tính, không tô màu
-function snapshotDeltaBadge(delta, unit, goodDirection){
-  var sign = delta > 0 ? '+' : '';
-  var cls = 'snap-delta';
-  if (goodDirection !== 0 && delta !== 0){
-    var isGood = goodDirection === 1 ? delta > 0 : delta < 0;
-    cls += isGood ? ' is-good' : ' is-bad';
-  }
-  return '<span class="' + cls + '">' + sign + delta + unit + '</span>';
-}
-
-function renderSnapshotCompare(){
-  var wrap = document.getElementById('snapshotCompareWrap');
+function renderAiAssessmentResult(){
+  var wrap = document.getElementById('aiAssessmentResultWrap');
   wrap.innerHTML = '';
-  if (!_snapshotCompareId || !_snapshotCurrent) return;
-  var chosen = _snapshotList.filter(function(s){ return String(s.id) === String(_snapshotCompareId); })[0];
-  if (!chosen) return;
+  if (!_aiAssessmentCurrent) return;
 
-  var card = document.createElement('div'); card.className = 'risk-group';
-  var head = document.createElement('div'); head.className = 'risk-group-head';
-  head.innerHTML = '<span>So với ' + fmtDMY(chosen.snapshot_date) + (chosen.actor_name ? ' (' + escapeHtml(chosen.actor_name) + ')' : '') + '</span>';
-  card.appendChild(head);
-
-  chosen.data.phases.forEach(function(oldPhase){
-    var newPhase = _snapshotCurrent.data.phases.filter(function(p){ return p.id === oldPhase.id; })[0];
-    if (!newPhase) return; // phase removed since this snapshot — nothing to compare
-    var oldPct = oldPhase.pct_complete, newPct = newPhase.pct_complete;
-    var delta = (oldPct != null && newPct != null) ? Math.round((newPct - oldPct) * 10) / 10 : null;
-    var row = document.createElement('div'); row.className = 'risk-task';
-    row.innerHTML =
-      '<div class="risk-task-name">' + escapeHtml(oldPhase.code) + ': ' + escapeHtml(oldPhase.name) + '</div>' +
-      '<div class="risk-task-meta">' +
-        '<span class="risk-due">' + (oldPct != null ? oldPct + '%' : '—') + ' → ' + (newPct != null ? newPct + '%' : '—') + '</span>' +
-        (delta != null ? snapshotDeltaBadge(delta, '%', 1) : '') +
-      '</div>';
-    card.appendChild(row);
-  });
-
-  var riskDelta = _snapshotCurrent.data.risk_count - chosen.data.risk_count;
-  var riskRow = document.createElement('div'); riskRow.className = 'risk-task';
-  riskRow.innerHTML =
-    '<div class="risk-task-name">Trễ hạn (risk)</div>' +
-    '<div class="risk-task-meta">' +
-      '<span class="risk-due">' + chosen.data.risk_count + ' → ' + _snapshotCurrent.data.risk_count + '</span>' +
-      snapshotDeltaBadge(riskDelta, '', -1) +
-    '</div>';
-  card.appendChild(riskRow);
-
-  var soonDelta = _snapshotCurrent.data.due_soon_count - chosen.data.due_soon_count;
-  var soonRow = document.createElement('div'); soonRow.className = 'risk-task';
-  soonRow.innerHTML =
-    '<div class="risk-task-name">Sắp đến hạn (7 ngày)</div>' +
-    '<div class="risk-task-meta">' +
-      '<span class="risk-due">' + chosen.data.due_soon_count + ' → ' + _snapshotCurrent.data.due_soon_count + '</span>' +
-      snapshotDeltaBadge(soonDelta, '', 0) +
-    '</div>';
-  card.appendChild(soonRow);
-
-  wrap.appendChild(card);
-}
-
-function renderSnapshotList(){
-  var wrap = document.getElementById('snapshotListWrap');
-  wrap.innerHTML = '';
-  if (_snapshotList.length === 0){
-    wrap.innerHTML = '<div class="view-sub">Chưa có báo cáo tuần nào được chụp.</div>';
+  if (_aiAssessmentCurrent.loading){
+    wrap.innerHTML = '<div class="ai-assessment-loading">Đang phân tích dữ liệu dự án bằng AI, vui lòng đợi...</div>';
     return;
   }
-  var card = document.createElement('div'); card.className = 'risk-group';
-  var canDelete = hasRole('admin');
-  _snapshotList.forEach(function(s){
-    var row = document.createElement('div'); row.className = 'risk-task';
-    row.innerHTML =
-      '<div class="risk-task-name">' + fmtDateTime(s.created_at) + (s.actor_name ? ' — ' + escapeHtml(s.actor_name) : '') + '</div>' +
-      '<div class="risk-task-meta">' + (canDelete ? '<button type="button" class="chip snapshot-delete-btn" data-id="' + s.id + '">Xoá</button>' : '') + '</div>';
-    card.appendChild(row);
-  });
+  if (_aiAssessmentCurrent.error){
+    wrap.innerHTML = '<div class="ai-assessment-error">Không tạo được đánh giá: ' + escapeHtml(_aiAssessmentCurrent.error) + '</div>';
+    return;
+  }
+
+  var card = document.createElement('div'); card.className = 'ai-assessment-card';
+  card.innerHTML =
+    '<div class="ai-assessment-meta">Tạo lúc ' + fmtDateTime(_aiAssessmentCurrent.generated_at) + ' — chưa lưu</div>' +
+    '<div class="ai-assessment-content">' + renderSimpleMarkdown(_aiAssessmentCurrent.content) + '</div>';
   wrap.appendChild(card);
-  wrap.querySelectorAll('.snapshot-delete-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      if (!confirm('Xoá báo cáo tuần này?')) return;
-      authFetch('/api/snapshots/' + btn.dataset.id, { method: 'DELETE' })
+
+  var actions = document.createElement('div'); actions.className = 'ai-assessment-actions';
+  if (_aiAssessmentCurrent.saved){
+    actions.innerHTML = '<span class="view-sub">Đã lưu vào lịch sử bên dưới</span>';
+  } else if (hasRole('editor')){
+    actions.innerHTML = '<button type="button" class="ai-assessment-save-btn" id="saveAssessmentBtn">Lưu đánh giá này</button>';
+  }
+  wrap.appendChild(actions);
+
+  var saveBtn = document.getElementById('saveAssessmentBtn');
+  if (saveBtn){
+    saveBtn.addEventListener('click', function(){
+      saveBtn.disabled = true;
+      authFetch('/api/ai-assessments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: _aiAssessmentCurrent.content })
+      })
         .then(function(res){
           if (!res.ok){
             return res.json().catch(function(){ return {}; }).then(function(errBody){
               throw new Error(errBody.error || ('HTTP ' + res.status));
             });
           }
-          return loadSnapshotSection().then(function(){ toastSuccess('Đã xoá báo cáo tuần'); });
+          _aiAssessmentCurrent.saved = true;
+          renderAiAssessmentResult();
+          return loadAiAssessmentHistory().then(function(){ toastSuccess('Đã lưu đánh giá'); });
         })
         .catch(function(err){
-          console.error('Failed to delete snapshot', err);
+          console.error('Failed to save AI assessment', err);
+          toastError('Không lưu được: ' + err.message);
+          saveBtn.disabled = false;
+        });
+    });
+  }
+}
+
+function renderAiAssessmentHistory(){
+  var wrap = document.getElementById('aiAssessmentHistoryWrap');
+  wrap.innerHTML = '';
+  if (_aiAssessmentHistory.length === 0){
+    wrap.innerHTML = '<div class="view-sub">Chưa có đánh giá nào được lưu.</div>';
+    return;
+  }
+  var canDelete = hasRole('admin');
+  var group = document.createElement('div'); group.className = 'risk-group';
+  _aiAssessmentHistory.forEach(function(a){
+    var row = document.createElement('div'); row.className = 'risk-task'; row.style.cursor = 'default';
+    row.innerHTML =
+      '<div class="risk-task-name">' + fmtDateTime(a.created_at) + (a.actor_name ? ' — ' + escapeHtml(a.actor_name) : '') + '</div>' +
+      '<div class="risk-task-meta">' +
+        '<button type="button" class="ai-assessment-history-toggle" data-id="' + a.id + '">Xem</button>' +
+        (canDelete ? '<button type="button" class="chip ai-assessment-delete-btn" data-id="' + a.id + '">Xoá</button>' : '') +
+      '</div>';
+    group.appendChild(row);
+
+    var contentEl = document.createElement('div');
+    contentEl.className = 'ai-assessment-content ai-assessment-history-content';
+    contentEl.style.display = 'none';
+    contentEl.innerHTML = renderSimpleMarkdown(a.content);
+    group.appendChild(contentEl);
+
+    row.querySelector('.ai-assessment-history-toggle').addEventListener('click', function(){
+      var willShow = contentEl.style.display === 'none';
+      contentEl.style.display = willShow ? 'block' : 'none';
+      this.textContent = willShow ? 'Ẩn' : 'Xem';
+    });
+  });
+  wrap.appendChild(group);
+
+  wrap.querySelectorAll('.ai-assessment-delete-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if (!confirm('Xoá đánh giá này?')) return;
+      authFetch('/api/ai-assessments/' + btn.dataset.id, { method: 'DELETE' })
+        .then(function(res){
+          if (!res.ok){
+            return res.json().catch(function(){ return {}; }).then(function(errBody){
+              throw new Error(errBody.error || ('HTTP ' + res.status));
+            });
+          }
+          return loadAiAssessmentHistory().then(function(){ toastSuccess('Đã xoá đánh giá'); });
+        })
+        .catch(function(err){
+          console.error('Failed to delete AI assessment', err);
           toastError('Không xoá được: ' + err.message);
         });
     });
   });
 }
 
-document.getElementById('captureSnapshotBtn').addEventListener('click', function(){
-  var btn = this;
-  btn.disabled = true;
-  authFetch('/api/snapshots', { method: 'POST' })
-    .then(function(res){
-      if (!res.ok){
-        return res.json().catch(function(){ return {}; }).then(function(errBody){
-          throw new Error(errBody.error || ('HTTP ' + res.status));
-        });
-      }
-      return loadSnapshotSection().then(function(){ toastSuccess('Đã chụp báo cáo tuần'); });
+function loadAiAssessmentHistory(){
+  return fetchJSON('/api/ai-assessments')
+    .then(function(list){
+      _aiAssessmentHistory = list;
+      renderAiAssessmentHistory();
     })
     .catch(function(err){
-      console.error('Failed to capture snapshot', err);
-      toastError('Không chụp được báo cáo: ' + err.message);
+      console.error('Failed to load AI assessment history', err);
+      document.getElementById('aiAssessmentHistoryWrap').innerHTML = '<div class="view-sub">Không tải được lịch sử đánh giá.</div>';
+    });
+}
+
+document.getElementById('generateAssessmentBtn').addEventListener('click', function(){
+  var btn = this;
+  btn.disabled = true;
+  _aiAssessmentCurrent = { loading: true };
+  renderAiAssessmentResult();
+  authFetch('/api/ai-assessments/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({})
+  })
+    .then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(body){
+        if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+        return body;
+      });
+    })
+    .then(function(body){
+      _aiAssessmentCurrent = { content: body.content, generated_at: body.generated_at, saved: false };
+      renderAiAssessmentResult();
+    })
+    .catch(function(err){
+      console.error('Failed to generate AI assessment', err);
+      _aiAssessmentCurrent = { error: err.message };
+      renderAiAssessmentResult();
     })
     .finally(function(){ btn.disabled = false; });
 });
@@ -1774,15 +2018,10 @@ document.getElementById('addUserBtn').addEventListener('click', function(){
 
 loadUsersView();
 
-document.getElementById('snapshotCompareSelect').addEventListener('change', function(){
-  _snapshotCompareId = this.value;
-  renderSnapshotCompare();
-});
-
 loadPhases();
 loadSprintView();
 loadRiskReports();
-loadSnapshotSection();
+loadAiAssessmentHistory();
 
 // ---- shared data cache: both Timeline and Board read /api/tasks; fetch it once ----
 var _tasksPromise = null;
@@ -2874,7 +3113,7 @@ function refreshAllViews(){
   loadBoardView();
   loadRiskReports();
   loadLogView();
-  loadSnapshotSection();
+  loadAiAssessmentHistory();
 }
 
 // guards saveBtn/deleteBtn against double-submit (double-click, or clicking

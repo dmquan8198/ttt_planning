@@ -89,51 +89,51 @@
         <div class="feature-intro">
           <div class="feature-intro-head">
             <div class="feature-intro-title">Bạn có thể làm gì ở đây?</div>
-            <div class="feature-intro-sub">Tổng quan nhanh các chức năng chính của Túi Thần Tài</div>
+            <div class="feature-intro-sub">Bấm vào một mục để đi thẳng tới đó</div>
           </div>
           <div class="feature-intro-grid">
-            <div class="feature-intro-item">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 15h3l2-5 3 8 2-11 2 6h4"/></svg>
-              <div>
-                <div class="feature-intro-item-title">Roadmap</div>
-                <div class="feature-intro-item-desc">Xem % hoàn thành từng phase so với mốc go-live, lọc theo category để soi riêng từng mảng.</div>
-              </div>
-            </div>
-            <div class="feature-intro-item">
+            <button type="button" class="feature-intro-item" id="introGoSprintOverview">
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6.5" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="13.5" cy="10" r="1.1" fill="currentColor" stroke="none"/><rect x="2.5" y="4" width="15" height="13" rx="1.5"/><path d="M2.5 7.5h15"/></svg>
               <div>
-                <div class="feature-intro-item-title">Sprint</div>
-                <div class="feature-intro-item-desc">Xem toàn cảnh mọi sprint, sprint hiện tại &amp; kế tiếp, và báo cáo gọn để cập nhật trạng thái nhanh.</div>
+                <div class="feature-intro-item-title">Xem các sprint sắp tới sẽ làm gì</div>
+                <div class="feature-intro-item-cta">Đi tới Sprint · Overview tất cả Sprint →</div>
               </div>
-            </div>
-            <div class="feature-intro-item">
+            </button>
+            <button type="button" class="feature-intro-item" id="introGoSprintReport">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M6 7.5h8M6 10.5h8M6 13.5h5"/></svg>
+              <div>
+                <div class="feature-intro-item-title">Xem weekly report</div>
+                <div class="feature-intro-item-cta">Đi tới Sprint · Báo cáo Sprint hiện tại →</div>
+              </div>
+            </button>
+            <button type="button" class="feature-intro-item" id="introUpdateTaskProgress">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.5 15.3V17h1.7l8.9-8.9-1.7-1.7-8.9 8.9z"/><path d="M12 5.4l2.6 2.6"/><path d="M12.5 3.9a1.4 1.4 0 0 1 2 0l.6.6a1.4 1.4 0 0 1 0 2l-1 1-2.6-2.6z"/></svg>
+              <div>
+                <div class="feature-intro-item-title">Update tiến độ task</div>
+                <div class="feature-intro-item-cta">Đi tới Báo cáo Sprint · chọn task đầu tiên →</div>
+              </div>
+            </button>
+            <button type="button" class="feature-intro-item" id="introGoTimeline">
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="13" rx="1.5"/><path d="M2.5 8h15M7 2.5v3M13 2.5v3"/></svg>
               <div>
-                <div class="feature-intro-item-title">Timeline</div>
-                <div class="feature-intro-item-desc">Xem lịch trình từng nghiệp vụ theo ngày, kéo thả để đổi ngày, lọc theo phase/category/platform/status.</div>
+                <div class="feature-intro-item-title">Xem dự án theo dòng thời gian</div>
+                <div class="feature-intro-item-cta">Đi tới Timeline →</div>
               </div>
-            </div>
-            <div class="feature-intro-item">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M7.5 3v14M12.5 3v14"/></svg>
+            </button>
+            <button type="button" class="feature-intro-item" id="introSpotlightNewTask">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7.5"/><path d="M10 6.2v7.6M6.2 10h7.6"/></svg>
               <div>
-                <div class="feature-intro-item-title">Board</div>
-                <div class="feature-intro-item-desc">Theo dõi trạng thái từng nghiệp vụ kiểu Kanban, kéo thả để cập nhật nhanh.</div>
+                <div class="feature-intro-item-title">Thêm nghiệp vụ mới</div>
+                <div class="feature-intro-item-cta">Chỉ vào nút "+ Nghiệp vụ mới" →</div>
               </div>
-            </div>
-            <div class="feature-intro-item">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3.5h9l3 3v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M13 3.5V7h3"/><path d="M6 10.5h6M6 13.5h6"/></svg>
+            </button>
+            <button type="button" class="feature-intro-item" id="introSpotlightAssessment">
+              <svg viewBox="0 0 20 20" fill="currentColor" stroke="none"><path d="M10 2l1.35 5.65L17 9l-5.65 1.35L10 16l-1.35-5.65L3 9l5.65-1.35z"/></svg>
               <div>
-                <div class="feature-intro-item-title">Log</div>
-                <div class="feature-intro-item-desc">Xem toàn bộ lịch sử hoạt động của từng nghiệp vụ, sửa lại ghi chú nếu gõ nhầm.</div>
+                <div class="feature-intro-item-title">Đánh giá tổng quan AI</div>
+                <div class="feature-intro-item-cta">Chỉ vào nút "Đánh giá" →</div>
               </div>
-            </div>
-            <div class="feature-intro-item">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7.5" cy="6.5" r="2.7"/><path d="M2.5 16.5c0-2.8 2.2-5 5-5s5 2.2 5 5"/><circle cx="14.5" cy="7" r="2.1"/><path d="M13 11.7c1.9.2 3.5 1.9 3.5 4.3"/></svg>
-              <div>
-                <div class="feature-intro-item-title">Người dùng</div>
-                <div class="feature-intro-item-desc">Quản lý quyền truy cập của từng thành viên — Admin/Editor/Viewer (dành cho Admin).</div>
-              </div>
-            </div>
+            </button>
           </div>
         </div>
 
@@ -165,14 +165,13 @@
           </div>
         </div>
 
-        <div class="risk-threshold-chips" id="snapshotControls">
-          <span class="chip-label">Báo cáo tuần</span>
-          <button type="button" class="chip snapshot-capture-btn" id="captureSnapshotBtn">+ Chụp báo cáo hôm nay</button>
-          <span class="chip-label">So với</span>
-          <select id="snapshotCompareSelect"><option value="">— Chọn snapshot cũ —</option></select>
+        <div class="risk-threshold-chips" id="aiAssessmentControls">
+          <span class="ai-assessment-section-title">Đánh giá tổng quan bằng AI</span>
+          <button type="button" class="chip snapshot-capture-btn" id="generateAssessmentBtn">✦ Đánh giá</button>
         </div>
-        <div id="snapshotCompareWrap"></div>
-        <div id="snapshotListWrap" style="margin-top:10px;"></div>
+        <div class="view-sub" style="margin-bottom:10px;">AI đọc dữ liệu task/sprint/phase hiện tại và viết nhận xét theo tuần, theo sprint, theo phase — chỉ chạy khi bạn bấm, không tự động</div>
+        <div id="aiAssessmentResultWrap"></div>
+        <div id="aiAssessmentHistoryWrap" style="margin-top:12px;"></div>
       </section>
 
       <!-- SPRINT -->
@@ -182,6 +181,15 @@
             <div class="view-title">Sprint</div>
             <div class="view-sub" id="sprintTabSub">Toàn bộ nghiệp vụ mỗi sprint, nhóm theo Platform — để phân bổ nhân sự, bấm vào 1 nghiệp vụ để sửa</div>
           </div>
+          <div class="view-head-controls">
+            <div class="gantt-legend" id="sprintLegend"></div>
+            <div class="groupby-chips" id="sprintOverviewGroupChips">
+              <span class="chip-label">Nhóm theo</span>
+              <button type="button" class="chip active" data-groupby="platform">Platform</button>
+              <button type="button" class="chip" data-groupby="category">Category</button>
+              <button type="button" class="chip" data-groupby="status">Status</button>
+            </div>
+          </div>
         </div>
 
         <div class="groupby-chips" id="sprintTabChips">
@@ -190,15 +198,7 @@
           <button type="button" class="chip" data-tab="report">Báo cáo Sprint hiện tại</button>
         </div>
 
-        <div class="gantt-legend" id="sprintLegend"></div>
-
         <div id="sprintTabOverview">
-          <div class="groupby-chips" id="sprintOverviewGroupChips">
-            <span class="chip-label">Nhóm theo</span>
-            <button type="button" class="chip active" data-groupby="platform">Platform</button>
-            <button type="button" class="chip" data-groupby="category">Category</button>
-            <button type="button" class="chip" data-groupby="status">Status</button>
-          </div>
           <div id="sprintOverviewWrap"></div>
         </div>
 
@@ -354,7 +354,10 @@
     <input id="f-name" type="text" placeholder="Vd: Xóa hợp đồng ủy thác đầu tư">
   </div>
   <div class="field">
-    <label>Tại sao cần làm (Optional)</label>
+    <div class="field-label-row">
+      <label for="f-why">Tại sao cần làm (Optional)</label>
+      <button type="button" class="ai-suggest-btn" id="generateWhyBtn" disabled title="Nhập Tên nghiệp vụ trước">✦ Gợi ý AI</button>
+    </div>
     <textarea id="f-why" placeholder="Lý do/mục tiêu của nghiệp vụ này..." rows="2"></textarea>
   </div>
   <div class="field-row">
@@ -404,7 +407,12 @@
   </div>
 
   <div class="field" id="logField" style="margin-top:22px;">
-    <label>Activity log (thay cho cột Note theo ngày)</label>
+    <label>Cập nhật tình trạng task</label>
+    <div class="log-format-hint">
+      Status: [Ai] + [đang làm gì]<br>
+      Next action: [Ai] + [sẽ làm gì] + [khi nào xong]<br>
+      Càng detail càng tốt
+    </div>
     <div class="log-input-row" style="margin-bottom:8px;">
       <textarea id="f-newlog" placeholder="Ghi chú mới..." rows="3"></textarea>
       <button class="save-btn" id="addLogBtn" style="width:auto; padding:8px 14px;">Thêm</button>

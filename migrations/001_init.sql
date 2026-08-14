@@ -60,14 +60,6 @@ CREATE TABLE IF NOT EXISTS activity_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS snapshots (
-  id SERIAL PRIMARY KEY,
-  snapshot_date DATE NOT NULL,
-  data JSONB NOT NULL,
-  actor_name TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   name TEXT UNIQUE NOT NULL,
@@ -111,8 +103,20 @@ INSERT INTO users (email, name, role) VALUES
   ('toan.han@gmail.com', 'toan.han', 'editor')
 ON CONFLICT (email) DO NOTHING;
 
+-- AI-generated project assessments (weekly/sprint/phase narrative from an
+-- LLM). Generating one (POST /generate) never writes here — it's a
+-- read-like, unmetered-cost call the user can retry freely. A row is only
+-- written when the user explicitly clicks "Lưu" on a result they already
+-- see on screen.
+CREATE TABLE IF NOT EXISTS ai_assessments (
+  id SERIAL PRIMARY KEY,
+  content TEXT NOT NULL,
+  actor_name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_phase ON tasks(phase_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_sprint ON tasks(sprint_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_task ON activity_logs(task_id);
-CREATE INDEX IF NOT EXISTS idx_snapshots_date ON snapshots(snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_ai_assessments_created ON ai_assessments(created_at);

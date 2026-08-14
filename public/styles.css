@@ -156,15 +156,15 @@ body{
 .rail.collapsed .nav-item{justify-content:center; padding:8px;}
 .rail.collapsed .btn-new{padding:9px;}
 .rail.collapsed .btn-new-compact{display:inline;}
-.rail.collapsed:hover{width:196px;}
-.rail.collapsed:hover .brand-text{display:inline-block;}
-.rail.collapsed:hover .nav-label{display:inline;}
-.rail.collapsed:hover .user-chip{display:flex;}
-.rail.collapsed:hover .today-chip{display:block;}
-.rail.collapsed:hover .brand{text-align:left;}
-.rail.collapsed:hover .nav-item{justify-content:flex-start;}
-.rail.collapsed:hover .btn-new{padding:9px 12px;}
-.rail.collapsed:hover .btn-new-compact{display:none;}
+.rail.collapsed:hover, .rail.collapsed.peek{width:196px;}
+.rail.collapsed:hover .brand-text, .rail.collapsed.peek .brand-text{display:inline-block;}
+.rail.collapsed:hover .nav-label, .rail.collapsed.peek .nav-label{display:inline;}
+.rail.collapsed:hover .user-chip, .rail.collapsed.peek .user-chip{display:flex;}
+.rail.collapsed:hover .today-chip, .rail.collapsed.peek .today-chip{display:block;}
+.rail.collapsed:hover .brand, .rail.collapsed.peek .brand{text-align:left;}
+.rail.collapsed:hover .nav-item, .rail.collapsed.peek .nav-item{justify-content:flex-start;}
+.rail.collapsed:hover .btn-new, .rail.collapsed.peek .btn-new{padding:9px 12px;}
+.rail.collapsed:hover .btn-new-compact, .rail.collapsed.peek .btn-new-compact{display:none;}
 .today-chip{
   font-family:var(--mono); font-size:11px; color:var(--ink-faint); text-align:center;
 }
@@ -193,10 +193,22 @@ body{
 
 .view-head{display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:22px; gap:20px; flex-wrap:wrap;}
 #view-timeline .view-head > div:first-child{max-width:300px;}
+/* Sprint's group-by/status controls sit up top next to the title and stay
+   pinned there while the Overview table scrolls underneath. With top:0 the
+   sticky box lands short of .main's real scroll-port edge, leaving a gap
+   where scrolling rows peek through above the header — a negative top
+   pulls the stuck position up flush against that edge to close the gap
+   (verified empirically against .main's actual boundingClientRect, not
+   just .main's padding-top, since flex row sizing shifts it a bit further). */
+#view-sprint .view-head{
+  position:sticky; top:-32px; z-index:8; background:var(--surface);
+  padding:2px 0 12px;
+}
 .view-head-controls{display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end;}
 .view-head-controls select{padding:6px 8px; font-size:12px;}
 .view-head-controls .groupby-chips{gap:5px;}
 .view-head-controls .chip{padding:5px 10px; font-size:11.5px;}
+.view-head-controls .gantt-legend{margin-bottom:0; gap:10px;}
 .view-title{font-family:var(--serif); font-size:22px; letter-spacing:-0.01em;}
 .view-sub{font-size:12.5px; color:var(--ink-muted); margin-top:4px;}
 
@@ -219,13 +231,28 @@ body{
 .feature-intro-head{margin-bottom:12px;}
 .feature-intro-title{font-family:var(--serif); font-size:15px;}
 .feature-intro-sub{font-size:11.5px; color:var(--ink-muted); margin-top:2px;}
-.feature-intro-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px 18px;}
-.feature-intro-item{display:flex; align-items:flex-start; gap:10px;}
+.feature-intro-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px 12px;}
+.feature-intro-item{
+  display:flex; align-items:flex-start; gap:10px; text-align:left; cursor:pointer;
+  font-family:var(--sans); border:1px solid transparent; border-radius:7px; padding:8px;
+  background:none; margin:-8px; transition:background .12s ease, border-color .12s ease;
+}
+.feature-intro-item:hover{background:var(--surface-2); border-color:var(--border);}
 .feature-intro-item svg{
   flex:none; width:18px; height:18px; margin-top:1px; color:var(--accent-ink);
 }
-.feature-intro-item-title{font-family:var(--serif); font-size:13px; margin-bottom:2px;}
-.feature-intro-item-desc{font-size:11.5px; color:var(--ink-muted); line-height:1.45;}
+.feature-intro-item-title{font-family:var(--serif); font-size:13px; margin-bottom:2px; color:var(--ink);}
+.feature-intro-item-cta{font-size:11px; color:var(--accent-ink); line-height:1.45;}
+
+/* onboarding spotlight: pulses a ring around whatever element the user was
+   just pointed at (a nav-rail button, a chip, a table row...), so "bấm vào
+   đây" from a feature-intro card has an obvious, hard-to-miss landing spot
+   instead of the page just silently jumping there. */
+.onboarding-spotlight{position:relative; z-index:60; animation:onboarding-pulse 1s ease-in-out 4;}
+@keyframes onboarding-pulse{
+  0%, 100%{box-shadow:0 0 0 0 var(--accent-ink);}
+  50%{box-shadow:0 0 0 6px var(--accent-soft);}
+}
 
 /* ===== ROADMAP ===== */
 .phase-row{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:14px;}
@@ -272,6 +299,7 @@ body{
 .risk-threshold-chips .chip-label{font-size:11px; color:var(--ink-muted); margin-right:2px;}
 .risk-wrap{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:14px;}
 .risk-col-title{font-family:var(--serif); font-size:16px; margin-bottom:2px;}
+.ai-assessment-section-title{font-family:var(--serif); font-size:16px; color:var(--ink); margin-right:4px;}
 .risk-group{border:1px solid var(--border); border-radius:8px; background:var(--surface); margin-bottom:12px; overflow:hidden;}
 .risk-group-head{display:flex; justify-content:space-between; align-items:baseline; padding:9px 12px; background:var(--surface-2); font-size:12px; font-weight:600; border-bottom:1px solid var(--border);}
 .risk-count{font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--red-ink); background:var(--red-bg); padding:2px 7px; border-radius:999px;}
@@ -283,17 +311,36 @@ body{
 .risk-task-meta{display:flex; align-items:center; gap:8px; flex:none;}
 .risk-days{font-family:var(--mono); font-size:10.5px; font-weight:700; color:var(--red-ink); background:var(--red-bg); padding:2px 7px; border-radius:999px; white-space:nowrap;}
 .risk-days.is-soon{color:var(--yellow-ink); background:var(--yellow-bg);}
-#snapshotControls select{
-  font-family:var(--sans); font-size:12.5px; padding:6px 10px; border-radius:6px;
-  border:1px solid var(--border); background:var(--surface); color:var(--ink);
-}
 .snapshot-capture-btn{background:var(--ink); color:var(--canvas); border-color:var(--ink); font-weight:600;}
 .snapshot-capture-btn:hover{opacity:0.85;}
 .snapshot-capture-btn:disabled{opacity:0.4; cursor:not-allowed;}
-.snap-delta{font-family:var(--mono); font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:999px; white-space:nowrap; background:var(--surface-2); color:var(--ink-muted);}
-.snap-delta.is-good{color:var(--green-ink); background:var(--green-bg);}
-.snap-delta.is-bad{color:var(--red-ink); background:var(--red-bg);}
 .risk-due{font-family:var(--mono); font-size:10.5px; color:var(--ink-muted); white-space:nowrap;}
+
+/* ===== AI ASSESSMENT ===== */
+.ai-assessment-loading, .ai-assessment-empty{font-size:12.5px; color:var(--ink-muted); font-style:italic;}
+.ai-assessment-error{font-size:12.5px; color:var(--red-ink);}
+.ai-assessment-card{
+  border:1px solid var(--border); border-radius:8px; padding:16px 18px 10px;
+  background:var(--surface); margin-bottom:10px;
+}
+.ai-assessment-meta{font-size:11px; color:var(--ink-muted); margin-bottom:10px;}
+.ai-assessment-content h4{font-family:var(--serif); font-size:15px; margin:16px 0 6px;}
+.ai-assessment-content h4:first-child{margin-top:0;}
+.ai-assessment-content ul{margin:0 0 10px; padding-left:18px;}
+.ai-assessment-content li{font-size:12.5px; line-height:1.6; margin-bottom:4px;}
+.ai-assessment-content p{font-size:12.5px; line-height:1.6; margin:0 0 10px; color:var(--ink);}
+.ai-assessment-actions{display:flex; justify-content:flex-end; gap:8px; margin:6px 0 10px;}
+.ai-assessment-save-btn{
+  font-family:var(--sans); font-size:11.5px; padding:6px 12px; border-radius:6px;
+  border:1px solid var(--border); background:var(--surface); color:var(--ink); cursor:pointer;
+}
+.ai-assessment-save-btn:hover{background:var(--surface-2);}
+.ai-assessment-save-btn:disabled{opacity:0.5; cursor:not-allowed;}
+.ai-assessment-history-toggle{
+  font-family:var(--sans); font-size:11px; color:var(--accent-ink); background:none; border:none; cursor:pointer; padding:0;
+}
+.ai-assessment-history-toggle:hover{text-decoration:underline;}
+.ai-assessment-history-content{padding:12px; border-top:1px solid var(--border);}
 
 /* ===== TIMELINE ===== */
 .filters{display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;}
@@ -499,26 +546,50 @@ body{
 }
 .sprint-task.carryover{border-color:var(--red-bg); background:var(--red-bg);}
 
-.sprint-report-columns{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; align-items:start;}
+.sprint-report-columns{display:flex; flex-direction:column; gap:16px;}
 .sprint-report-block{min-width:0;}
-.sprint-report-head{margin-bottom:10px;}
-.sprint-report-title{font-family:var(--serif); font-size:14px;}
-.sprint-report-scroll{border:1px solid var(--border); border-radius:8px;}
-.sprint-report-table{width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed;}
-.sprint-report-table th{
-  text-align:left; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;
-  color:var(--ink-muted); border-bottom:1px solid var(--border); padding:6px 10px; background:var(--surface);
+.sprint-report-head{margin-bottom:12px;}
+.sprint-report-title{font-family:var(--serif); font-size:15px; margin-bottom:8px;}
+.sprint-report-progress-row{display:flex; flex-direction:column; gap:4px;}
+.sprint-report-progress-row .stack{margin-bottom:0;}
+.sprint-report-progress-label{font-size:11px; color:var(--ink-muted); font-family:var(--mono);}
+/* multi-column flow instead of one long vertical stack — category groups
+   pack side by side across the sprint's full width, so a whole sprint
+   reads in far less scroll height without hiding or shortening anything.
+   break-inside:avoid on each group keeps its tasks from being split
+   across the column boundary. */
+.sprint-report-list{
+  border:1px solid var(--border); border-radius:8px;
+  columns:2 340px; column-gap:0; column-rule:1px solid var(--border);
 }
-.sprint-report-table th:first-child{width:40%;}
-.sprint-report-row{border-bottom:1px solid var(--border); cursor:pointer; transition:background .12s ease;}
-.sprint-report-row:hover{background:var(--surface-2);}
-.sprint-report-table td{padding:6px 10px; vertical-align:top; white-space:pre-wrap; word-break:break-word;}
-.sprint-report-why{color:var(--ink-muted); font-size:11px; margin-top:3px;}
-.sprint-report-category{opacity:0.7; font-weight:400;}
+.sprint-report-empty-state{padding:14px 12px; font-size:12px; color:var(--ink-faint); font-style:italic;}
+.sprint-report-group{border-bottom:1px solid var(--border); break-inside:avoid;}
+.sprint-report-group:last-child{border-bottom:none;}
+.sprint-report-group-head{
+  display:flex; justify-content:space-between; align-items:baseline; padding:7px 12px;
+  background:var(--surface-2); border-left:3px solid var(--accent-ink); border-bottom:1px solid var(--border);
+}
+.sprint-report-group-name{font-family:var(--serif); font-size:13.5px; font-weight:700; color:var(--ink);}
+.sprint-report-group-count{font-family:var(--mono); font-size:11px; color:var(--ink-muted); font-weight:400;}
+.sprint-report-task{
+  display:flex; gap:14px; padding:7px 12px; border-top:1px solid var(--border);
+  cursor:pointer; transition:background .12s ease;
+}
+.sprint-report-group-head + .sprint-report-task{border-top:none;}
+.sprint-report-task:hover{background:var(--surface-2);}
+.sprint-report-task-left{flex:1 1 0; min-width:0;}
+.sprint-report-task-top{display:flex; align-items:baseline; gap:7px; flex-wrap:wrap;}
+.sprint-report-task-name{font-size:12.5px; font-weight:600;}
+.sprint-report-why{color:var(--ink-muted); font-size:11px; margin-top:2px;}
+.sprint-report-activity{
+  flex:1 1 0; min-width:0; color:var(--ink-muted); font-size:11.5px;
+  white-space:pre-wrap; word-break:break-word;
+}
 .sprint-report-empty{color:var(--ink-faint); font-style:italic;}
-.sprint-report-section td{
-  padding:6px 10px; font-size:10.5px; font-weight:700; text-transform:uppercase;
-  letter-spacing:0.04em; color:var(--red-ink); cursor:default;
+.sprint-report-carryover-head{
+  padding:7px 12px; font-size:10.5px; font-weight:700; text-transform:uppercase;
+  letter-spacing:0.04em; color:var(--red-ink); background:var(--red-bg); border-top:1px solid var(--border);
+  break-inside:avoid; break-after:avoid-column;
 }
 .sprint-report-row-flash{animation:sprint-report-flash 1.8s ease-out;}
 @keyframes sprint-report-flash{ from{background:var(--accent-soft);} to{background:transparent;} }
@@ -593,6 +664,15 @@ body{
 }
 .field-row{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
 .field textarea{min-height:64px; resize:vertical; font-family:var(--sans);}
+.field-label-row{display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;}
+.field-label-row label{margin-bottom:0;}
+.ai-suggest-btn{
+  font-family:var(--sans); font-size:10.5px; font-weight:600; padding:3px 8px; border-radius:5px;
+  border:1px solid var(--border); background:var(--surface); color:var(--accent-ink); cursor:pointer;
+  white-space:nowrap;
+}
+.ai-suggest-btn:hover:not(:disabled){background:var(--accent-soft);}
+.ai-suggest-btn:disabled{opacity:0.4; cursor:not-allowed; color:var(--ink-faint);}
 .drawer-close{position:absolute; top:22px; right:22px; z-index:2; background:none; border:none; cursor:pointer; color:var(--ink-muted); font-size:16px;}
 .drawer-loading{
   position:absolute; inset:0; z-index:1; background:var(--surface);
@@ -614,6 +694,10 @@ body{
 .drawer-actions .save-btn{width:auto; margin-top:6px;}
 .drawer-actions #saveBtn{flex:2;}
 .drawer-actions .save-btn-delete{flex:1; background:var(--red-ink);}
+.log-format-hint{
+  font-size:11px; color:var(--ink-muted); line-height:1.6; margin-bottom:8px;
+  background:var(--surface-2); border-radius:6px; padding:8px 10px;
+}
 .log-input-row{display:flex; gap:8px; align-items:flex-end;}
 .log-input-row textarea{flex:1; min-height:64px; resize:vertical;}
 .log-input-row .save-btn{margin-top:0; flex:none;}

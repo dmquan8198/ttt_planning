@@ -6,9 +6,11 @@ const tasksRouter = require('./routes/tasks');
 const logsRouter = require('./routes/logs');
 const allLogsRouter = require('./routes/allLogs');
 const authRouter = require('./routes/auth');
-const snapshotsRouter = require('./routes/snapshots');
 const usersRouter = require('./routes/users');
+const aiAssessmentsRouter = require('./routes/aiAssessments');
+const aiSuggestionsRouter = require('./routes/aiSuggestions');
 const { verifyGoogleToken } = require('./lib/googleAuth');
+const { generateText } = require('./lib/geminiClient');
 
 function decodeActorHeader(raw) {
   if (!raw) return null;
@@ -19,7 +21,7 @@ function decodeActorHeader(raw) {
   }
 }
 
-function createApp(pool, googleTokenVerifier) {
+function createApp(pool, googleTokenVerifier, geminiGenerateFn) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json());
@@ -57,9 +59,11 @@ function createApp(pool, googleTokenVerifier) {
 
   app.use('/api/logs', allLogsRouter(pool));
 
-  app.use('/api/snapshots', snapshotsRouter(pool));
-
   app.use('/api/users', usersRouter(pool));
+
+  app.use('/api/ai-assessments', aiAssessmentsRouter(pool, geminiGenerateFn || generateText));
+
+  app.use('/api/ai-suggestions', aiSuggestionsRouter(geminiGenerateFn || generateText));
 
   app.use('/api/tasks', tasksRouter(pool));
 

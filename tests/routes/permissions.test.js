@@ -113,19 +113,3 @@ test('viewer is blocked from adding a log note; editor is allowed', async () => 
   assert.equal(asEditor.status, 201);
 });
 
-test('editor can capture a snapshot but not delete one; admin can delete', async () => {
-  const pool = makeTestPool();
-  const app = createApp(pool);
-
-  const asViewerCapture = await asActor(request(app).post('/api/snapshots'), VIEWER_NAME).send({});
-  assert.equal(asViewerCapture.status, 403);
-
-  const created = await asActor(request(app).post('/api/snapshots'), EDITOR).send({});
-  assert.equal(created.status, 201);
-
-  const editorDelete = await asActor(request(app).delete(`/api/snapshots/${created.body.id}`), EDITOR);
-  assert.equal(editorDelete.status, 403);
-
-  const adminDelete = await asActor(request(app).delete(`/api/snapshots/${created.body.id}`), ADMIN);
-  assert.equal(adminDelete.status, 204);
-});
