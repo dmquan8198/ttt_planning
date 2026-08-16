@@ -113,3 +113,15 @@ test('viewer is blocked from adding a log note; editor is allowed', async () => 
   assert.equal(asEditor.status, 201);
 });
 
+test('viewer is blocked from ticking resource roles; editor is allowed', async () => {
+  const pool = makeTestPool();
+  const app = createApp(pool);
+  const taskId = await seedTask(pool);
+
+  const asViewer = await asActor(request(app).put(`/api/tasks/${taskId}/resources`), VIEWER_NAME).send({ roles: ['PO'] });
+  assert.equal(asViewer.status, 403);
+
+  const asEditor = await asActor(request(app).put(`/api/tasks/${taskId}/resources`), EDITOR).send({ roles: ['PO'] });
+  assert.equal(asEditor.status, 200);
+});
+

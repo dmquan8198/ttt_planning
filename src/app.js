@@ -9,6 +9,7 @@ const authRouter = require('./routes/auth');
 const usersRouter = require('./routes/users');
 const aiAssessmentsRouter = require('./routes/aiAssessments');
 const aiSuggestionsRouter = require('./routes/aiSuggestions');
+const resourceRolesRouter = require('./routes/resourceRoles');
 const { verifyGoogleToken } = require('./lib/googleAuth');
 const { generateText } = require('./lib/geminiClient');
 
@@ -66,6 +67,8 @@ function createApp(pool, googleTokenVerifier, geminiGenerateFn) {
   app.use('/api/ai-suggestions', aiSuggestionsRouter(geminiGenerateFn || generateText));
 
   app.use('/api/tasks', tasksRouter(pool));
+
+  app.use('/api/resource-roles', resourceRolesRouter(pool));
 
   app.use(express.static(path.join(__dirname, '..', 'public')));
 

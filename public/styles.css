@@ -372,6 +372,64 @@ body{
 }
 .multiselect-option:hover{background:var(--surface-2);}
 .multiselect-option input{margin:0; flex:none;}
+.multiselect-add-new{padding:6px 8px 2px; margin-top:2px; border-top:1px solid var(--border);}
+.multiselect-add-new input{
+  width:100%; box-sizing:border-box; font-family:var(--sans); font-size:12px; padding:5px 7px;
+  border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--ink);
+}
+
+/* ---- Resource view: rollup grids (roles x sprint/phase) + tick matrix
+   (tasks x roles). grid-template-columns is set inline by JS since the
+   column count depends on how many roles are in use. ---- */
+.resource-rollup-scroll{overflow-x:auto;}
+.resource-rollup-table{display:grid; min-width:max-content;}
+.resource-rollup-cell{
+  padding:8px 10px; font-size:12.5px; color:var(--ink); border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:center; text-align:center; white-space:nowrap;
+}
+.resource-rollup-table .resource-rollup-row:nth-child(odd) .resource-rollup-cell{background:var(--surface-2);}
+.resource-rollup-head .resource-rollup-cell{
+  font-family:var(--serif); font-weight:600; color:var(--ink-muted); font-size:11.5px;
+  border-bottom:1.5px solid var(--border); background:transparent !important;
+}
+.resource-rollup-cell.resource-rollup-label{justify-content:flex-start; font-weight:600; color:var(--ink);}
+.resource-rollup-cell.resource-rollup-count-zero{color:var(--ink-faint, var(--ink-muted)); opacity:0.5;}
+.resource-rollup-cell.resource-rollup-count-hot{color:var(--accent-ink); font-weight:700;}
+
+.resource-matrix-scroll{overflow-x:auto;}
+.resource-matrix{display:grid; min-width:max-content;}
+.resource-matrix-cell{
+  padding:8px 10px; border-bottom:1px solid var(--border); display:flex; align-items:center;
+  justify-content:center;
+}
+.resource-matrix-head .resource-matrix-cell{
+  font-family:var(--serif); font-weight:600; color:var(--ink-muted); font-size:11.5px;
+  border-bottom:1.5px solid var(--border); justify-content:center;
+}
+.resource-matrix-cell input[type=checkbox]{margin:0; cursor:pointer;}
+.resource-matrix-cell.resource-matrix-task{
+  justify-content:flex-start; text-align:left; flex-direction:column; align-items:flex-start; gap:3px;
+}
+.resource-matrix-task-name{font-size:12.5px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:280px;}
+.resource-matrix-task-tags{display:flex; gap:5px;}
+.resource-matrix-empty{padding:20px; color:var(--ink-muted); font-size:13px;}
+
+.resource-team-toolbar{display:flex; align-items:center; gap:8px; margin-bottom:10px;}
+.resource-team-toolbar input{
+  font-family:var(--sans); font-size:12.5px; padding:6px 9px; border:1px solid var(--border);
+  border-radius:6px; background:var(--surface); color:var(--ink); width:220px;
+}
+.resource-matrix-role-head{flex-direction:column; gap:3px;}
+.resource-matrix-role-name{white-space:nowrap;}
+.resource-matrix-role-actions{display:flex; gap:6px;}
+.resource-matrix-role-action-btn{
+  background:none; border:none; cursor:pointer; color:var(--ink-muted); font-size:12px; padding:0; line-height:1;
+}
+.resource-matrix-role-action-btn:hover{color:var(--accent-ink);}
+.resource-matrix-role-edit-input{
+  width:100%; box-sizing:border-box; font-family:var(--sans); font-size:12px; padding:4px 6px;
+  border:1px solid var(--accent-ink); border-radius:5px; background:var(--surface); color:var(--ink); text-align:center;
+}
 
 .groupby-chips{display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; align-items:center;}
 .view-head-controls .groupby-chips{margin-bottom:0;}
@@ -702,6 +760,37 @@ body{
 .log-input-row textarea{flex:1; min-height:64px; resize:vertical;}
 .log-input-row .save-btn{margin-top:0; flex:none;}
 .log-preview{border:1px solid var(--border); border-radius:6px; padding:10px 12px; background:var(--surface-2); margin-top:6px;}
+
+/* ===== DATE-CHANGE REASON MODAL ===== */
+/* required whenever a task whose due date wasn't yet overdue gets rescheduled
+   from outside the drawer (drag on Timeline/Sprint Overview) — the reason
+   gets recorded as its own activity-log entry (see "Cập nhật tình trạng
+   task"), same as the mandatory note the drawer itself requires for the
+   in-drawer equivalent. #dateReasonOverlay reuses .overlay for the same
+   dim/fade backdrop the drawer uses. */
+#dateReasonOverlay{z-index:90;}
+.date-reason-modal{
+  position:fixed; top:50%; left:50%; transform:translate(-50%, -50%) scale(0.97); width:360px; max-width:calc(100vw - 40px);
+  background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 12px 32px rgba(0,0,0,0.22);
+  padding:20px; z-index:95; opacity:0; pointer-events:none; transition:opacity .15s ease, transform .15s ease;
+}
+.date-reason-modal.show{opacity:1; pointer-events:auto; transform:translate(-50%, -50%) scale(1);}
+.date-reason-title{font-family:var(--serif); font-size:16px; margin-bottom:4px;}
+.date-reason-sub{font-size:12px; color:var(--ink-muted); margin-bottom:12px; line-height:1.45;}
+.date-reason-modal textarea{
+  width:100%; font-family:var(--sans); font-size:13px; padding:8px 10px; border-radius:6px;
+  border:1px solid var(--border); background:var(--canvas); color:var(--ink); resize:vertical;
+}
+.date-reason-error{font-size:11.5px; color:var(--red-ink); margin-top:6px;}
+.date-reason-actions{display:flex; gap:8px; margin-top:14px;}
+.date-reason-cancel, .date-reason-confirm{
+  flex:1; font-family:var(--sans); font-size:13px; font-weight:600; padding:9px 12px; border-radius:6px;
+  border:1px solid var(--border); cursor:pointer;
+}
+.date-reason-cancel{background:var(--surface); color:var(--ink);}
+.date-reason-cancel:hover{background:var(--surface-2);}
+.date-reason-confirm{background:var(--ink); color:var(--canvas); border-color:var(--ink);}
+.date-reason-confirm:hover{opacity:0.85;}
 .log-item{font-size:11.5px; margin-bottom:7px; padding-bottom:7px; border-bottom:1px solid var(--border);}
 .log-item:last-child{margin-bottom:0; padding-bottom:0; border-bottom:none;}
 .log-date{font-family:var(--mono); color:var(--ink-muted); font-size:10.5px;}

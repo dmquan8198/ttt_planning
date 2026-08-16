@@ -16,6 +16,28 @@ function normalizeTaskDates(t) {
   };
 }
 
+// merged into GET /api/tasks as a separate query + JS join (rather than a
+// SQL array_agg) to stay portable across the real Postgres driver and the
+// pg-mem in-memory double the test suite runs against.
+async function loadResourceRolesByTask(pool) {
+  const { rows } = await pool.query('SELECT task_id, role FROM task_resource_roles ORDER BY role');
+  const map = {};
+  rows.forEach((r) => {
+    if (!map[r.task_id]) map[r.task_id] = [];
+    map[r.task_id].push(r.role);
+  });
+  return map;
+}
+
+async function replaceTaskResourceRoles(pool, taskId, roles) {
+  await pool.query('DELETE FROM task_resource_roles WHERE task_id=$1', [taskId]);
+  const clean = Array.from(new Set((roles || []).map((r) => String(r).trim()).filter(Boolean)));
+  for (const role of clean) {
+    await pool.query('INSERT INTO task_resource_roles (task_id, role) VALUES ($1, $2)', [taskId, role]);
+  }
+  return clean;
+}
+
 function tasksRouter(pool) {
   const router = Router();
 
@@ -28,7 +50,8 @@ function tasksRouter(pool) {
       LEFT JOIN sprints s ON s.id = t.sprint_id
       ORDER BY t.stt NULLS LAST, t.id
     `);
-    res.json(rows.map(normalizeTaskDates));
+    const rolesByTask = await loadResourceRolesByTask(pool);
+    res.json(rows.map((r) => ({ ...normalizeTaskDates(r), resource_roles: rolesByTask[r.id] || [] })));
   }));
 
   router.post('/', requireRole(pool, 'editor'), asyncHandler(async (req, res) => {
@@ -52,7 +75,8 @@ function tasksRouter(pool) {
           b.start_date, b.due_date, !!b.date_overridden, (b.why || '').trim() || null
         ]
       );
-      res.status(201).json(normalizeTaskDates(rows[0]));
+      const resource_roles = await replaceTaskResourceRoles(pool, rows[0].id, b.resource_roles);
+      res.status(201).json({ ...normalizeTaskDates(rows[0]), resource_roles });
     } catch (err) {
       if (isForeignKeyViolation(err)) {
         return res.status(400).json({ error: 'phase_id hoặc sprint_id không tồn tại' });
@@ -112,13 +136,37 @@ function tasksRouter(pool) {
         await pool.query('INSERT INTO activity_logs (task_id, note) VALUES ($1, $2)', [id, dateChangeNote]);
       }
 
-      res.json(after);
+      // full-replace, same as every other field on this PUT: every caller
+      // must pass the task's current resource_roles or they get cleared
+      // (see updateTaskDates/updateTaskSprint/buildGroupChangeBody, which
+      // all carry it through from the cached task for this reason).
+      const resource_roles = await replaceTaskResourceRoles(pool, id, b.resource_roles);
+
+      res.json({ ...after, resource_roles });
     } catch (err) {
       if (isForeignKeyViolation(err)) {
         return res.status(400).json({ error: 'phase_id hoặc sprint_id không tồn tại' });
       }
       throw err;
     }
+  }));
+
+  // lightweight, junction-table-only endpoint for the Resource matrix view:
+  // ticking a cell there shouldn't have to reconstruct and re-validate the
+  // entire task body (name/category/platform/status/dates) like the main
+  // PUT requires, and doing so on every tick would risk silently
+  // overwriting a field another user just changed with a stale cached copy.
+  router.put('/:id/resources', requireRole(pool, 'editor'), asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'id không hợp lệ' });
+    }
+    const exists = await pool.query('SELECT 1 FROM tasks WHERE id=$1', [id]);
+    if (exists.rowCount === 0) {
+      return res.status(404).json({ error: 'không tìm thấy nghiệp vụ' });
+    }
+    const resource_roles = await replaceTaskResourceRoles(pool, id, req.body.roles);
+    res.json({ id, resource_roles });
   }));
 
   router.delete('/:id', requireRole(pool, 'admin'), asyncHandler(async (req, res) => {

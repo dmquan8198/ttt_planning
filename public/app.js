@@ -64,7 +64,12 @@ function escapeHtml(str){
 // the array itself makes this one-time — later rebuilds, e.g. after a real
 // data reload, never stomp a selection the user already made, including an
 // intentionally-cleared one).
-function renderMultiSelectDropdown(containerEl, buttonLabel, options, selected, onChange, defaultSelectAll){
+// opts.allowAddNew: if true, adds a "+ Thêm ... mới" row at the bottom of the
+// panel (same reveal-a-text-input UX as the category field's "+ Thêm category
+// mới...") that appends a new option to `options` in place, selects it, and
+// re-renders — used by the drawer's "Resource cần" role picker so new
+// teams/roles are addable without a separate admin screen.
+function renderMultiSelectDropdown(containerEl, buttonLabel, options, selected, onChange, defaultSelectAll, opts){
   if (defaultSelectAll && !selected._msInitialized){
     selected._msInitialized = true;
     options.forEach(function(opt){ if (selected.indexOf(opt.key) === -1) selected.push(opt.key); });
@@ -119,6 +124,51 @@ function renderMultiSelectDropdown(containerEl, buttonLabel, options, selected, 
     updateBtn();
     onChange(selected);
   });
+
+  if (opts && opts.allowAddNew){
+    var addRow = document.createElement('div'); addRow.className = 'multiselect-add-new';
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button'; addBtn.className = 'multiselect-action-btn';
+    addBtn.textContent = opts.addNewLabel || '+ Thêm mục mới...';
+    var addInput = document.createElement('input');
+    addInput.type = 'text'; addInput.placeholder = opts.addNewPlaceholder || 'Nhập tên mới, Enter để xác nhận';
+    addInput.style.display = 'none';
+    addBtn.addEventListener('click', function(){
+      addBtn.style.display = 'none';
+      addInput.style.display = '';
+      addInput.focus();
+    });
+    function commitAddNew(val){
+      if (!options.some(function(o){ return o.key === val; })) options.push({ key: val, label: val });
+      if (selected.indexOf(val) === -1) selected.push(val);
+      onChange(selected);
+      renderMultiSelectDropdown(containerEl, buttonLabel, options, selected, onChange, defaultSelectAll, opts);
+      var reopenPanel = containerEl.querySelector('.multiselect-panel');
+      if (reopenPanel) reopenPanel.style.display = 'flex';
+    }
+    addInput.addEventListener('keydown', function(e){
+      if (e.key !== 'Enter') return;
+      var val = addInput.value.trim();
+      if (!val) return;
+      // onAddNew: optional async persistence hook (e.g. POST /api/resource-roles)
+      // — if given, the option/selection only get added once it succeeds, so a
+      // rejected duplicate name etc. doesn't leave a phantom local-only option.
+      if (opts.onAddNew){
+        addInput.disabled = true;
+        Promise.resolve(opts.onAddNew(val))
+          .then(function(){ commitAddNew(val); })
+          .catch(function(err){
+            addInput.disabled = false;
+            toastError(err.message || 'Không thêm được.');
+          });
+      } else {
+        commitAddNew(val);
+      }
+    });
+    addRow.appendChild(addBtn);
+    addRow.appendChild(addInput);
+    panel.appendChild(addRow);
+  }
 
   btn.addEventListener('click', function(e){
     e.stopPropagation();
@@ -225,6 +275,12 @@ var editingTaskStt = null;
 // has both a sprint AND hand-set override dates (so !sprintVal is false) would
 // compute date_overridden=false on save and silently wipe the override's dates.
 var editingTaskWasOverridden = false;
+// the due_date the task had when the drawer was opened — compared against
+// f-due on save to detect a date change, and checked against today to
+// decide whether a "Cập nhật tình trạng task" note is mandatory (see
+// dueDateIsDueOrOverdue). null in "create" mode, where there's no prior
+// due date to compare against.
+var editingTaskOriginalDueDate = null;
 // becomes true once the user hand-edits #f-start/#f-due since the last time we
 // auto-filled them from a sprint change (or since the drawer was opened)
 var manualDateEdit = false;
@@ -327,6 +383,34 @@ function fetchAndRenderLogs(taskId){
     });
 }
 
+// ---- resource roles (Resource cần): which teams a task needs (PO, ITBA,
+// BE Dev, App Dev, Web Dev, Core, by default, but fully managed via
+// /api/resource-roles — see the Resource view's team add/rename/delete
+// controls). Deliberately named apart from the existing `platform` field
+// (Web/App/BE) — platform is which team OWNS a task (single-select), this
+// is which teams' effort it NEEDS (multi-select, e.g. a task can need both
+// BE Dev and App Dev).
+var _resourceRolesPromise = null;
+function loadResourceRoles(){
+  if (!_resourceRolesPromise) _resourceRolesPromise = fetchJSON('/api/resource-roles');
+  return _resourceRolesPromise;
+}
+// shared by the drawer's "+ Thêm team mới..." and the Resource matrix's
+// "+ Thêm team" — both need the same persist-then-invalidate-cache flow.
+function addResourceRole(name){
+  return authFetch('/api/resource-roles', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name })
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+    _resourceRolesPromise = null;
+  });
+}
+var _drawerResourceRoles = [];
+
 function openDrawer(mode, t){
   t = t || {};
   var isEdit = mode === 'edit';
@@ -343,6 +427,7 @@ function openDrawer(mode, t){
   editingTaskDoneFlags = null;
   editingTaskWasOverridden = false;
   editingTaskStt = null;
+  editingTaskOriginalDueDate = null;
 
   // viewer: read-only (no save/delete, no adding a note, fields disabled) —
   // still allowed to open the drawer and look, since "chỉ xem" means read
@@ -377,11 +462,16 @@ function openDrawer(mode, t){
   document.getElementById('drawerLoadingText').textContent = 'Đang tải...';
   document.getElementById('drawerLoading').style.display = 'flex';
 
-  Promise.all([loadPhasesList(), loadSprints(), isEdit ? loadTasks() : Promise.resolve(null), fetchJSON('/api/sprints/current-next')])
+  // always loaded (not just isEdit) so the "Resource cần" picker's option
+  // list is available in create mode too; loadTasks() is cached, so this
+  // costs nothing extra once the app's initial load has already fetched it.
+  Promise.all([loadPhasesList(), loadSprints(), loadTasks(), fetchJSON('/api/sprints/current-next'), loadResourceRoles()])
     .then(function(results){
       if (loadToken !== _drawerLoadToken) return; // superseded by a newer openDrawer call
-      var phases = results[0], sprints = results[1], allTasks = results[2], currentNext = results[3];
+      var phases = results[0], sprints = results[1], allTasks = results[2], currentNext = results[3], roles = results[4];
       var currentSprintId = currentNext.current ? currentNext.current.id : null;
+
+      var roleOptions = roles.map(function(r){ return { key: r.name, label: r.name }; });
 
       populateSelectOptions(document.getElementById('f-phase'), phases, function(p){
         return p.code + ': ' + p.name + ' (' + fmtDMY(p.target_date) + ')';
@@ -400,6 +490,7 @@ function openDrawer(mode, t){
         };
         editingTaskWasOverridden = !!full.date_overridden;
         editingTaskStt = full.stt != null ? full.stt : null;
+        editingTaskOriginalDueDate = full.due_date || null;
         document.getElementById('f-name').value = full.name || '';
         document.getElementById('f-why').value = full.why || '';
         addCategoryOptionIfMissing(full.category);
@@ -412,6 +503,7 @@ function openDrawer(mode, t){
         document.getElementById('f-start').value = full.start_date || '';
         document.getElementById('f-due').value = full.due_date || '';
         fetchAndRenderLogs(full.id);
+        _drawerResourceRoles = (full.resource_roles || []).slice();
       } else {
         document.getElementById('f-name').value = '';
         document.getElementById('f-why').value = '';
@@ -424,6 +516,18 @@ function openDrawer(mode, t){
         document.getElementById('f-start').value = '';
         document.getElementById('f-due').value = '';
         document.getElementById('logPreview').innerHTML = '';
+        _drawerResourceRoles = [];
+      }
+      renderMultiSelectDropdown(
+        document.getElementById('f-resource-roles-ms'), 'Chọn resource cần', roleOptions, _drawerResourceRoles,
+        function(){}, false,
+        canEdit ? {
+          allowAddNew: true, addNewLabel: '+ Thêm team mới...', addNewPlaceholder: 'Nhập tên team/role mới, Enter để xác nhận',
+          onAddNew: addResourceRole
+        } : null
+      );
+      if (!canEdit){
+        document.getElementById('f-resource-roles-ms').querySelectorAll('button, input').forEach(function(el){ el.disabled = true; });
       }
       updateGenerateWhyBtnState();
       document.getElementById('drawerLoading').style.display = 'none';
@@ -1385,7 +1489,7 @@ function updateTaskSprint(task, newSprintId, sprints){
   var body = {
     category: task.category, name: task.name, platform: task.platform, status: task.status,
     phase_id: task.phase_id, sprint_id: newSprintId, stt: task.stt,
-    why: task.why,
+    why: task.why, resource_roles: task.resource_roles,
     done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
     start_date: sprint ? sprint.start_date : task.start_date,
     due_date: sprint ? sprint.end_date : task.due_date,
@@ -1450,15 +1554,25 @@ function renderSprintOverviewTable(sprints, tasks, currentSprintId, nextSprintId
       var draggedTask = draggedId != null ? tasks.filter(function(t){ return t.id === draggedId; })[0] : null;
       if (!draggedTask || draggedTask.sprint_id === s.id) return;
       e.preventDefault();
-      updateTaskSprint(draggedTask, s.id, sprints)
-        .then(function(){
-          refreshAllViews();
-          toastSuccess('Đã đổi sprint cho "' + draggedTask.name + '"');
-        })
-        .catch(function(err){
-          console.error('Đổi sprint thất bại', err);
-          toastError('Không đổi được sprint: ' + err.message);
-        });
+      function commitSprintChange(reason){
+        updateTaskSprint(draggedTask, s.id, sprints)
+          .then(function(){
+            if (reason) return postDateChangeReasonLog(draggedTask.id, reason);
+          })
+          .then(function(){
+            refreshAllViews();
+            toastSuccess('Đã đổi sprint cho "' + draggedTask.name + '"');
+          })
+          .catch(function(err){
+            console.error('Đổi sprint thất bại', err);
+            toastError('Không đổi được sprint: ' + err.message);
+          });
+      }
+      if (dueDateIsDueOrOverdue(draggedTask.due_date)){
+        promptDateChangeReason(draggedTask.name, commitSprintChange, function(){});
+      } else {
+        commitSprintChange(null);
+      }
     });
 
     if (sprintTasks.length === 0){
@@ -2130,7 +2244,7 @@ function updateTaskDates(task, newStartIso, newDueIso){
   var body = {
     category: task.category, name: task.name, platform: task.platform, status: task.status,
     phase_id: task.phase_id, sprint_id: task.sprint_id, stt: task.stt,
-    why: task.why,
+    why: task.why, resource_roles: task.resource_roles,
     done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
     start_date: newStartIso, due_date: newDueIso, date_overridden: true
   };
@@ -2149,6 +2263,80 @@ function updateTaskDates(task, newStartIso, newDueIso){
 
 function toIsoDate(d){
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function todayIsoLocal(){
+  var d = new Date(); d.setHours(0, 0, 0, 0);
+  return toIsoDate(d);
+}
+
+// scopes the mandatory-reason requirement to tasks already due today or
+// overdue — silently pushing out a date that's already (about to be) a
+// problem is exactly the case worth a reason; a task still comfortably in
+// the future being replanned is routine and doesn't need one.
+function dueDateIsDueOrOverdue(dueDateIso){
+  return !!dueDateIso && dueDateIso <= todayIsoLocal();
+}
+
+// ---- date-change reason modal: shown for any date change that happens
+// OUTSIDE the drawer (drag on Timeline/Sprint Overview) for a task whose
+// due date is already due today or overdue. Blocks until a reason is
+// typed; the caller only proceeds with the actual date-changing request
+// from onConfirm. ----
+function promptDateChangeReason(taskName, onConfirm, onCancel){
+  var overlay = document.getElementById('dateReasonOverlay');
+  var modal = document.getElementById('dateReasonModal');
+  var input = document.getElementById('dateReasonInput');
+  var errorEl = document.getElementById('dateReasonError');
+  var confirmBtn = document.getElementById('dateReasonConfirm');
+  var cancelBtn = document.getElementById('dateReasonCancel');
+
+  document.getElementById('dateReasonSub').textContent =
+    '"' + taskName + '" đã tới hạn hoặc quá hạn — vui lòng nêu lý do dời ngày.';
+  input.value = '';
+  errorEl.style.display = 'none';
+  overlay.classList.add('show');
+  modal.classList.add('show');
+  input.focus();
+
+  function cleanup(){
+    overlay.classList.remove('show');
+    modal.classList.remove('show');
+    confirmBtn.removeEventListener('click', handleConfirm);
+    cancelBtn.removeEventListener('click', handleCancel);
+    overlay.removeEventListener('click', handleCancel);
+  }
+  function handleConfirm(){
+    var reason = input.value.trim();
+    if (!reason){
+      errorEl.style.display = 'block';
+      input.focus();
+      return;
+    }
+    cleanup();
+    onConfirm(reason);
+  }
+  function handleCancel(){
+    cleanup();
+    if (onCancel) onCancel();
+  }
+  confirmBtn.addEventListener('click', handleConfirm);
+  cancelBtn.addEventListener('click', handleCancel);
+  overlay.addEventListener('click', handleCancel);
+}
+
+// records the typed reason as its own activity-log entry, right alongside
+// the server's own auto-generated "Dịch ngày/Đổi ngày" note for the same
+// change (see dateChangeNote.js) — best-effort, matching how the drawer's
+// own initial-note posting doesn't block on failure either.
+function postDateChangeReasonLog(taskId, reason){
+  return authFetch('/api/tasks/' + taskId + '/logs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: 'Lý do dời ngày: ' + reason })
+  }).catch(function(err){
+    console.error('Failed to save date-change reason log', err);
+  });
 }
 
 // e.g. 15 (inclusive calendar days), daysPerWeek=7 -> "2w1d"; with
@@ -2216,7 +2404,7 @@ function buildGroupChangeBody(task, groupKey, sprints){
   var body = {
     category: task.category, name: task.name, platform: task.platform, status: task.status,
     phase_id: task.phase_id, sprint_id: task.sprint_id, stt: task.stt,
-    why: task.why,
+    why: task.why, resource_roles: task.resource_roles,
     done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
     start_date: task.start_date, due_date: task.due_date, date_overridden: task.date_overridden
   };
@@ -2278,7 +2466,8 @@ function reorderTimelineTask(draggedTask, targetTask){
 
   Promise.all(updates.map(function(u){
     var body = {
-      category: u.task.category, name: u.task.name, why: u.task.why, platform: u.task.platform, status: u.task.status,
+      category: u.task.category, name: u.task.name, why: u.task.why, resource_roles: u.task.resource_roles,
+      platform: u.task.platform, status: u.task.status,
       phase_id: u.task.phase_id, sprint_id: u.task.sprint_id, stt: u.newStt,
       done_analyst: u.task.done_analyst, done_dev: u.task.done_dev, done_uat: u.task.done_uat, done_staging: u.task.done_staging,
       start_date: u.task.start_date, due_date: u.task.due_date, date_overridden: u.task.date_overridden
@@ -2397,14 +2586,12 @@ function renderGantt(tasks, sprints, phases){
       barEl.style.width = w + '%';
       updateTooltip(l, w);
     }
-    function onUp(){
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      barEl.classList.remove('bar-dragging');
-      tooltip.remove();
-      if (!moved) return;
-      markDragged();
-      updateTaskDates(task, toIsoDate(newStart), toIsoDate(newEnd))
+    function commitBarDrag(reason){
+      var newStartIso = toIsoDate(newStart), newDueIso = toIsoDate(newEnd);
+      updateTaskDates(task, newStartIso, newDueIso)
+        .then(function(){
+          if (reason) return postDateChangeReasonLog(task.id, reason);
+        })
         .then(function(){
           refreshAllViews();
           toastSuccess('Đã cập nhật ngày cho "' + task.name + '"');
@@ -2414,6 +2601,23 @@ function renderGantt(tasks, sprints, phases){
           toastError('Không cập nhật được ngày: ' + err.message);
           refreshAllViews(); // reload from the server truth to undo the live preview
         });
+    }
+    function onUp(){
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      barEl.classList.remove('bar-dragging');
+      tooltip.remove();
+      if (!moved) return;
+      markDragged();
+      if (dueDateIsDueOrOverdue(task.due_date)){
+        promptDateChangeReason(task.name, function(reason){
+          commitBarDrag(reason);
+        }, function(){
+          refreshAllViews(); // cancelled — snap the bar back to server truth
+        });
+      } else {
+        commitBarDrag(null);
+      }
     }
     barEl.classList.add('bar-dragging');
     document.addEventListener('mousemove', onMove);
@@ -2447,15 +2651,28 @@ function renderGantt(tasks, sprints, phases){
       var taskId = _draggingTimelineTaskId;
       var task = tasks.filter(function(x){ return x.id === taskId; })[0];
       if (!task || taskGroupKey(task) === g.key) return;
-      updateTaskGroup(task, g.key, sprints)
-        .then(function(){
-          refreshAllViews();
-          toastSuccess('Đã đổi nhóm cho "' + task.name + '"');
-        })
-        .catch(function(err){
-          console.error('Đổi nhóm trên Timeline thất bại', err);
-          toastError('Không đổi được nhóm: ' + err.message);
-        });
+      function commitGroupChange(reason){
+        updateTaskGroup(task, g.key, sprints)
+          .then(function(){
+            if (reason) return postDateChangeReasonLog(task.id, reason);
+          })
+          .then(function(){
+            refreshAllViews();
+            toastSuccess('Đã đổi nhóm cho "' + task.name + '"');
+          })
+          .catch(function(err){
+            console.error('Đổi nhóm trên Timeline thất bại', err);
+            toastError('Không đổi được nhóm: ' + err.message);
+          });
+      }
+      // only re-grouping by sprint (to an actual sprint, not "no sprint")
+      // touches dates — see buildGroupChangeBody.
+      var changesDates = _timelineGroupBy === 'sprint' && g.key !== 'none';
+      if (changesDates && dueDateIsDueOrOverdue(task.due_date)){
+        promptDateChangeReason(task.name, commitGroupChange, function(){});
+      } else {
+        commitGroupChange(null);
+      }
     });
 
     groupTasks.forEach(function(t){
@@ -2709,7 +2926,7 @@ function updateTaskStatus(task, newStatus){
   var body = {
     category: task.category, name: task.name, platform: task.platform, status: newStatus,
     phase_id: task.phase_id, sprint_id: task.sprint_id, stt: task.stt,
-    why: task.why,
+    why: task.why, resource_roles: task.resource_roles,
     done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
     start_date: task.start_date, due_date: task.due_date, date_overridden: task.date_overridden
   };
@@ -3036,6 +3253,328 @@ function loadLogView(){
     });
 }
 
+// ---- Resource view: which teams/roles each task needs (managed via
+// /api/resource-roles, fetched by loadResourceRoles() near the drawer's
+// "Resource cần" picker above). Three parts:
+// - team management (add/rename/delete), right in the matrix header — see
+//   renderResourceRoleHeaderCell and the "+ Thêm team" toolbar below;
+// - a rollup grid (role x sprint/phase counts), always computed over the
+//   full project so "how many tasks need BE Dev in S16" is a real answer
+//   regardless of what the matrix below is currently filtered to;
+// - a tick matrix (task x role checkboxes), filtered by Sprint/Phase so it
+//   stays usable — an unfiltered 130+ task x 6+ role grid was the "matrix
+//   thô" problem raised when this feature was scoped (defaults to the
+//   current sprint so it's immediately useful on first load).
+var _resourceSprintFilter = [];
+var _resourcePhaseFilter = [];
+var _resourceRollupTab = 'sprint';
+var _resourceTasksCache = [];
+var _resourceSprintsCache = [];
+var _resourcePhasesCache = [];
+var _resourceRolesCache = []; // [{id, name, task_count}], from /api/resource-roles
+var _resourceFiltersInitialized = false;
+
+document.querySelectorAll('#resourceRollupTabChips .chip').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#resourceRollupTabChips .chip').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    _resourceRollupTab = btn.dataset.rolluptab;
+    renderResourceRollup();
+  });
+});
+
+function loadResourceView(){
+  return Promise.all([loadTasks(), loadSprints(), loadPhasesList(), fetchJSON('/api/sprints/current-next'), loadResourceRoles()])
+    .then(function(results){
+      var tasks = results[0], sprints = results[1], phases = results[2], currentNext = results[3], roles = results[4];
+      _resourceTasksCache = tasks;
+      _resourceSprintsCache = sprints;
+      _resourcePhasesCache = phases;
+      _resourceRolesCache = roles;
+      if (!_resourceFiltersInitialized){
+        _resourceFiltersInitialized = true;
+        // same current/next gap-day fallback as Sprint Overview and Sprint
+        // Report: when today falls between two sprint cycles, current-next
+        // returns no current sprint at all — default to next rather than
+        // showing every task in the project unfiltered.
+        var defaultSprint = currentNext.current || currentNext.next;
+        if (defaultSprint) _resourceSprintFilter.push(defaultSprint.id);
+      }
+      renderResourceFilters();
+      renderResourceRollup();
+      renderResourceMatrix();
+    })
+    .catch(function(err){ console.error('Failed to load Resource view', err); });
+}
+
+// after any team add/rename/delete: the tasks cache may now embed a stale
+// role name (rename) or a role that no longer exists (delete), and the
+// roles list itself changed — reload both rather than trying to patch
+// every task's resource_roles array in place.
+function reloadResourceRolesAndViews(){
+  _resourceRolesPromise = null;
+  _tasksPromise = null;
+  return loadResourceView();
+}
+
+function renderResourceFilters(){
+  var sprintOptions = _resourceSprintsCache.map(function(s){ return { key: s.id, label: s.code }; });
+  var phaseOptions = _resourcePhasesCache.map(function(p){ return { key: p.id, label: p.code }; });
+  renderMultiSelectDropdown(
+    document.getElementById('filter-resource-sprint-ms'), 'Sprint', sprintOptions, _resourceSprintFilter,
+    function(){ renderResourceMatrix(); }, false
+  );
+  renderMultiSelectDropdown(
+    document.getElementById('filter-resource-phase-ms'), 'Phase', phaseOptions, _resourcePhaseFilter,
+    function(){ renderResourceMatrix(); }, false
+  );
+}
+
+function renderResourceRollup(){
+  var wrap = document.getElementById('resourceRollupWrap');
+  wrap.innerHTML = '';
+  var roles = _resourceRolesCache.map(function(r){ return r.name; });
+
+  var buckets, labelFor, keyFor;
+  if (_resourceRollupTab === 'phase'){
+    buckets = _resourcePhasesCache.slice();
+    labelFor = function(p){ return p.code; };
+    keyFor = function(t){ return t.phase_id; };
+  } else {
+    buckets = _resourceSprintsCache.slice();
+    labelFor = function(s){ return s.code; };
+    keyFor = function(t){ return t.sprint_id; };
+  }
+  buckets = buckets.concat([{ id: null }]); // tasks with no sprint/phase assigned
+
+  var scroll = document.createElement('div'); scroll.className = 'resource-rollup-scroll';
+  var table = document.createElement('div'); table.className = 'resource-rollup-table';
+  table.style.gridTemplateColumns = '90px repeat(' + roles.length + ', minmax(64px,1fr))';
+
+  var head = document.createElement('div'); head.className = 'resource-rollup-row resource-rollup-head'; head.style.display = 'contents';
+  var headLabel = document.createElement('div'); headLabel.className = 'resource-rollup-cell resource-rollup-label';
+  headLabel.textContent = _resourceRollupTab === 'phase' ? 'Phase' : 'Sprint';
+  head.appendChild(headLabel);
+  roles.forEach(function(r){
+    var c = document.createElement('div'); c.className = 'resource-rollup-cell'; c.textContent = r;
+    head.appendChild(c);
+  });
+  table.appendChild(head);
+
+  buckets.forEach(function(b){
+    var row = document.createElement('div'); row.className = 'resource-rollup-row'; row.style.display = 'contents';
+    var labelCell = document.createElement('div'); labelCell.className = 'resource-rollup-cell resource-rollup-label';
+    labelCell.textContent = b.id === null ? '— không có —' : labelFor(b);
+    row.appendChild(labelCell);
+    var tasksInBucket = _resourceTasksCache.filter(function(t){ return keyFor(t) === b.id; });
+    roles.forEach(function(r){
+      var count = tasksInBucket.filter(function(t){ return (t.resource_roles || []).indexOf(r) !== -1; }).length;
+      var cell = document.createElement('div');
+      cell.className = 'resource-rollup-cell' + (count === 0 ? ' resource-rollup-count-zero' : (count >= 3 ? ' resource-rollup-count-hot' : ''));
+      cell.textContent = String(count);
+      row.appendChild(cell);
+    });
+    table.appendChild(row);
+  });
+
+  scroll.appendChild(table);
+  wrap.appendChild(scroll);
+}
+
+// renames/deletes a team from the Resource matrix header — see the "Sửa"/
+// "Xóa" icons per role column in renderResourceMatrix. Both reload the
+// whole Resource view on success (reloadResourceRolesAndViews) since a
+// rename changes the role name embedded in every affected task.
+function renameResourceRole(id, newName){
+  return authFetch('/api/resource-roles/' + id, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newName })
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+  });
+}
+function deleteResourceRole(id){
+  return authFetch('/api/resource-roles/' + id, { method: 'DELETE' }).then(function(res){
+    if (!res.ok && res.status !== 204){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+  });
+}
+
+// one header cell per team column: name + inline-rename ("Sửa") + delete
+// ("Xóa", confirm() then blocked server-side with a toast if any task
+// still uses it) — the whole reason "quản lý team" lives in the matrix
+// header rather than a separate settings screen.
+function renderResourceRoleHeaderCell(roleRow, canEdit, canDelete){
+  var cell = document.createElement('div'); cell.className = 'resource-matrix-cell resource-matrix-role-head';
+
+  function renderDisplayMode(){
+    cell.innerHTML = '';
+    var nameEl = document.createElement('span'); nameEl.className = 'resource-matrix-role-name'; nameEl.textContent = roleRow.name;
+    cell.appendChild(nameEl);
+    if (canEdit || canDelete){
+      var actions = document.createElement('span'); actions.className = 'resource-matrix-role-actions';
+      if (canEdit){
+        var editBtn = document.createElement('button');
+        editBtn.type = 'button'; editBtn.className = 'resource-matrix-role-action-btn'; editBtn.title = 'Sửa tên team';
+        editBtn.textContent = '✎';
+        editBtn.addEventListener('click', renderEditMode);
+        actions.appendChild(editBtn);
+      }
+      if (canDelete){
+        var delBtn = document.createElement('button');
+        delBtn.type = 'button'; delBtn.className = 'resource-matrix-role-action-btn'; delBtn.title = 'Xóa team';
+        delBtn.textContent = '×';
+        delBtn.addEventListener('click', function(){
+          if (!confirm('Xóa team "' + roleRow.name + '"?' + (roleRow.task_count ? ' Còn ' + roleRow.task_count + ' task đang gắn team này.' : ''))) return;
+          deleteResourceRole(roleRow.id).then(reloadResourceRolesAndViews).catch(function(err){
+            toastError(err.message || 'Không xóa được team.');
+          });
+        });
+        actions.appendChild(delBtn);
+      }
+      cell.appendChild(actions);
+    }
+  }
+
+  function renderEditMode(){
+    cell.innerHTML = '';
+    var input = document.createElement('input'); input.type = 'text'; input.value = roleRow.name;
+    input.className = 'resource-matrix-role-edit-input';
+    cell.appendChild(input);
+    input.focus(); input.select();
+    function commit(){
+      var val = input.value.trim();
+      if (!val || val === roleRow.name){ renderDisplayMode(); return; }
+      input.disabled = true;
+      renameResourceRole(roleRow.id, val).then(reloadResourceRolesAndViews).catch(function(err){
+        toastError(err.message || 'Không đổi tên được.');
+        renderDisplayMode();
+      });
+    }
+    input.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') commit();
+      else if (e.key === 'Escape') renderDisplayMode();
+    });
+    input.addEventListener('blur', commit);
+  }
+
+  renderDisplayMode();
+  return cell;
+}
+
+function renderResourceMatrix(){
+  var wrap = document.getElementById('resourceMatrixWrap');
+  wrap.innerHTML = '';
+  var roles = _resourceRolesCache.map(function(r){ return r.name; });
+  var canEdit = hasRole('editor');
+  var canDelete = hasRole('admin');
+
+  // team management toolbar: add a new team right here, where the ticking
+  // happens, rather than a separate settings screen.
+  var toolbar = document.createElement('div'); toolbar.className = 'resource-team-toolbar';
+  if (canEdit){
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button'; addBtn.className = 'multiselect-action-btn'; addBtn.textContent = '+ Thêm team';
+    var addInput = document.createElement('input');
+    addInput.type = 'text'; addInput.placeholder = 'Nhập tên team mới, Enter để xác nhận'; addInput.style.display = 'none';
+    addBtn.addEventListener('click', function(){ addBtn.style.display = 'none'; addInput.style.display = ''; addInput.focus(); });
+    addInput.addEventListener('keydown', function(e){
+      if (e.key !== 'Enter') return;
+      var val = addInput.value.trim();
+      if (!val) return;
+      addInput.disabled = true;
+      addResourceRole(val).then(reloadResourceRolesAndViews).catch(function(err){
+        addInput.disabled = false;
+        toastError(err.message || 'Không thêm được team.');
+      });
+    });
+    toolbar.appendChild(addBtn);
+    toolbar.appendChild(addInput);
+  }
+  wrap.appendChild(toolbar);
+
+  var filtered = _resourceTasksCache.filter(function(t){
+    if (_resourceSprintFilter.length && _resourceSprintFilter.indexOf(t.sprint_id) === -1) return false;
+    if (_resourcePhaseFilter.length && _resourcePhaseFilter.indexOf(t.phase_id) === -1) return false;
+    return true;
+  }).sort(function(a, b){ return (a.stt || 0) - (b.stt || 0); });
+
+  if (filtered.length === 0){
+    wrap.innerHTML += '<div class="resource-matrix-empty">Không có task nào khớp bộ lọc.</div>';
+    return;
+  }
+
+  var scroll = document.createElement('div'); scroll.className = 'resource-matrix-scroll';
+  var matrix = document.createElement('div'); matrix.className = 'resource-matrix';
+  matrix.style.gridTemplateColumns = '260px repeat(' + roles.length + ', 88px)';
+
+  var head = document.createElement('div'); head.className = 'resource-matrix-head'; head.style.display = 'contents';
+  var headTask = document.createElement('div'); headTask.className = 'resource-matrix-cell resource-matrix-task'; headTask.textContent = 'Task';
+  head.appendChild(headTask);
+  _resourceRolesCache.forEach(function(roleRow){
+    head.appendChild(renderResourceRoleHeaderCell(roleRow, canEdit, canDelete));
+  });
+  matrix.appendChild(head);
+
+  filtered.forEach(function(task){
+    var row = document.createElement('div'); row.style.display = 'contents';
+    var taskCell = document.createElement('div'); taskCell.className = 'resource-matrix-cell resource-matrix-task';
+    var nameEl = document.createElement('div'); nameEl.className = 'resource-matrix-task-name';
+    nameEl.title = task.name; nameEl.textContent = task.name;
+    var tagsEl = document.createElement('div'); tagsEl.className = 'resource-matrix-task-tags';
+    tagsEl.innerHTML = '<span class="tag">' + escapeHtml(task.category) + '</span><span class="tag">' + escapeHtml(task.platform) + '</span>';
+    taskCell.appendChild(nameEl); taskCell.appendChild(tagsEl);
+    taskCell.addEventListener('click', function(e){ if (e.target.tagName !== 'INPUT') openDrawer('edit', task); });
+    taskCell.style.cursor = 'pointer';
+    row.appendChild(taskCell);
+
+    roles.forEach(function(role){
+      var cell = document.createElement('div'); cell.className = 'resource-matrix-cell';
+      var cb = document.createElement('input'); cb.type = 'checkbox';
+      cb.checked = (task.resource_roles || []).indexOf(role) !== -1;
+      cb.disabled = !canEdit;
+      cb.addEventListener('change', function(){
+        var prev = (task.resource_roles || []).slice();
+        var next = prev.slice();
+        var idx = next.indexOf(role);
+        if (cb.checked && idx === -1) next.push(role);
+        else if (!cb.checked && idx !== -1) next.splice(idx, 1);
+        task.resource_roles = next;
+        cb.disabled = true;
+        authFetch('/api/tasks/' + task.id + '/resources', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roles: next })
+        }).then(function(res){
+          if (!res.ok){
+            return res.json().catch(function(){ return {}; }).then(function(errBody){
+              throw new Error(errBody.error || ('HTTP ' + res.status));
+            });
+          }
+          renderResourceRollup();
+        }).catch(function(err){
+          task.resource_roles = prev;
+          cb.checked = !cb.checked;
+          toastError('Không lưu được: ' + err.message);
+        }).then(function(){
+          cb.disabled = !canEdit;
+        });
+      });
+      cell.appendChild(cb);
+      row.appendChild(cell);
+    });
+    matrix.appendChild(row);
+  });
+
+  scroll.appendChild(matrix);
+  wrap.appendChild(scroll);
+}
+
 // keep the Tasks column visible while scrolling the Timeline horizontally.
 // .gantt-corner (in the header) has no scrolling ancestor between it and
 // .gantt, so its own position:sticky already works. .task-label rows sit
@@ -3056,6 +3595,7 @@ document.querySelector('.gantt').addEventListener('scroll', function(){
 loadTimelineView();
 loadBoardView();
 loadLogView();
+loadResourceView();
 
 // keep the drawer's Category <select> in sync with whatever custom category
 // names have actually been used before, not just the 4 known defaults —
@@ -3114,6 +3654,7 @@ function refreshAllViews(){
   loadRiskReports();
   loadLogView();
   loadAiAssessmentHistory();
+  loadResourceView();
 }
 
 // guards saveBtn/deleteBtn against double-submit (double-click, or clicking
@@ -3134,9 +3675,22 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   var sprintVal = document.getElementById('f-sprint').value;
   var startVal = document.getElementById('f-start').value || null;
   var dueVal = document.getElementById('f-due').value || null;
+  var progressNoteValue = document.getElementById('f-newlog').value.trim();
 
   if (!name || !category || !platform || !status || !startVal || !dueVal){
     toastError('Vui lòng nhập đầy đủ Tên nghiệp vụ, Category, Platform, Status, Start và Due.');
+    return;
+  }
+
+  // rescheduling a task whose due date is already due today or overdue is
+  // a deliberate call — require a note explaining why, same reasoning as
+  // the mandatory popup for a date change made outside the drawer (drag on
+  // Timeline/Sprint Overview). Tasks still comfortably in the future don't
+  // need this: replanning something not yet due is routine.
+  var dueDateChangedInDrawer = editingTaskId && editingTaskOriginalDueDate && dueVal !== editingTaskOriginalDueDate;
+  if (dueDateChangedInDrawer && dueDateIsDueOrOverdue(editingTaskOriginalDueDate) && !progressNoteValue){
+    toastError('Ngày Due đã đổi (nghiệp vụ đã tới hạn hoặc quá hạn) — vui lòng nêu lý do dời ngày trong "Cập nhật tình trạng task" trước khi lưu.');
+    document.getElementById('f-newlog').focus();
     return;
   }
 
@@ -3153,6 +3707,7 @@ document.getElementById('saveBtn').addEventListener('click', function(){
     category: category,
     name: name,
     why: document.getElementById('f-why').value.trim() || null,
+    resource_roles: _drawerResourceRoles.slice(),
     platform: platform,
     status: status,
     phase_id: phaseVal ? Number(phaseVal) : null,
@@ -3212,6 +3767,21 @@ document.getElementById('saveBtn').addEventListener('click', function(){
         if (!logRes.ok) console.error('Failed to save initial note: HTTP ' + logRes.status);
       }).catch(function(err){
         console.error('Failed to save initial note', err);
+      });
+    }
+    // the mandatory date-change explanation from "Cập nhật tình trạng
+    // task" (validated above) — posted as a real log entry once the task
+    // itself has saved successfully, then cleared like the "Thêm" button does.
+    if (dueDateChangedInDrawer && progressNoteValue && savedTask && savedTask.id){
+      return authFetch('/api/tasks/' + savedTask.id + '/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: progressNoteValue })
+      }).then(function(logRes){
+        if (!logRes.ok) console.error('Failed to save progress note: HTTP ' + logRes.status);
+        else document.getElementById('f-newlog').value = '';
+      }).catch(function(err){
+        console.error('Failed to save progress note', err);
       });
     }
   }).then(function(){

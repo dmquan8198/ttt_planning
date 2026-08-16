@@ -61,6 +61,10 @@
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3.5h9l3 3v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M13 3.5V7h3"/><path d="M6 10.5h6M6 13.5h6"/></svg>
           <span class="nav-label">Log</span>
         </div>
+        <div class="nav-item" data-view="resource" title="Resource">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6.5" cy="6" r="2.3"/><path d="M2.5 16c0-2.4 1.8-4.3 4-4.3s4 1.9 4 4.3"/><rect x="12.5" y="9.5" width="5" height="7" rx="1"/><path d="M14 9.5V8a1.5 1.5 0 0 1 3 0v1.5"/></svg>
+          <span class="nav-label">Resource</span>
+        </div>
         <div class="nav-item" data-view="users" id="navUsers" style="display:none;" title="Người dùng">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7.5" cy="6.5" r="2.7"/><path d="M2.5 16.5c0-2.8 2.2-5 5-5s5 2.2 5 5"/><circle cx="14.5" cy="7" r="2.1"/><path d="M13 11.7c1.9.2 3.5 1.9 3.5 4.3"/></svg>
           <span class="nav-label">Người dùng</span>
@@ -297,6 +301,33 @@
         <div id="logListWrap"></div>
       </section>
 
+      <!-- RESOURCE -->
+      <section class="view" id="view-resource">
+        <div class="view-head">
+          <div>
+            <div class="view-title">Resource</div>
+            <div class="view-sub">Mỗi task cần nhân sự nào — tick nhanh theo Sprint/Phase, xem tổng nhu cầu resource</div>
+          </div>
+        </div>
+
+        <div class="view-title" style="font-size:16px; margin-bottom:2px;">Tổng hợp nhu cầu resource</div>
+        <div class="view-sub" style="margin-bottom:12px;">Số task cần mỗi loại resource, theo toàn bộ dự án</div>
+        <div class="groupby-chips" id="resourceRollupTabChips">
+          <button type="button" class="chip active" data-rolluptab="sprint">Theo Sprint</button>
+          <button type="button" class="chip" data-rolluptab="phase">Theo Phase</button>
+        </div>
+        <div id="resourceRollupWrap" style="margin-bottom:30px;"></div>
+
+        <div class="view-title" style="font-size:16px; margin-bottom:2px;">Tick resource theo task</div>
+        <div class="view-sub" style="margin-bottom:12px;">Lọc theo Sprint/Phase để tick nhanh hơn — mặc định lọc theo sprint hiện tại</div>
+        <div class="groupby-chips" id="resourceMatrixFilters">
+          <span class="chip-label">Lọc theo</span>
+          <div id="filter-resource-sprint-ms"></div>
+          <div id="filter-resource-phase-ms"></div>
+        </div>
+        <div id="resourceMatrixWrap"></div>
+      </section>
+
       <!-- USERS (admin only) -->
       <section class="view" id="view-users">
         <div class="view-head">
@@ -370,6 +401,10 @@
       <select id="f-phase"></select>
     </div>
   </div>
+  <div class="field">
+    <label>Resource cần</label>
+    <div id="f-resource-roles-ms"></div>
+  </div>
   <div class="field-row">
     <div class="field">
       <label>Sprint</label>
@@ -418,6 +453,18 @@
       <button class="save-btn" id="addLogBtn" style="width:auto; padding:8px 14px;">Thêm</button>
     </div>
     <div class="log-preview" id="logPreview"></div>
+  </div>
+</div>
+
+<div class="overlay" id="dateReasonOverlay"></div>
+<div class="date-reason-modal" id="dateReasonModal">
+  <div class="date-reason-title">Lý do dời ngày</div>
+  <div class="date-reason-sub" id="dateReasonSub"></div>
+  <textarea id="dateReasonInput" placeholder="Vì sao cần dời ngày cho nghiệp vụ này..." rows="3"></textarea>
+  <div class="date-reason-error" id="dateReasonError" style="display:none;">Vui lòng nhập lý do trước khi xác nhận.</div>
+  <div class="date-reason-actions">
+    <button type="button" class="date-reason-cancel" id="dateReasonCancel">Huỷ</button>
+    <button type="button" class="date-reason-confirm" id="dateReasonConfirm">Xác nhận</button>
   </div>
 </div>
 

@@ -114,6 +114,82 @@ test('why is persisted on create and update', async () => {
   assert.equal(cleared.body.why, null);
 });
 
+test('resource_roles is empty on create when omitted, and is persisted when given', async () => {
+  const app = createApp(makeTestPool());
+  const created = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  assert.equal(created.status, 201);
+  assert.deepEqual(created.body.resource_roles, []);
+
+  const createdWithRoles = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task B', category: 'Product Foundation', platform: 'Web',
+      resource_roles: ['BE Dev', 'PO'],
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  assert.equal(createdWithRoles.status, 201);
+  assert.deepEqual(createdWithRoles.body.resource_roles.sort(), ['BE Dev', 'PO']);
+
+  const listed = await request(app).get('/api/tasks');
+  const taskB = listed.body.find((t) => t.id === createdWithRoles.body.id);
+  assert.deepEqual(taskB.resource_roles.sort(), ['BE Dev', 'PO']);
+});
+
+test('PUT full-replaces resource_roles, same contract as every other field — a PUT that omits it clears it', async () => {
+  const app = createApp(makeTestPool());
+  const created = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web',
+      resource_roles: ['BE Dev', 'ITBA'],
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  const id = created.body.id;
+
+  const swapped = await asAdmin(request(app).put(`/api/tasks/${id}`))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '0.backlog',
+      resource_roles: ['Core'],
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  assert.deepEqual(swapped.body.resource_roles, ['Core']);
+
+  const clearedByOmission = await asAdmin(request(app).put(`/api/tasks/${id}`))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '0.backlog',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  assert.deepEqual(clearedByOmission.body.resource_roles, []);
+});
+
+test('PUT /api/tasks/:id/resources updates only the roles, without touching other fields', async () => {
+  const app = createApp(makeTestPool());
+  const created = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  const id = created.body.id;
+
+  const res = await asAdmin(request(app).put(`/api/tasks/${id}/resources`))
+    .send({ roles: ['App Dev', 'Web Dev', 'App Dev'] }); // duplicate on purpose
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.resource_roles.sort(), ['App Dev', 'Web Dev']);
+
+  const listed = await request(app).get('/api/tasks');
+  const task = listed.body.find((t) => t.id === id);
+  assert.equal(task.status, '1.ready_for_dev'); // untouched
+  assert.deepEqual(task.resource_roles.sort(), ['App Dev', 'Web Dev']);
+});
+
+test('PUT /api/tasks/:id/resources on a non-existent task returns 404', async () => {
+  const app = createApp(makeTestPool());
+  const res = await asAdmin(request(app).put('/api/tasks/9999/resources')).send({ roles: ['PO'] });
+  assert.equal(res.status, 404);
+});
+
 test('PUT persists stt when given (Timeline drag-to-reorder relies on this) — full-replace, so every caller must pass the task\'s current stt or it clears', async () => {
   const app = createApp(makeTestPool());
   const created = await asAdmin(request(app).post('/api/tasks'))

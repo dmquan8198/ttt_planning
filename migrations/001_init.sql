@@ -115,8 +115,33 @@ CREATE TABLE IF NOT EXISTS ai_assessments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- the canonical team/role list (PO, ITBA, BE Dev, App Dev, Web Dev, Core,
+-- ...) a task can need resource from. A real lookup table (not free-text
+-- like `category`) because teams need proper add/rename/delete management
+-- independent of whether any task currently uses them — a rename must
+-- update every task using the old name, and a delete must be possible even
+-- for a team with zero tasks assigned.
+CREATE TABLE IF NOT EXISTS resource_roles (
+  id SERIAL PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO resource_roles (name) VALUES ('PO'), ('ITBA'), ('BE Dev'), ('App Dev'), ('Web Dev'), ('Core')
+ON CONFLICT (name) DO NOTHING;
+
+-- which teams a task needs (one task can need several). `role` stores the
+-- team's name as text rather than a resource_roles.id FK so that renaming a
+-- team (UPDATE ... SET role=$new WHERE role=$old) never has to touch this
+-- table's key structure — see PUT /api/resource-roles/:id.
+CREATE TABLE IF NOT EXISTS task_resource_roles (
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  PRIMARY KEY (task_id, role)
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_phase ON tasks(phase_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_sprint ON tasks(sprint_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_task ON activity_logs(task_id);
 CREATE INDEX IF NOT EXISTS idx_ai_assessments_created ON ai_assessments(created_at);
+CREATE INDEX IF NOT EXISTS idx_task_resource_roles_role ON task_resource_roles(role);
