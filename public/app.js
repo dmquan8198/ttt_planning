@@ -2935,9 +2935,61 @@ function gtTaskGroupKey(t, groupBy){
 
 var GT_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+// Timeline nhóm's own Phase/Sprint/Category filters — separate state from
+// the original Timeline's (_timelineFilterPhase etc.), same reasoning as
+// _gtGroupBy: this view's controls shouldn't affect or be affected by the
+// other one. Empty selection = no filter, same convention as everywhere else.
+var _gtFilterPhase = [];
+var _gtFilterSprint = [];
+var _gtFilterCategory = [];
+var _gtLastTasks = null, _gtLastSprints = null, _gtLastPhases = null;
+
+function applyGtFilters(tasks){
+  return tasks.filter(function(t){
+    if (_gtFilterPhase.length && _gtFilterPhase.indexOf(String(t.phase_id)) === -1) return false;
+    if (_gtFilterSprint.length && _gtFilterSprint.indexOf(String(t.sprint_id)) === -1) return false;
+    if (_gtFilterCategory.length && _gtFilterCategory.indexOf(t.category) === -1) return false;
+    return true;
+  });
+}
+
+function gtFilterOnChange(){
+  if (_gtLastTasks && _gtLastSprints && _gtLastPhases){
+    renderGroupedTimeline(applyGtFilters(_gtLastTasks), _gtLastSprints, _gtLastPhases);
+  }
+}
+
+// bucket options are built from the full unfiltered task list (not the
+// already-filtered result) so narrowing one filter never removes options
+// from the others — same choice the original Timeline's filters make.
+// currentSprintId: marks that one sprint's option " — sprint hiện tại",
+// same label the drawer's own Sprint <select> already uses.
+function renderGtFilterDropdowns(allTasks, sprints, phases, currentSprintId){
+  renderMultiSelectDropdown(
+    document.getElementById('filter-gt-phase-ms'), 'Phase',
+    phases.map(function(p){ return { key: String(p.id), label: p.code + ': ' + p.name }; }),
+    _gtFilterPhase, gtFilterOnChange
+  );
+  renderMultiSelectDropdown(
+    document.getElementById('filter-gt-sprint-ms'), 'Sprint',
+    sprints.map(function(s){ return { key: String(s.id), label: s.code + (s.id === currentSprintId ? ' — sprint hiện tại' : '') }; }),
+    _gtFilterSprint, gtFilterOnChange
+  );
+  renderMultiSelectDropdown(
+    document.getElementById('filter-gt-category-ms'), 'Category',
+    bucketsForGroupBy(allTasks, 'category'),
+    _gtFilterCategory, gtFilterOnChange, true
+  );
+}
+
 function loadGroupedTimelineView(){
-  return Promise.all([loadTasks(), loadSprints(), loadPhasesList()])
-    .then(function(results){ renderGroupedTimeline(results[0], results[1], results[2]); })
+  return Promise.all([loadTasks(), loadSprints(), loadPhasesList(), fetchJSON('/api/sprints/current-next')])
+    .then(function(results){
+      _gtLastTasks = results[0]; _gtLastSprints = results[1]; _gtLastPhases = results[2];
+      var currentSprintId = results[3].current ? results[3].current.id : null;
+      renderGtFilterDropdowns(_gtLastTasks, _gtLastSprints, _gtLastPhases, currentSprintId);
+      renderGroupedTimeline(applyGtFilters(_gtLastTasks), _gtLastSprints, _gtLastPhases);
+    })
     .catch(function(err){ console.error('Failed to load Timeline nhóm', err); });
 }
 
@@ -2968,7 +3020,13 @@ function renderGroupedTimeline(tasks, sprints, phases){
   var axisStart = new Date(Math.min.apply(null, allDates));
   var axisEnd = new Date(Math.max.apply(null, allDates));
   axisStart.setDate(axisStart.getDate() - 3); // small padding so edge items aren't flush against the border
-  axisEnd.setDate(axisEnd.getDate() + 3);
+  // the trailing end needs much more than that: the last milestone's label
+  // is centered on its date (see translateX(-50%) below), so half of it
+  // extends PAST that date — with only a few days of buffer there, it (and
+  // its dashed line) rendered clipped/broken right at the axis edge. A
+  // couple of empty months of headroom, even with nothing scheduled there,
+  // keeps the layout intact regardless of where the last real date falls.
+  axisEnd.setMonth(axisEnd.getMonth() + 2);
   var axisSpanMs = (axisEnd - axisStart) || 1;
 
   var PX_PER_DAY = 8; // same scale as the existing Timeline, for a familiar zoom level
@@ -3071,8 +3129,21 @@ function renderGroupedTimeline(tasks, sprints, phases){
   var body = document.createElement('div'); body.className = 'gt-body';
   body.style.width = (LABEL_WIDTH + trackPxWidth) + 'px';
 
-  // CARD_HEIGHT fits the 2 lines a card actually shows (title + dates).
+  // CARD_HEIGHT fits the 2 lines a plain task card shows (title + dates).
+  // A cluster box's height is content-driven instead (see clusterHeightFor
+  // below) — it lists every task's real name, no internal scrolling, no
+  // fixed cap, so a 2-task cluster stays short and a 30-task one grows
+  // tall rather than wasting space or hiding names either way.
   var CARD_HEIGHT = 44, CARD_GAP = 8, MIN_CARD_WIDTH = 210, ROW_PAD = 8, MAX_VISIBLE_TRACKS = 4;
+  // generous on purpose: this estimate feeds .gt-cluster-card's box height,
+  // which clips via overflow:hidden (needed so a long name's ellipsis works
+  // right) — undershooting even by a px or two per line clips the last
+  // bullet on a long list, since the shortfall compounds across every line.
+  // A little extra blank space at the bottom is far cheaper than lost text.
+  var CLUSTER_META_HEIGHT = 20, CLUSTER_NAME_LINE_HEIGHT = 19, CLUSTER_PADDING = 14;
+  function clusterHeightFor(items){
+    return Math.max(CARD_HEIGHT, CLUSTER_PADDING + CLUSTER_META_HEIGHT + items.length * CLUSTER_NAME_LINE_HEIGHT);
+  }
   var groups = gtGroupsForMode(tasks, sprints, phases, _gtGroupBy);
 
   groups.forEach(function(g){
@@ -3085,29 +3156,67 @@ function renderGroupedTimeline(tasks, sprints, phases){
       .filter(Boolean);
     if (withRange.length === 0) return; // nothing to show — skip the row entirely
 
+    // Two compaction layers stack here; only the second responds to the
+    // group's expand state (see isExpanded below) — the first never hides
+    // any task, so there's nothing about it that expanding needs to undo.
+    //
+    // Layer 1 — same-start-date + same-status clustering. Many tasks here
+    // share an identical (often just-a-placeholder) start date and status,
+    // and would otherwise each fight for their own track at that exact x.
+    // Two cases:
+    // - every task in the cluster ALSO shares the same end date: their
+    //   footprint is genuinely identical, so merging into one date-accurate
+    //   card (real width, real position) loses no information at all.
+    // - end dates differ: a box spanning to the furthest end date would
+    //   visually claim they all run that whole length, which isn't true —
+    //   so this becomes a fixed-width box instead, positioned at the shared
+    //   start.
+    // Either way the box lists every task's real name (scrollable if there
+    // are more than fit) rather than hiding them behind a "+N" count —
+    // clustering here is purely a layout compaction, not a content one, so
+    // it always applies regardless of the group's expand state below (that
+    // toggle now only concerns Layer 2's track cap).
+    var clusters = {}, clusterOrder = [];
+    withRange.forEach(function(item){
+      var key = toIsoDate(item.start) + '|' + item.task.status;
+      if (!clusters[key]){ clusters[key] = []; clusterOrder.push(key); }
+      clusters[key].push(item);
+    });
+    var packItems = clusterOrder.map(function(key){
+      var items = clusters[key];
+      if (items.length === 1) return { kind: 'task', item: items[0] };
+      var sameEnd = items.every(function(it){ return toIsoDate(it.end) === toIsoDate(items[0].end); });
+      return { kind: 'cluster', items: items, start: items[0].start, end: sameEnd ? items[0].end : null };
+    });
+    var isExpanded = !!_gtExpandedGroups[g.key];
+
+    var CLUSTER_CHIP_WIDTH = 150;
     // pack by each card's actual pixel footprint (after the minimum-width
     // floor below), not raw date overlap — two tasks close enough in time
     // to collide once padded to a legible width still need separate tracks,
     // even if their real date ranges don't technically overlap. This greedy
     // first-fit assignment is what keeps a busy time slot "gọn": it opens a
     // new track only when every existing one is still occupied at that x.
-    var boxed = withRange.map(function(item){
-      var left = xPx(item.start);
-      var width = Math.max(xPx(item.end) - left, MIN_CARD_WIDTH);
-      return { item: item, left: left, width: width, right: left + width + CARD_GAP };
+    var boxed = packItems.map(function(p){
+      var start = p.kind === 'task' ? p.item.start : p.start;
+      var left = xPx(start);
+      var width = p.kind === 'task' ? Math.max(xPx(p.item.end) - left, MIN_CARD_WIDTH)
+        : (p.end ? Math.max(xPx(p.end) - left, MIN_CARD_WIDTH) : CLUSTER_CHIP_WIDTH);
+      return { kind: p.kind, item: p.item, cluster: p, left: left, width: width, right: left + width + CARD_GAP };
     }).sort(function(a, b){ return a.left - b.left; });
 
-    // greedy first-fit packing, capped at MAX_VISIBLE_TRACKS unless the user
-    // has expanded this group: a cluster of many same-day/near-same-day
-    // tasks would otherwise each claim their own track and the row would
-    // grow unboundedly tall (a real category in this data hit 30+ tracks
-    // that way). Anything past the cap collapses into a clickable "+N task
-    // khác" badge instead — same idea as a calendar month view's "+N more"
-    // on an overloaded day — merged with the previous badge if their spans
-    // still touch, so a whole overflowing cluster becomes one badge rather
-    // than one per task. Clicking it expands the group to show everything.
-    var isExpanded = !!_gtExpandedGroups[g.key];
+    // Layer 2 — greedy first-fit track packing, capped at MAX_VISIBLE_TRACKS
+    // unless expanded: even after clustering, a row can still have more
+    // distinct (start,status) groups than fit — anything past the cap
+    // collapses into a clickable "+N task khác" badge, same idea as a
+    // calendar month view's "+N more" on an overloaded day, merged with the
+    // previous badge if their spans still touch so a whole overflowing
+    // cluster becomes one badge rather than one per item.
     var effectiveMaxTracks = isExpanded ? Infinity : MAX_VISIBLE_TRACKS;
+    // a boxed item's underlying tasks — 1 for a plain task, N for a cluster
+    // chip — used by the overflow badge below, which doesn't care which
+    // kind of item it's absorbing, just how many real tasks it represents.
+    function bTasks(b){ return b.kind === 'task' ? [b.item.task] : b.cluster.items.map(function(it){ return it.task; }); }
     var trackEnds = [];
     var overflowBadges = [];
     boxed.forEach(function(b){
@@ -3118,17 +3227,35 @@ function renderGroupedTimeline(tasks, sprints, phases){
         b.track = trackIdx;
         return;
       }
+      var bts = bTasks(b);
       var lastBadge = overflowBadges[overflowBadges.length - 1];
       if (lastBadge && lastBadge.right > b.left){
-        lastBadge.count++;
-        lastBadge.tasks.push(b.item.task);
+        lastBadge.count += bts.length;
+        lastBadge.tasks = lastBadge.tasks.concat(bts);
         lastBadge.right = Math.max(lastBadge.right, b.right);
       } else {
-        overflowBadges.push({ left: b.left, right: b.right, count: 1, tasks: [b.item.task] });
+        overflowBadges.push({ left: b.left, right: b.right, count: bts.length, tasks: bts });
       }
     });
     var placed = boxed.filter(function(b){ return b.track !== undefined; });
-    var trackCount = trackEnds.length + (overflowBadges.length ? 1 : 0);
+    var badgeTrackIdx = trackEnds.length; // the one extra track the overflow badge (if any) sits in
+
+    // tracks can now have different heights (a cluster box is taller than
+    // a plain card), so each track's vertical offset is the running total
+    // of every track above it — a tall cluster only pushes down tracks
+    // that are actually below it, not the whole canvas indiscriminately.
+    var trackMaxHeight = [];
+    placed.forEach(function(b){
+      var h = b.kind === 'cluster' ? clusterHeightFor(b.cluster.items) : CARD_HEIGHT;
+      trackMaxHeight[b.track] = Math.max(trackMaxHeight[b.track] || 0, h);
+    });
+    if (overflowBadges.length) trackMaxHeight[badgeTrackIdx] = Math.max(trackMaxHeight[badgeTrackIdx] || 0, CARD_HEIGHT);
+    var trackTop = [];
+    var runningTop = ROW_PAD;
+    for (var ti = 0; ti < trackMaxHeight.length; ti++){
+      trackTop[ti] = runningTop;
+      runningTop += (trackMaxHeight[ti] || CARD_HEIGHT) + CARD_GAP;
+    }
 
     var row = document.createElement('div'); row.className = 'gt-group-row';
     var label = document.createElement('div'); label.className = 'gt-group-label';
@@ -3144,9 +3271,39 @@ function renderGroupedTimeline(tasks, sprints, phases){
       label.appendChild(collapseBtn);
     }
     var canvas = document.createElement('div'); canvas.className = 'gt-group-canvas';
-    canvas.style.height = (trackCount * (CARD_HEIGHT + CARD_GAP) - CARD_GAP + ROW_PAD * 2) + 'px';
+    canvas.style.height = (runningTop - CARD_GAP + ROW_PAD) + 'px';
 
     placed.forEach(function(b){
+      if (b.kind === 'cluster'){
+        var items = b.cluster.items;
+        var statusIdx = statusDotToNum(items[0].task.status); // clustered by status, so all share this
+        var chip = document.createElement('div');
+        chip.className = 'gt-cluster-card st-' + statusIdx;
+        chip.style.left = b.left + 'px';
+        chip.style.width = b.width + 'px';
+        chip.style.height = clusterHeightFor(items) + 'px';
+        chip.style.top = trackTop[b.track] + 'px';
+
+        var metaEl = document.createElement('div'); metaEl.className = 'gt-cluster-card-meta';
+        metaEl.textContent = items.length + ' nghiệp vụ · ' + statusLabel[statusIdx].replace(/^\d+\.\s*/, '') + ' — ' + (
+          b.cluster.end
+            ? (fmtDMY(toIsoDate(b.cluster.start)) + ' → ' + fmtDMY(toIsoDate(b.cluster.end)))
+            : ('bắt đầu ' + fmtDMY(toIsoDate(b.cluster.start)))
+        );
+        var listEl = document.createElement('div'); listEl.className = 'gt-cluster-card-list';
+        items.forEach(function(it){
+          var nameEl = document.createElement('div'); nameEl.className = 'gt-cluster-card-name';
+          nameEl.textContent = it.task.name;
+          nameEl.title = it.task.name;
+          nameEl.addEventListener('click', function(){ openDrawer('edit', it.task); });
+          listEl.appendChild(nameEl);
+        });
+        chip.appendChild(metaEl);
+        chip.appendChild(listEl);
+        canvas.appendChild(chip);
+        return;
+      }
+
       var t = b.item.task;
       var card = document.createElement('div');
       card.className = 'gt-task-card st-' + statusDotToNum(t.status);
@@ -3154,7 +3311,7 @@ function renderGroupedTimeline(tasks, sprints, phases){
       card.style.left = b.left + 'px';
       card.style.width = b.width + 'px';
       card.style.height = CARD_HEIGHT + 'px';
-      card.style.top = (ROW_PAD + b.track * (CARD_HEIGHT + CARD_GAP)) + 'px';
+      card.style.top = trackTop[b.track] + 'px';
       card.title = t.name;
 
       var titleEl = document.createElement('div'); titleEl.className = 'gt-task-card-title';
@@ -3173,7 +3330,7 @@ function renderGroupedTimeline(tasks, sprints, phases){
       chip.style.left = badge.left + 'px';
       chip.style.width = Math.max(badge.right - badge.left - CARD_GAP, MIN_CARD_WIDTH) + 'px';
       chip.style.height = CARD_HEIGHT + 'px';
-      chip.style.top = (ROW_PAD + MAX_VISIBLE_TRACKS * (CARD_HEIGHT + CARD_GAP)) + 'px';
+      chip.style.top = trackTop[badgeTrackIdx] + 'px';
       chip.textContent = '+' + badge.count + ' task khác — bấm để xem tất cả';
       chip.title = badge.tasks.map(function(t){ return t.name; }).join('\n');
       chip.addEventListener('click', function(){

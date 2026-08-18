@@ -636,6 +636,36 @@ body{
 .gt-task-card.st-4{border-left-color:var(--status-4-ink);}
 .gt-task-card-title{font-size:12px; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .gt-task-card-dates{font-size:10.5px; color:var(--ink-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+
+/* same-start-date + same-status cluster box (see the clustering comment in
+   renderGroupedTimeline) — one box, status-colored, listing every real
+   task name as a bullet — height is content-driven (clusterHeightFor in
+   app.js), no internal scrolling, so it's exactly as tall as it needs to
+   be and never any taller. */
+.gt-cluster-card{
+  position:absolute; border-radius:7px; background:var(--surface-2); border:1px solid var(--border);
+  border-left-width:3px; padding:6px 10px 8px; display:flex; flex-direction:column; overflow:hidden;
+}
+.gt-cluster-card.st-0{border-left-color:var(--status-0-ink);}
+.gt-cluster-card.st-1{border-left-color:var(--status-1-ink);}
+.gt-cluster-card.st-2{border-left-color:var(--status-2-ink);}
+.gt-cluster-card.st-3{border-left-color:var(--status-3-ink);}
+.gt-cluster-card.st-4{border-left-color:var(--status-4-ink);}
+.gt-cluster-card-meta{
+  font-size:10px; color:var(--ink-muted); font-weight:600; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; flex:none; min-width:0; margin-bottom:3px;
+}
+/* min-width:0 overrides flexbox's default min-width:auto — without it, a
+   flex item won't shrink below its content's unwrapped width, so a long
+   task name pushed this list (and the box) wider than the box's own set
+   width instead of being clipped/ellipsized inside it. */
+.gt-cluster-card-list{flex:none; min-width:0;}
+.gt-cluster-card-name{
+  font-size:11px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  padding:1px 0 1px 13px; cursor:pointer; position:relative;
+}
+.gt-cluster-card-name::before{content:'•'; position:absolute; left:2px; color:var(--ink-muted);}
+.gt-cluster-card-name:hover{color:var(--accent-ink); text-decoration:underline;}
 .gt-overflow-badge{
   position:absolute; border-radius:7px; background:var(--surface); border:1px dashed var(--ink-faint);
   display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; color:var(--ink-muted);
