@@ -53,6 +53,10 @@
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="13" rx="1.5"/><path d="M2.5 8h15M7 2.5v3M13 2.5v3"/></svg>
           <span class="nav-label">Timeline</span>
         </div>
+        <div class="nav-item" data-view="timeline-grouped" title="Timeline nhóm">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 6h15M2.5 14h15"/><rect x="5" y="4.2" width="6" height="3.6" rx="1"/><rect x="10.5" y="12.2" width="7" height="3.6" rx="1"/></svg>
+          <span class="nav-label">Timeline nhóm</span>
+        </div>
         <div class="nav-item" data-view="board" title="Board">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M7.5 3v14M12.5 3v14"/></svg>
           <span class="nav-label">Board</span>
@@ -257,6 +261,31 @@
           </div>
           <div class="gantt-body" id="ganttBody"></div>
         </div>
+      </section>
+
+      <!-- TIMELINE NHÓM (separate roadmap-style view: rows are groups, not
+           individual tasks — tasks float at their real date position within
+           the row instead of a per-task sticky label) -->
+      <section class="view" id="view-timeline-grouped">
+        <div class="view-head">
+          <div>
+            <div class="view-title">Timeline theo nhóm</div>
+            <div class="view-sub">Mỗi hàng là 1 nhóm — task nằm đúng vị trí thời gian trong hàng, bấm để sửa</div>
+          </div>
+          <div class="view-head-controls">
+            <div class="groupby-chips" id="gtGroupByChips" title="Nhóm theo Category / Sprint / Phase / Platform">
+              <span class="chip-label">Nhóm theo</span>
+              <button type="button" class="chip active" data-groupby="category">Category</button>
+              <button type="button" class="chip" data-groupby="sprint">Sprint</button>
+              <button type="button" class="chip" data-groupby="phase">Phase</button>
+              <button type="button" class="chip" data-groupby="platform">Platform</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="gantt-legend" id="gtLegend"></div>
+
+        <div class="gt-chart" id="gtChart"></div>
       </section>
 
       <!-- BOARD -->

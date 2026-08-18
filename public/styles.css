@@ -16,6 +16,7 @@
   --status-2-bg:var(--yellow-bg); --status-2-ink:var(--yellow-ink);
   --status-3-bg:var(--status-orange-bg); --status-3-ink:var(--status-orange-ink);
   --status-4-bg:var(--green-bg); --status-4-ink:var(--green-ink);
+  --milestone-ink:#A6295C;
   --shadow: 0 1px 2px rgba(32,31,27,0.03);
   --serif: 'Iowan Old Style','Palatino Linotype', Georgia, 'Charter', serif;
   --sans: -apple-system, 'Segoe UI', 'SF Pro Display', system-ui, sans-serif;
@@ -37,6 +38,7 @@
     --status-2-bg:var(--yellow-bg); --status-2-ink:var(--yellow-ink);
     --status-3-bg:var(--status-orange-bg); --status-3-ink:var(--status-orange-ink);
     --status-4-bg:var(--green-bg); --status-4-ink:var(--green-ink);
+    --milestone-ink:#E39BC0;
     --shadow: 0 1px 3px rgba(0,0,0,0.3);
   }
 }
@@ -55,6 +57,7 @@
   --status-2-bg:var(--yellow-bg); --status-2-ink:var(--yellow-ink);
   --status-3-bg:var(--status-orange-bg); --status-3-ink:var(--status-orange-ink);
   --status-4-bg:var(--green-bg); --status-4-ink:var(--green-ink);
+  --milestone-ink:#E39BC0;
 }
 :root[data-theme="light"]{
   --canvas:#FBFAF7; --surface:#FFFFFF; --surface-2:#F5F3EE;
@@ -76,6 +79,7 @@
   --status-2-bg:var(--yellow-bg); --status-2-ink:var(--yellow-ink);
   --status-3-bg:var(--status-orange-bg); --status-3-ink:var(--status-orange-ink);
   --status-4-bg:var(--green-bg); --status-4-ink:var(--green-ink);
+  --milestone-ink:#A6295C;
 }
 
 *{box-sizing:border-box;}
@@ -378,6 +382,27 @@ body{
   border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--ink);
 }
 
+/* ---- drawer's "Resource cần" field: inline always-visible checkboxes,
+   not a dropdown panel — see renderResourceRoleCheckboxes. ---- */
+.resource-checkbox-group{display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
+/* ".resource-checkbox-group" prefix (not just ".resource-checkbox-chip"
+   alone) is required here: the drawer's generic ".field label{display:block}"
+   rule (0,1,1 specificity) would otherwise beat a bare ".resource-checkbox-chip"
+   rule (0,1,0) and force the checkbox above the text instead of beside it. */
+.resource-checkbox-group .resource-checkbox-chip{
+  display:flex; align-items:center; gap:6px; padding:6px 11px; border:1px solid var(--border);
+  border-radius:16px; background:var(--surface); font-size:12.5px; color:var(--ink); cursor:pointer;
+  user-select:none;
+}
+.resource-checkbox-group .resource-checkbox-chip:has(input:checked){border-color:var(--accent-ink); background:var(--surface-2); color:var(--accent-ink);}
+.resource-checkbox-group .resource-checkbox-chip input[type=checkbox]{margin:0; cursor:pointer;}
+.resource-checkbox-group .resource-checkbox-chip:has(input:disabled){cursor:default; opacity:0.7;}
+.resource-checkbox-add-new{display:flex; align-items:center; gap:6px;}
+.resource-checkbox-add-new input{
+  font-family:var(--sans); font-size:12px; padding:6px 9px; border:1px solid var(--border);
+  border-radius:6px; background:var(--surface); color:var(--ink); width:170px;
+}
+
 /* ---- Resource view: rollup grids (roles x sprint/phase) + tick matrix
    (tasks x roles). grid-template-columns is set inline by JS since the
    column count depends on how many roles are in use. ---- */
@@ -526,6 +551,105 @@ body{
   background:var(--ink); color:var(--canvas); font-family:var(--mono); font-size:11px; font-weight:600;
   padding:4px 9px; border-radius:5px; white-space:nowrap; pointer-events:none; z-index:10;
 }
+
+/* ===== TIMELINE NHÓM (separate roadmap-style view) =====
+   Mirrors .gantt's proven architecture: one scrolling box holds a
+   flex:none header and a vertically-scrolling body as siblings, so they
+   scroll horizontally in lockstep; the header's corner uses real CSS
+   sticky (no scrolling ancestor in between), while the per-row group
+   label is kept visually pinned via a JS scrollLeft-synced transform
+   (see the .gt-chart scroll listener in app.js) because .gt-body's own
+   vertical scroll breaks plain CSS sticky at that nesting depth — same
+   reason .task-label above needs the same trick. */
+.gt-chart{
+  border:1px solid var(--border); border-radius:8px; background:var(--surface); position:relative;
+  overflow-x:auto; overflow-y:hidden;
+  scrollbar-width:thin; scrollbar-color:var(--ink-faint) transparent;
+}
+.gt-chart::-webkit-scrollbar{width:8px; height:8px;}
+.gt-chart::-webkit-scrollbar-track{background:transparent;}
+.gt-chart::-webkit-scrollbar-thumb{background:var(--ink-faint); border-radius:999px;}
+.gt-chart::-webkit-scrollbar-thumb:hover{background:var(--ink-muted);}
+
+.gt-header{display:flex; flex:none; background:var(--surface-2); border-bottom:1px solid var(--border);}
+.gt-corner{
+  width:160px; flex:none; display:flex; align-items:flex-end; border-right:1px solid var(--border);
+  padding:0 12px 5px; font-size:9.5px; font-family:var(--mono); color:var(--ink-faint); letter-spacing:0.05em;
+  position:sticky; left:0; z-index:4; background:var(--surface-2);
+}
+.gt-axis-col{flex:1; position:relative;}
+.gt-milestone-label-row{position:relative; height:42px;}
+.gt-quarter-row{position:relative; height:22px; border-top:1px solid var(--border);}
+.gt-month-row{position:relative; height:22px;}
+.gt-quarter-cell{
+  position:absolute; top:0; height:100%; display:flex; align-items:center; padding-left:7px;
+  font-family:var(--sans); font-size:11px; font-weight:700; color:var(--ink); border-left:1px solid var(--border);
+  white-space:nowrap; overflow:hidden;
+}
+.gt-quarter-cell-count{color:var(--ink-muted); font-weight:400; margin-left:3px;}
+.gt-month-cell{
+  position:absolute; top:0; height:100%; display:flex; align-items:center; padding-left:7px;
+  font-family:var(--sans); font-size:11px; color:var(--ink-muted); border-left:1px solid var(--border);
+  white-space:nowrap; overflow:hidden;
+}
+.gt-milestone-label{
+  position:absolute; bottom:3px; transform:translateX(-50%); text-align:center; white-space:nowrap;
+  font-family:var(--sans); font-size:10.5px; font-weight:700; color:var(--milestone-ink); line-height:1.35;
+}
+.gt-milestone-label-date{display:block; font-weight:400; font-size:9.5px; opacity:0.85;}
+
+.gt-body{
+  position:relative; max-height:calc(100vh - 380px); overflow-y:auto; overflow-x:hidden;
+  scrollbar-width:thin; scrollbar-color:var(--ink-faint) transparent;
+}
+.gt-body::-webkit-scrollbar{width:8px; height:8px;}
+.gt-body::-webkit-scrollbar-track{background:transparent;}
+.gt-body::-webkit-scrollbar-thumb{background:var(--ink-faint); border-radius:999px;}
+.gt-body::-webkit-scrollbar-thumb:hover{background:var(--ink-muted);}
+
+.gt-group-row{display:flex; align-items:stretch; border-top:1px solid var(--border);}
+.gt-group-row:first-child{border-top:none;}
+.gt-group-label{
+  width:160px; flex:none; border-right:1px solid var(--border); padding:10px 12px; font-size:11px;
+  font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--ink-muted);
+  display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:5px;
+  position:relative; z-index:3; background:var(--surface);
+}
+.gt-group-toggle{
+  font-family:var(--sans); font-size:10px; font-weight:600; text-transform:none; letter-spacing:normal;
+  color:var(--accent-ink); background:none; border:none; cursor:pointer; padding:0;
+}
+.gt-group-toggle:hover{text-decoration:underline;}
+.gt-group-canvas{flex:1; position:relative; padding:8px 0;}
+
+.gt-task-card{
+  position:absolute; border-radius:7px; background:var(--surface-2); border:1px solid var(--border);
+  border-left-width:3px; padding:6px 10px; overflow:hidden; cursor:pointer;
+  display:flex; flex-direction:column; justify-content:center;
+  transition:box-shadow .12s ease, border-color .12s ease;
+}
+.gt-task-card:hover{border-color:var(--accent-ink); box-shadow:var(--shadow);}
+.gt-task-card.st-0{border-left-color:var(--status-0-ink);}
+.gt-task-card.st-1{border-left-color:var(--status-1-ink);}
+.gt-task-card.st-2{border-left-color:var(--status-2-ink);}
+.gt-task-card.st-3{border-left-color:var(--status-3-ink);}
+.gt-task-card.st-4{border-left-color:var(--status-4-ink);}
+.gt-task-card-title{font-size:12px; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.gt-task-card-dates{font-size:10.5px; color:var(--ink-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.gt-overflow-badge{
+  position:absolute; border-radius:7px; background:var(--surface); border:1px dashed var(--ink-faint);
+  display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; color:var(--ink-muted);
+  cursor:pointer; transition:border-color .12s ease, color .12s ease;
+}
+.gt-overflow-badge:hover{border-color:var(--accent-ink); color:var(--accent-ink);}
+
+/* mounted directly on .gt-chart (not .gt-body), so it stays visually
+   pinned as .gt-body scrolls vertically under it — same reasoning as
+   .gantt-track-overlay above. */
+.gt-milestone-overlay{position:absolute; top:0; bottom:0; left:160px; right:0; pointer-events:none; z-index:2;}
+.gt-milestone-line{position:absolute; top:0; bottom:0; width:0; border-left:1.5px dashed var(--milestone-ink); opacity:0.65;}
+.gt-today-line{position:absolute; top:66px; bottom:0; width:1.5px; background:var(--accent-ink);}
+.gt-today-line::before{content:'HÔM NAY'; position:absolute; top:4px; left:5px; font-family:var(--mono); font-size:9.5px; color:var(--accent-ink); font-weight:700; letter-spacing:0.04em; white-space:nowrap;}
 .bar.st-0{background:var(--status-0-bg); color:var(--status-0-ink);}
 .bar.st-1{background:var(--status-1-bg); color:var(--status-1-ink);}
 .bar.st-2{background:var(--status-2-bg); color:var(--status-2-ink);}

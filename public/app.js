@@ -409,6 +409,63 @@ function addResourceRole(name){
     _resourceRolesPromise = null;
   });
 }
+
+// inline, always-visible checkbox group for the drawer's "Resource cần"
+// field — unlike the dropdown-panel multiselect used for Timeline/Sprint
+// Report filters, ticking a team here shouldn't require opening a panel
+// first, so this renders every option directly with the "+ Thêm team
+// mới..." affordance inline alongside them.
+function renderResourceRoleCheckboxes(containerEl, options, selected, canEdit){
+  containerEl.innerHTML = '';
+  var group = document.createElement('div'); group.className = 'resource-checkbox-group';
+
+  options.forEach(function(opt){
+    var label = document.createElement('label'); label.className = 'resource-checkbox-chip';
+    var cb = document.createElement('input'); cb.type = 'checkbox';
+    cb.checked = selected.indexOf(opt.key) !== -1;
+    cb.disabled = !canEdit;
+    cb.addEventListener('change', function(){
+      var idx = selected.indexOf(opt.key);
+      if (cb.checked && idx === -1) selected.push(opt.key);
+      else if (!cb.checked && idx !== -1) selected.splice(idx, 1);
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(opt.label));
+    group.appendChild(label);
+  });
+
+  if (canEdit){
+    var addWrap = document.createElement('span'); addWrap.className = 'resource-checkbox-add-new';
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button'; addBtn.className = 'multiselect-action-btn'; addBtn.textContent = '+ Thêm team mới...';
+    var addInput = document.createElement('input');
+    addInput.type = 'text'; addInput.placeholder = 'Nhập tên team mới, Enter để xác nhận'; addInput.style.display = 'none';
+    addBtn.addEventListener('click', function(){
+      addBtn.style.display = 'none';
+      addInput.style.display = '';
+      addInput.focus();
+    });
+    addInput.addEventListener('keydown', function(e){
+      if (e.key !== 'Enter') return;
+      var val = addInput.value.trim();
+      if (!val) return;
+      addInput.disabled = true;
+      addResourceRole(val).then(function(){
+        if (!options.some(function(o){ return o.key === val; })) options.push({ key: val, label: val });
+        if (selected.indexOf(val) === -1) selected.push(val);
+        renderResourceRoleCheckboxes(containerEl, options, selected, canEdit);
+      }).catch(function(err){
+        addInput.disabled = false;
+        toastError(err.message || 'Không thêm được.');
+      });
+    });
+    addWrap.appendChild(addBtn);
+    addWrap.appendChild(addInput);
+    group.appendChild(addWrap);
+  }
+
+  containerEl.appendChild(group);
+}
 var _drawerResourceRoles = [];
 
 function openDrawer(mode, t){
@@ -518,17 +575,7 @@ function openDrawer(mode, t){
         document.getElementById('logPreview').innerHTML = '';
         _drawerResourceRoles = [];
       }
-      renderMultiSelectDropdown(
-        document.getElementById('f-resource-roles-ms'), 'Chọn resource cần', roleOptions, _drawerResourceRoles,
-        function(){}, false,
-        canEdit ? {
-          allowAddNew: true, addNewLabel: '+ Thêm team mới...', addNewPlaceholder: 'Nhập tên team/role mới, Enter để xác nhận',
-          onAddNew: addResourceRole
-        } : null
-      );
-      if (!canEdit){
-        document.getElementById('f-resource-roles-ms').querySelectorAll('button, input').forEach(function(el){ el.disabled = true; });
-      }
+      renderResourceRoleCheckboxes(document.getElementById('f-resource-roles-ms'), roleOptions, _drawerResourceRoles, canEdit);
       updateGenerateWhyBtnState();
       document.getElementById('drawerLoading').style.display = 'none';
     })
@@ -2844,6 +2891,358 @@ function renderStatusLegend(elementId){
 }
 renderStatusLegend('ganttLegend');
 renderStatusLegend('sprintLegend');
+renderStatusLegend('gtLegend');
+
+// ---- Timeline nhóm: a separate, roadmap-style Timeline view. Rows are
+// GROUPS (category/sprint/phase/platform) rather than individual tasks —
+// each task instead floats as a card at its real date position within its
+// group's row. Deliberately its own groupsForMode/taskGroupKey and groupBy
+// state (gtGroupsForMode/gtTaskGroupKey/_gtGroupBy) rather than reusing the
+// existing Timeline's, so switching the group-by chip here never affects
+// (or is affected by) the original Timeline view.
+var _gtGroupBy = 'category';
+// which groups the user has expanded past MAX_VISIBLE_TRACKS (see the
+// "+N task khác" / "Thu gọn" toggle in renderGroupedTimeline) — keyed by
+// group key, reset whenever the group-by dimension changes since group
+// keys aren't comparable across dimensions.
+var _gtExpandedGroups = {};
+
+function gtGroupsForMode(tasks, sprints, phases, groupBy){
+  if (groupBy === 'sprint'){
+    var order = sprints.map(function(s){ return { key: 's' + s.id, label: s.code }; });
+    order.push({ key: 'none', label: 'Chưa gán sprint' });
+    return order;
+  }
+  if (groupBy === 'phase'){
+    var order2 = phases.map(function(p){ return { key: 'p' + p.id, label: p.code }; });
+    order2.push({ key: 'none', label: 'Chưa gán phase' });
+    return order2;
+  }
+  var field = groupBy === 'platform' ? 'platform' : 'category';
+  var seen = [], seenSet = {};
+  tasks.forEach(function(t){
+    var v = t[field];
+    if (v && !seenSet[v]){ seenSet[v] = true; seen.push({ key: v, label: v }); }
+  });
+  return seen;
+}
+function gtTaskGroupKey(t, groupBy){
+  if (groupBy === 'sprint') return t.sprint_id != null ? 's' + t.sprint_id : 'none';
+  if (groupBy === 'phase') return t.phase_id != null ? 'p' + t.phase_id : 'none';
+  if (groupBy === 'platform') return t.platform || 'none';
+  return t.category || 'none';
+}
+
+var GT_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function loadGroupedTimelineView(){
+  return Promise.all([loadTasks(), loadSprints(), loadPhasesList()])
+    .then(function(results){ renderGroupedTimeline(results[0], results[1], results[2]); })
+    .catch(function(err){ console.error('Failed to load Timeline nhóm', err); });
+}
+
+function renderGroupedTimeline(tasks, sprints, phases){
+  var chart = document.getElementById('gtChart');
+  if (!chart) return;
+  // preserve scroll position and animate cards into their new spot across a
+  // re-render (e.g. expand/collapse) instead of snapping back to the top —
+  // same captureFlipPositions/playFlip trick used for the Timeline/Sprint
+  // panel reflows elsewhere in this file.
+  var prevScrollLeft = chart.scrollLeft;
+  var prevBody = chart.querySelector('.gt-body');
+  var prevScrollTop = prevBody ? prevBody.scrollTop : 0;
+  var playFlip = captureFlipPositions(chart, 'data-task-id');
+  chart.innerHTML = '';
+  chart.onscroll = null;
+
+  var allDates = [];
+  tasks.forEach(function(t){
+    var r = effectiveRange(t);
+    if (r) { allDates.push(r.start, r.end); }
+  });
+  phases.forEach(function(p){ allDates.push(new Date(p.target_date)); });
+  if (allDates.length === 0){
+    chart.innerHTML = '<div class="view-sub" style="padding:20px;">Chưa có dữ liệu để hiển thị.</div>';
+    return;
+  }
+  var axisStart = new Date(Math.min.apply(null, allDates));
+  var axisEnd = new Date(Math.max.apply(null, allDates));
+  axisStart.setDate(axisStart.getDate() - 3); // small padding so edge items aren't flush against the border
+  axisEnd.setDate(axisEnd.getDate() + 3);
+  var axisSpanMs = (axisEnd - axisStart) || 1;
+
+  var PX_PER_DAY = 8; // same scale as the existing Timeline, for a familiar zoom level
+  var axisSpanDays = axisSpanMs / (24 * 60 * 60 * 1000);
+  var trackPxWidth = Math.max(axisSpanDays * PX_PER_DAY, 600);
+  function xPx(d){ return (d - axisStart) / axisSpanMs * trackPxWidth; }
+
+  var LABEL_WIDTH = 160;
+
+  // ---- header: milestone-label row + quarter row + month row ----
+  var header = document.createElement('div'); header.className = 'gt-header';
+  var corner = document.createElement('div'); corner.className = 'gt-corner'; corner.textContent = 'NHÓM';
+  var axisCol = document.createElement('div'); axisCol.className = 'gt-axis-col';
+  axisCol.style.width = trackPxWidth + 'px';
+
+  var milestoneLabelRow = document.createElement('div'); milestoneLabelRow.className = 'gt-milestone-label-row';
+  var quarterRow = document.createElement('div'); quarterRow.className = 'gt-quarter-row';
+  var monthRow = document.createElement('div'); monthRow.className = 'gt-month-row';
+
+  var qCursor = new Date(axisStart.getFullYear(), Math.floor(axisStart.getMonth() / 3) * 3, 1);
+  while (qCursor < axisEnd){
+    var qEndReal = new Date(qCursor.getFullYear(), qCursor.getMonth() + 3, 1);
+    var qStart = qCursor < axisStart ? axisStart : qCursor;
+    var qEnd = qEndReal > axisEnd ? axisEnd : qEndReal;
+    var qLeft = xPx(qStart), qWidth = xPx(qEnd) - qLeft;
+    if (qWidth > 0){
+      var weeks = Math.round((qEnd - qStart) / (7 * 24 * 60 * 60 * 1000));
+      var qIdx = Math.floor(qCursor.getMonth() / 3);
+      var qCell = document.createElement('div'); qCell.className = 'gt-quarter-cell';
+      qCell.style.left = qLeft + 'px'; qCell.style.width = qWidth + 'px';
+      qCell.innerHTML = 'Q' + (qIdx + 1) + ' \'' + String(qCursor.getFullYear()).slice(2) +
+        '<span class="gt-quarter-cell-count">(' + weeks + ')</span>';
+      quarterRow.appendChild(qCell);
+    }
+    qCursor = qEndReal;
+  }
+
+  var mCursor = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
+  while (mCursor < axisEnd){
+    var mEndReal = new Date(mCursor.getFullYear(), mCursor.getMonth() + 1, 1);
+    var mStart = mCursor < axisStart ? axisStart : mCursor;
+    var mEnd = mEndReal > axisEnd ? axisEnd : mEndReal;
+    var mLeft = xPx(mStart), mWidth = xPx(mEnd) - mLeft;
+    if (mWidth > 0){
+      var mCell = document.createElement('div'); mCell.className = 'gt-month-cell';
+      mCell.style.left = mLeft + 'px'; mCell.style.width = mWidth + 'px';
+      mCell.textContent = GT_MONTH_ABBR[mCursor.getMonth()] + ' \'' + String(mCursor.getFullYear()).slice(2);
+      monthRow.appendChild(mCell);
+    }
+    mCursor = mEndReal;
+  }
+
+  // phase go-live dates double as this view's milestones — the label sits
+  // in the reserved header row, the dashed line (added to the overlay
+  // below) runs the full height of the chart at the same x position.
+  // Milestones close together in time would otherwise render overlapping
+  // label text, so they're packed into vertical lanes first (same greedy
+  // first-fit idea as the task cards below) using an estimated text width —
+  // cheap and good enough here since there are only ever a handful of these,
+  // and it avoids a real DOM-measurement pass mid-construction.
+  function estimateMilestoneLabelWidth(title, dateStr){
+    return Math.max(title.length * 6.4, dateStr.length * 5.4, 40) + 6;
+  }
+  var milestoneBoxes = phases.map(function(p){
+    var d = new Date(p.target_date);
+    if (d < axisStart || d > axisEnd) return null;
+    var dateStr = fmtDMY(toIsoDate(d));
+    var centerX = xPx(d);
+    var halfWidth = estimateMilestoneLabelWidth(p.name, dateStr) / 2;
+    return { phase: p, dateStr: dateStr, centerX: centerX, left: centerX - halfWidth, right: centerX + halfWidth + 10 };
+  }).filter(Boolean).sort(function(a, b){ return a.left - b.left; });
+
+  var milestoneLaneEnds = [];
+  milestoneBoxes.forEach(function(m){
+    var laneIdx = milestoneLaneEnds.findIndex(function(end){ return end <= m.left; });
+    if (laneIdx === -1){ laneIdx = milestoneLaneEnds.length; milestoneLaneEnds.push(m.right); }
+    else milestoneLaneEnds[laneIdx] = m.right;
+    m.lane = laneIdx;
+  });
+  var MILESTONE_LANE_HEIGHT = 24;
+  milestoneLabelRow.style.height = (Math.max(milestoneLaneEnds.length, 1) * MILESTONE_LANE_HEIGHT + 8) + 'px';
+
+  milestoneBoxes.forEach(function(m){
+    var lbl = document.createElement('div'); lbl.className = 'gt-milestone-label';
+    lbl.style.left = m.centerX + 'px';
+    lbl.style.bottom = (3 + m.lane * MILESTONE_LANE_HEIGHT) + 'px';
+    lbl.innerHTML = escapeHtml(m.phase.name) + '<span class="gt-milestone-label-date">' + m.dateStr + '</span>';
+    milestoneLabelRow.appendChild(lbl);
+  });
+
+  axisCol.appendChild(milestoneLabelRow);
+  axisCol.appendChild(quarterRow);
+  axisCol.appendChild(monthRow);
+  header.appendChild(corner);
+  header.appendChild(axisCol);
+  header.style.width = (LABEL_WIDTH + trackPxWidth) + 'px';
+
+  // ---- body: one row per group, tasks packed into as few vertical tracks
+  // as their footprint (not just raw date overlap) actually requires ----
+  var body = document.createElement('div'); body.className = 'gt-body';
+  body.style.width = (LABEL_WIDTH + trackPxWidth) + 'px';
+
+  // CARD_HEIGHT fits the 2 lines a card actually shows (title + dates).
+  var CARD_HEIGHT = 44, CARD_GAP = 8, MIN_CARD_WIDTH = 210, ROW_PAD = 8, MAX_VISIBLE_TRACKS = 4;
+  var groups = gtGroupsForMode(tasks, sprints, phases, _gtGroupBy);
+
+  groups.forEach(function(g){
+    var withRange = tasks
+      .filter(function(t){ return gtTaskGroupKey(t, _gtGroupBy) === g.key; })
+      .map(function(t){
+        var r = effectiveRange(t);
+        return r ? { task: t, start: r.start, end: r.end } : null;
+      })
+      .filter(Boolean);
+    if (withRange.length === 0) return; // nothing to show — skip the row entirely
+
+    // pack by each card's actual pixel footprint (after the minimum-width
+    // floor below), not raw date overlap — two tasks close enough in time
+    // to collide once padded to a legible width still need separate tracks,
+    // even if their real date ranges don't technically overlap. This greedy
+    // first-fit assignment is what keeps a busy time slot "gọn": it opens a
+    // new track only when every existing one is still occupied at that x.
+    var boxed = withRange.map(function(item){
+      var left = xPx(item.start);
+      var width = Math.max(xPx(item.end) - left, MIN_CARD_WIDTH);
+      return { item: item, left: left, width: width, right: left + width + CARD_GAP };
+    }).sort(function(a, b){ return a.left - b.left; });
+
+    // greedy first-fit packing, capped at MAX_VISIBLE_TRACKS unless the user
+    // has expanded this group: a cluster of many same-day/near-same-day
+    // tasks would otherwise each claim their own track and the row would
+    // grow unboundedly tall (a real category in this data hit 30+ tracks
+    // that way). Anything past the cap collapses into a clickable "+N task
+    // khác" badge instead — same idea as a calendar month view's "+N more"
+    // on an overloaded day — merged with the previous badge if their spans
+    // still touch, so a whole overflowing cluster becomes one badge rather
+    // than one per task. Clicking it expands the group to show everything.
+    var isExpanded = !!_gtExpandedGroups[g.key];
+    var effectiveMaxTracks = isExpanded ? Infinity : MAX_VISIBLE_TRACKS;
+    var trackEnds = [];
+    var overflowBadges = [];
+    boxed.forEach(function(b){
+      var trackIdx = trackEnds.findIndex(function(end){ return end <= b.left; });
+      if (trackIdx === -1 && trackEnds.length < effectiveMaxTracks){ trackIdx = trackEnds.length; }
+      if (trackIdx !== -1){
+        trackEnds[trackIdx] = b.right;
+        b.track = trackIdx;
+        return;
+      }
+      var lastBadge = overflowBadges[overflowBadges.length - 1];
+      if (lastBadge && lastBadge.right > b.left){
+        lastBadge.count++;
+        lastBadge.tasks.push(b.item.task);
+        lastBadge.right = Math.max(lastBadge.right, b.right);
+      } else {
+        overflowBadges.push({ left: b.left, right: b.right, count: 1, tasks: [b.item.task] });
+      }
+    });
+    var placed = boxed.filter(function(b){ return b.track !== undefined; });
+    var trackCount = trackEnds.length + (overflowBadges.length ? 1 : 0);
+
+    var row = document.createElement('div'); row.className = 'gt-group-row';
+    var label = document.createElement('div'); label.className = 'gt-group-label';
+    var labelText = document.createElement('span'); labelText.className = 'gt-group-label-text'; labelText.textContent = g.label;
+    label.appendChild(labelText);
+    if (isExpanded){
+      var collapseBtn = document.createElement('button');
+      collapseBtn.type = 'button'; collapseBtn.className = 'gt-group-toggle'; collapseBtn.textContent = '▴ Thu gọn';
+      collapseBtn.addEventListener('click', function(){
+        delete _gtExpandedGroups[g.key];
+        renderGroupedTimeline(tasks, sprints, phases);
+      });
+      label.appendChild(collapseBtn);
+    }
+    var canvas = document.createElement('div'); canvas.className = 'gt-group-canvas';
+    canvas.style.height = (trackCount * (CARD_HEIGHT + CARD_GAP) - CARD_GAP + ROW_PAD * 2) + 'px';
+
+    placed.forEach(function(b){
+      var t = b.item.task;
+      var card = document.createElement('div');
+      card.className = 'gt-task-card st-' + statusDotToNum(t.status);
+      card.setAttribute('data-task-id', t.id);
+      card.style.left = b.left + 'px';
+      card.style.width = b.width + 'px';
+      card.style.height = CARD_HEIGHT + 'px';
+      card.style.top = (ROW_PAD + b.track * (CARD_HEIGHT + CARD_GAP)) + 'px';
+      card.title = t.name;
+
+      var titleEl = document.createElement('div'); titleEl.className = 'gt-task-card-title';
+      titleEl.textContent = t.name;
+      var datesEl = document.createElement('div'); datesEl.className = 'gt-task-card-dates';
+      datesEl.textContent = fmtDMY(toIsoDate(b.item.start)) + ' → ' + fmtDMY(toIsoDate(b.item.end)) +
+        ' · ' + formatDurationText(b.item.start, b.item.end);
+      card.appendChild(titleEl);
+      card.appendChild(datesEl);
+      card.addEventListener('click', function(){ openDrawer('edit', t); });
+      canvas.appendChild(card);
+    });
+
+    overflowBadges.forEach(function(badge){
+      var chip = document.createElement('div'); chip.className = 'gt-overflow-badge';
+      chip.style.left = badge.left + 'px';
+      chip.style.width = Math.max(badge.right - badge.left - CARD_GAP, MIN_CARD_WIDTH) + 'px';
+      chip.style.height = CARD_HEIGHT + 'px';
+      chip.style.top = (ROW_PAD + MAX_VISIBLE_TRACKS * (CARD_HEIGHT + CARD_GAP)) + 'px';
+      chip.textContent = '+' + badge.count + ' task khác — bấm để xem tất cả';
+      chip.title = badge.tasks.map(function(t){ return t.name; }).join('\n');
+      chip.addEventListener('click', function(){
+        _gtExpandedGroups[g.key] = true;
+        renderGroupedTimeline(tasks, sprints, phases);
+      });
+      canvas.appendChild(chip);
+    });
+
+    row.appendChild(label);
+    row.appendChild(canvas);
+    body.appendChild(row);
+  });
+
+  // milestone dashed lines + today line — mounted on .gt-chart itself (not
+  // .gt-body), so they stay visually pinned while .gt-body's own vertical
+  // scroll moves the group rows underneath them.
+  var overlay = document.createElement('div'); overlay.className = 'gt-milestone-overlay';
+  phases.forEach(function(p){
+    var d = new Date(p.target_date);
+    if (d < axisStart || d > axisEnd) return;
+    var line = document.createElement('div'); line.className = 'gt-milestone-line';
+    line.style.left = xPx(d) + 'px';
+    overlay.appendChild(line);
+  });
+  var todayD = new Date();
+  if (todayD >= axisStart && todayD <= axisEnd){
+    var todayLine = document.createElement('div'); todayLine.className = 'gt-today-line';
+    todayLine.style.left = xPx(todayD) + 'px';
+    overlay.appendChild(todayLine);
+  }
+
+  chart.appendChild(header);
+  chart.appendChild(body);
+  chart.appendChild(overlay);
+
+  chart.scrollLeft = prevScrollLeft;
+  body.scrollTop = prevScrollTop;
+
+  // .gt-group-label can't use plain CSS sticky (same reason .task-label
+  // above can't: .gt-body's own vertical scroll breaks it at that nesting
+  // depth) — shift it by the live horizontal scrollLeft instead.
+  chart.addEventListener('scroll', function(){
+    var shift = chart.scrollLeft + 'px';
+    chart.querySelectorAll('.gt-group-label').forEach(function(el){
+      el.style.transform = 'translateX(' + shift + ')';
+    });
+  });
+  // apply the group label's scroll-sync transform immediately (not just on
+  // the next scroll event) so it's correctly offset right after a
+  // scrollLeft restore above — otherwise it'd sit at left:0 until the user
+  // scrolls again.
+  var initShift = chart.scrollLeft + 'px';
+  chart.querySelectorAll('.gt-group-label').forEach(function(el){
+    el.style.transform = 'translateX(' + initShift + ')';
+  });
+
+  playFlip();
+}
+
+document.querySelectorAll('#gtGroupByChips .chip').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#gtGroupByChips .chip').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    _gtGroupBy = btn.dataset.groupby;
+    _gtExpandedGroups = {};
+    loadGroupedTimelineView();
+  });
+});
 
 // Timeline filters: multi-select dropdowns (Phase/Category/Platform/Status).
 // Empty selection = no filter (show everything), same convention as every
@@ -3593,6 +3992,7 @@ document.querySelector('.gantt').addEventListener('scroll', function(){
 });
 
 loadTimelineView();
+loadGroupedTimelineView();
 loadBoardView();
 loadLogView();
 loadResourceView();
@@ -3650,6 +4050,7 @@ function refreshAllViews(){
   loadPhases();
   loadSprintView();
   loadTimelineView();
+  loadGroupedTimelineView();
   loadBoardView();
   loadRiskReports();
   loadLogView();
