@@ -504,11 +504,8 @@ function openDrawer(mode, t){
   document.getElementById('deleteBtn').disabled = false;
   document.getElementById('logField').style.display = isEdit ? 'block' : 'none';
   document.getElementById('f-newlog').style.display = canEdit ? '' : 'none';
-  document.getElementById('addLogBtn').style.display = canEdit ? '' : 'none';
   document.getElementById('f-notes').value = '';
   document.getElementById('f-newlog').value = '';
-  document.getElementById('addLogBtn').textContent = 'Thêm';
-  document.getElementById('addLogBtn').disabled = false;
   manualDateEdit = false;
 
   ['f-cat', 'f-cat-new', 'f-name', 'f-why', 'f-platform', 'f-phase', 'f-sprint', 'f-status', 'f-start', 'f-due', 'f-notes'].forEach(function(id){
@@ -2943,6 +2940,11 @@ var _gtFilterPhase = [];
 var _gtFilterSprint = [];
 var _gtFilterCategory = [];
 var _gtLastTasks = null, _gtLastSprints = null, _gtLastPhases = null;
+// most recent activity-log entry per task_id — same map shape/source as
+// the Sprint page's hover popup (loadSprintView), reused here via the
+// existing showLogHoverPopup/hideLogHoverPopup helpers so hovering a task
+// card or a cluster's bullet name shows the same "Hoạt động gần nhất" popup.
+var _gtLatestLogByTaskId = {};
 
 function applyGtFilters(tasks){
   return tasks.filter(function(t){
@@ -2983,14 +2985,68 @@ function renderGtFilterDropdowns(allTasks, sprints, phases, currentSprintId){
 }
 
 function loadGroupedTimelineView(){
-  return Promise.all([loadTasks(), loadSprints(), loadPhasesList(), fetchJSON('/api/sprints/current-next')])
+  return Promise.all([loadTasks(), loadSprints(), loadPhasesList(), fetchJSON('/api/sprints/current-next'), fetchJSON('/api/logs')])
     .then(function(results){
       _gtLastTasks = results[0]; _gtLastSprints = results[1]; _gtLastPhases = results[2];
       var currentSprintId = results[3].current ? results[3].current.id : null;
+      // /api/logs is already sorted newest-first, so the first entry seen
+      // per task_id is that task's most recent log — same reduction as loadSprintView.
+      _gtLatestLogByTaskId = {};
+      results[4].forEach(function(l){
+        if (!(l.task_id in _gtLatestLogByTaskId)) _gtLatestLogByTaskId[l.task_id] = l;
+      });
       renderGtFilterDropdowns(_gtLastTasks, _gtLastSprints, _gtLastPhases, currentSprintId);
       renderGroupedTimeline(applyGtFilters(_gtLastTasks), _gtLastSprints, _gtLastPhases);
     })
     .catch(function(err){ console.error('Failed to load Timeline nhóm', err); });
+}
+
+// hidden scratchpad for measuring how tall a card's real content (with
+// wrapping enabled) actually renders at a given width — position:fixed +
+// visibility:hidden (NOT display:none) so it still takes part in layout
+// even when the Timeline nhóm tab isn't the currently active view. Task/
+// cluster box heights are measured this way, using the real CSS classes,
+// rather than estimated from a hand-picked line-height constant — an
+// estimate is exactly what clipped real text once already here (a too-
+// tight guess compounding across a long cluster's bullet list).
+var _gtMeasureEl = null;
+function gtMeasureHeight(buildFn){
+  if (!_gtMeasureEl){
+    _gtMeasureEl = document.createElement('div');
+    _gtMeasureEl.style.cssText = 'position:fixed; visibility:hidden; left:-9999px; top:-9999px; pointer-events:none;';
+    document.body.appendChild(_gtMeasureEl);
+  }
+  _gtMeasureEl.innerHTML = '';
+  _gtMeasureEl.appendChild(buildFn());
+  var h = _gtMeasureEl.getBoundingClientRect().height;
+  _gtMeasureEl.innerHTML = '';
+  return Math.ceil(h) + 1; // +1px safety margin against sub-pixel rounding
+}
+function measureTaskCardHeight(taskName, datesText, widthPx){
+  return gtMeasureHeight(function(){
+    var card = document.createElement('div');
+    card.className = 'gt-task-card st-0';
+    card.style.position = 'static'; card.style.width = widthPx + 'px'; card.style.height = 'auto';
+    var titleEl = document.createElement('div'); titleEl.className = 'gt-task-card-title'; titleEl.textContent = taskName;
+    var datesEl = document.createElement('div'); datesEl.className = 'gt-task-card-dates'; datesEl.textContent = datesText;
+    card.appendChild(titleEl); card.appendChild(datesEl);
+    return card;
+  });
+}
+function measureClusterCardHeight(items, metaText, widthPx){
+  return gtMeasureHeight(function(){
+    var card = document.createElement('div');
+    card.className = 'gt-cluster-card st-0';
+    card.style.position = 'static'; card.style.width = widthPx + 'px'; card.style.height = 'auto';
+    var metaEl = document.createElement('div'); metaEl.className = 'gt-cluster-card-meta'; metaEl.textContent = metaText;
+    var listEl = document.createElement('div'); listEl.className = 'gt-cluster-card-list';
+    items.forEach(function(it){
+      var nameEl = document.createElement('div'); nameEl.className = 'gt-cluster-card-name'; nameEl.textContent = it.task.name;
+      listEl.appendChild(nameEl);
+    });
+    card.appendChild(metaEl); card.appendChild(listEl);
+    return card;
+  });
 }
 
 function renderGroupedTimeline(tasks, sprints, phases){
@@ -3129,21 +3185,15 @@ function renderGroupedTimeline(tasks, sprints, phases){
   var body = document.createElement('div'); body.className = 'gt-body';
   body.style.width = (LABEL_WIDTH + trackPxWidth) + 'px';
 
-  // CARD_HEIGHT fits the 2 lines a plain task card shows (title + dates).
-  // A cluster box's height is content-driven instead (see clusterHeightFor
-  // below) — it lists every task's real name, no internal scrolling, no
-  // fixed cap, so a 2-task cluster stays short and a 30-task one grows
-  // tall rather than wasting space or hiding names either way.
-  var CARD_HEIGHT = 44, CARD_GAP = 8, MIN_CARD_WIDTH = 210, ROW_PAD = 8, MAX_VISIBLE_TRACKS = 4;
-  // generous on purpose: this estimate feeds .gt-cluster-card's box height,
-  // which clips via overflow:hidden (needed so a long name's ellipsis works
-  // right) — undershooting even by a px or two per line clips the last
-  // bullet on a long list, since the shortfall compounds across every line.
-  // A little extra blank space at the bottom is far cheaper than lost text.
-  var CLUSTER_META_HEIGHT = 20, CLUSTER_NAME_LINE_HEIGHT = 19, CLUSTER_PADDING = 14;
-  function clusterHeightFor(items){
-    return Math.max(CARD_HEIGHT, CLUSTER_PADDING + CLUSTER_META_HEIGHT + items.length * CLUSTER_NAME_LINE_HEIGHT);
-  }
+  // BADGE_HEIGHT is the fixed height of the "+N task khác" overflow badge
+  // only — every other box (plain task card, cluster card) is sized to its
+  // own real measured content (see measureTaskCardHeight/
+  // measureClusterCardHeight above), since names wrap in full instead of
+  // truncating with an ellipsis — a box still widens past MIN_CARD_WIDTH
+  // for a genuinely long-duration task, but width no longer tracks a
+  // short task's real span down to a narrow box (reverted per feedback:
+  // back to the wider, more legible fixed floor).
+  var BADGE_HEIGHT = 44, CARD_GAP = 8, MIN_CARD_WIDTH = 210, ROW_PAD = 8, MAX_VISIBLE_TRACKS = 4;
   var groups = gtGroupsForMode(tasks, sprints, phases, _gtGroupBy);
 
   groups.forEach(function(g){
@@ -3191,6 +3241,14 @@ function renderGroupedTimeline(tasks, sprints, phases){
     var isExpanded = !!_gtExpandedGroups[g.key];
 
     var CLUSTER_CHIP_WIDTH = 150;
+    function clusterMetaText(p){
+      var statusIdx = statusDotToNum(p.items[0].task.status); // clustered by status, so all share this
+      return p.items.length + ' nghiệp vụ · ' + statusLabel[statusIdx].replace(/^\d+\.\s*/, '') + ' — ' + (
+        p.end
+          ? (fmtDMY(toIsoDate(p.start)) + ' → ' + fmtDMY(toIsoDate(p.end)))
+          : ('bắt đầu ' + fmtDMY(toIsoDate(p.start)))
+      );
+    }
     // pack by each card's actual pixel footprint (after the minimum-width
     // floor below), not raw date overlap — two tasks close enough in time
     // to collide once padded to a legible width still need separate tracks,
@@ -3202,7 +3260,10 @@ function renderGroupedTimeline(tasks, sprints, phases){
       var left = xPx(start);
       var width = p.kind === 'task' ? Math.max(xPx(p.item.end) - left, MIN_CARD_WIDTH)
         : (p.end ? Math.max(xPx(p.end) - left, MIN_CARD_WIDTH) : CLUSTER_CHIP_WIDTH);
-      return { kind: p.kind, item: p.item, cluster: p, left: left, width: width, right: left + width + CARD_GAP };
+      var height = p.kind === 'task'
+        ? measureTaskCardHeight(p.item.task.name, fmtDMY(toIsoDate(p.item.start)) + ' → ' + fmtDMY(toIsoDate(p.item.end)) + ' · ' + formatDurationText(p.item.start, p.item.end), width)
+        : measureClusterCardHeight(p.items, clusterMetaText(p), width);
+      return { kind: p.kind, item: p.item, cluster: p, left: left, width: width, height: height, right: left + width + CARD_GAP };
     }).sort(function(a, b){ return a.left - b.left; });
 
     // Layer 2 — greedy first-fit track packing, capped at MAX_VISIBLE_TRACKS
@@ -3246,15 +3307,14 @@ function renderGroupedTimeline(tasks, sprints, phases){
     // that are actually below it, not the whole canvas indiscriminately.
     var trackMaxHeight = [];
     placed.forEach(function(b){
-      var h = b.kind === 'cluster' ? clusterHeightFor(b.cluster.items) : CARD_HEIGHT;
-      trackMaxHeight[b.track] = Math.max(trackMaxHeight[b.track] || 0, h);
+      trackMaxHeight[b.track] = Math.max(trackMaxHeight[b.track] || 0, b.height);
     });
-    if (overflowBadges.length) trackMaxHeight[badgeTrackIdx] = Math.max(trackMaxHeight[badgeTrackIdx] || 0, CARD_HEIGHT);
+    if (overflowBadges.length) trackMaxHeight[badgeTrackIdx] = Math.max(trackMaxHeight[badgeTrackIdx] || 0, BADGE_HEIGHT);
     var trackTop = [];
     var runningTop = ROW_PAD;
     for (var ti = 0; ti < trackMaxHeight.length; ti++){
       trackTop[ti] = runningTop;
-      runningTop += (trackMaxHeight[ti] || CARD_HEIGHT) + CARD_GAP;
+      runningTop += (trackMaxHeight[ti] || BADGE_HEIGHT) + CARD_GAP;
     }
 
     var row = document.createElement('div'); row.className = 'gt-group-row';
@@ -3281,21 +3341,18 @@ function renderGroupedTimeline(tasks, sprints, phases){
         chip.className = 'gt-cluster-card st-' + statusIdx;
         chip.style.left = b.left + 'px';
         chip.style.width = b.width + 'px';
-        chip.style.height = clusterHeightFor(items) + 'px';
+        chip.style.height = b.height + 'px';
         chip.style.top = trackTop[b.track] + 'px';
 
         var metaEl = document.createElement('div'); metaEl.className = 'gt-cluster-card-meta';
-        metaEl.textContent = items.length + ' nghiệp vụ · ' + statusLabel[statusIdx].replace(/^\d+\.\s*/, '') + ' — ' + (
-          b.cluster.end
-            ? (fmtDMY(toIsoDate(b.cluster.start)) + ' → ' + fmtDMY(toIsoDate(b.cluster.end)))
-            : ('bắt đầu ' + fmtDMY(toIsoDate(b.cluster.start)))
-        );
+        metaEl.textContent = clusterMetaText(b.cluster);
         var listEl = document.createElement('div'); listEl.className = 'gt-cluster-card-list';
         items.forEach(function(it){
           var nameEl = document.createElement('div'); nameEl.className = 'gt-cluster-card-name';
           nameEl.textContent = it.task.name;
-          nameEl.title = it.task.name;
           nameEl.addEventListener('click', function(){ openDrawer('edit', it.task); });
+          nameEl.addEventListener('mouseenter', function(){ showLogHoverPopup(nameEl, it.task.id, _gtLatestLogByTaskId); });
+          nameEl.addEventListener('mouseleave', hideLogHoverPopup);
           listEl.appendChild(nameEl);
         });
         chip.appendChild(metaEl);
@@ -3310,9 +3367,8 @@ function renderGroupedTimeline(tasks, sprints, phases){
       card.setAttribute('data-task-id', t.id);
       card.style.left = b.left + 'px';
       card.style.width = b.width + 'px';
-      card.style.height = CARD_HEIGHT + 'px';
+      card.style.height = b.height + 'px';
       card.style.top = trackTop[b.track] + 'px';
-      card.title = t.name;
 
       var titleEl = document.createElement('div'); titleEl.className = 'gt-task-card-title';
       titleEl.textContent = t.name;
@@ -3322,6 +3378,8 @@ function renderGroupedTimeline(tasks, sprints, phases){
       card.appendChild(titleEl);
       card.appendChild(datesEl);
       card.addEventListener('click', function(){ openDrawer('edit', t); });
+      card.addEventListener('mouseenter', function(){ showLogHoverPopup(card, t.id, _gtLatestLogByTaskId); });
+      card.addEventListener('mouseleave', hideLogHoverPopup);
       canvas.appendChild(card);
     });
 
@@ -3329,7 +3387,7 @@ function renderGroupedTimeline(tasks, sprints, phases){
       var chip = document.createElement('div'); chip.className = 'gt-overflow-badge';
       chip.style.left = badge.left + 'px';
       chip.style.width = Math.max(badge.right - badge.left - CARD_GAP, MIN_CARD_WIDTH) + 'px';
-      chip.style.height = CARD_HEIGHT + 'px';
+      chip.style.height = BADGE_HEIGHT + 'px';
       chip.style.top = trackTop[badgeTrackIdx] + 'px';
       chip.textContent = '+' + badge.count + ' task khác — bấm để xem tất cả';
       chip.title = badge.tasks.map(function(t){ return t.name; }).join('\n');
@@ -4327,10 +4385,11 @@ document.getElementById('saveBtn').addEventListener('click', function(){
         console.error('Failed to save initial note', err);
       });
     }
-    // the mandatory date-change explanation from "Cập nhật tình trạng
-    // task" (validated above) — posted as a real log entry once the task
-    // itself has saved successfully, then cleared like the "Thêm" button does.
-    if (dueDateChangedInDrawer && progressNoteValue && savedTask && savedTask.id){
+    // "Cập nhật tình trạng task" always saves as a real log entry alongside
+    // the task itself when there's anything in it — not just when it was
+    // the mandatory date-change explanation (validated above). This is the
+    // single save action now; there's no separate "Thêm" button anymore.
+    if (progressNoteValue && savedTask && savedTask.id){
       return authFetch('/api/tasks/' + savedTask.id + '/logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4396,41 +4455,9 @@ document.getElementById('deleteBtn').addEventListener('click', function(){
     });
 });
 
-// independent guard — adding a log entry doesn't touch the task itself, so
-// it isn't blocked by (and doesn't block) a save/delete in flight
-var _addLogBusy = false;
-
-document.getElementById('addLogBtn').addEventListener('click', function(){
-  if (_addLogBusy) return;
-  var input = document.getElementById('f-newlog');
-  var note = input.value.trim();
-  if (!note || !editingTaskId) return;
-
-  _addLogBusy = true;
-  var addLogBtnEl = document.getElementById('addLogBtn');
-  addLogBtnEl.disabled = true;
-  addLogBtnEl.textContent = 'Đang thêm...';
-
-  authFetch('/api/tasks/' + editingTaskId + '/logs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ note: note })
-  }).then(function(res){
-    if (!res.ok){
-      return res.json().catch(function(){ return {}; }).then(function(errBody){
-        throw new Error(errBody.error || ('HTTP ' + res.status));
-      });
-    }
-    return res.json();
-  }).then(function(){
-    input.value = '';
-    return fetchAndRenderLogs(editingTaskId).then(function(){ toastSuccess('Đã thêm ghi chú'); });
-  }).catch(function(err){
-    console.error('Add log failed', err);
-    toastError('Không thêm được ghi chú: ' + err.message);
-  }).finally(function(){
-    _addLogBusy = false;
-    addLogBtnEl.disabled = false;
-    addLogBtnEl.textContent = 'Thêm';
-  });
-});
+// "Thêm" (add a progress note independent of Save) used to be a separate
+// button/action here — removed because it created a real deadlock: typing
+// a note, clicking Thêm, then Lưu thay đổi would find the field it had
+// just cleared and re-demand the very reason the user already gave. Save
+// now posts whatever's in "Cập nhật tình trạng task" itself (see saveBtn's
+// handler below), so there's only ever one action to take.

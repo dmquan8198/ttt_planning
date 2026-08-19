@@ -634,8 +634,8 @@ body{
 .gt-task-card.st-2{border-left-color:var(--status-2-ink);}
 .gt-task-card.st-3{border-left-color:var(--status-3-ink);}
 .gt-task-card.st-4{border-left-color:var(--status-4-ink);}
-.gt-task-card-title{font-size:12px; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-.gt-task-card-dates{font-size:10.5px; color:var(--ink-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.gt-task-card-title{font-size:12px; font-weight:700; color:var(--ink); white-space:normal; overflow-wrap:break-word; line-height:1.3;}
+.gt-task-card-dates{font-size:10.5px; color:var(--ink-muted); margin-top:2px; white-space:normal; overflow-wrap:break-word; line-height:1.3;}
 
 /* same-start-date + same-status cluster box (see the clustering comment in
    renderGroupedTimeline) — one box, status-colored, listing every real
@@ -661,7 +661,7 @@ body{
    width instead of being clipped/ellipsized inside it. */
 .gt-cluster-card-list{flex:none; min-width:0;}
 .gt-cluster-card-name{
-  font-size:11px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  font-size:11px; color:var(--ink); white-space:normal; overflow-wrap:break-word; line-height:1.3;
   padding:1px 0 1px 13px; cursor:pointer; position:relative;
 }
 .gt-cluster-card-name::before{content:'•'; position:absolute; left:2px; color:var(--ink-muted);}
@@ -860,12 +860,18 @@ body{
 .log-hover-popup .tag-actor{margin-top:8px; display:inline-block;}
 @keyframes log-popup-in{ from{opacity:0; transform:translateY(3px);} to{opacity:1; transform:translateY(0);} }
 .overlay.show{opacity:1; pointer-events:auto;}
+/* flex column so drawer-actions can sit as a footer that's always on
+   screen (see .drawer-actions below) instead of scrolling away with the
+   fields — the drawer had grown long enough (Resource cần, log history,
+   ...) that the save button was often off the bottom of the viewport. */
 .drawer{
   position:fixed; top:0; right:0; height:100%; width:400px; background:var(--surface);
   border-left:1px solid var(--border); z-index:10; transform:translateX(100%);
-  transition:transform .28s cubic-bezier(0.16,1,0.3,1); padding:24px; overflow-y:auto;
+  transition:transform .28s cubic-bezier(0.16,1,0.3,1);
+  display:flex; flex-direction:column;
 }
 .drawer.show{transform:translateX(0);}
+.drawer-scroll{flex:1; min-height:0; overflow-y:auto; padding:24px;}
 .drawer h3{font-family:var(--serif); font-size:19px; margin:0 0 2px;}
 .drawer .drawer-sub{font-size:12px; color:var(--ink-muted); margin-bottom:20px;}
 .field{margin-bottom:14px;}
@@ -902,17 +908,18 @@ body{
 }
 .save-btn:active{transform:scale(0.98);}
 .save-btn:disabled{opacity:0.6; cursor:not-allowed;}
-.drawer-actions{display:flex; gap:10px;}
-.drawer-actions .save-btn{width:auto; margin-top:6px;}
+/* footer: flex:none keeps it pinned below .drawer-scroll's flex:1 area —
+   always reachable without scrolling, and covered by .drawer-loading
+   (position:absolute; inset:0 on .drawer) while a save is in flight so it
+   can't be double-clicked. */
+.drawer-actions{flex:none; display:flex; gap:10px; padding:14px 24px; border-top:1px solid var(--border); background:var(--surface);}
+.drawer-actions .save-btn{width:auto; margin-top:0;}
 .drawer-actions #saveBtn{flex:2;}
 .drawer-actions .save-btn-delete{flex:1; background:var(--red-ink);}
 .log-format-hint{
   font-size:11px; color:var(--ink-muted); line-height:1.6; margin-bottom:8px;
   background:var(--surface-2); border-radius:6px; padding:8px 10px;
 }
-.log-input-row{display:flex; gap:8px; align-items:flex-end;}
-.log-input-row textarea{flex:1; min-height:64px; resize:vertical;}
-.log-input-row .save-btn{margin-top:0; flex:none;}
 .log-preview{border:1px solid var(--border); border-radius:6px; padding:10px 12px; background:var(--surface-2); margin-top:6px;}
 
 /* ===== DATE-CHANGE REASON MODAL ===== */
