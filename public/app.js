@@ -593,8 +593,21 @@ function openDrawer(mode, t){
 }
 
 document.getElementById('openDrawer').addEventListener('click', function(){ openDrawer('create'); });
-document.getElementById('closeDrawer').addEventListener('click', close);
-overlay.addEventListener('click', close);
+// closeDrawer/overlay only close on a DIRECT user click while nothing is
+// saving — a save/delete request in flight keeps going in the background
+// regardless of what the UI shows, so letting the user escape mid-request
+// (then navigate away or close the tab) was a real way to lose an edit
+// that looked "cancelled" but was actually still in flight. The drawer's
+// own internal close() calls (after a save/delete actually finishes) are
+// unaffected since they call close() directly, not through these guards.
+document.getElementById('closeDrawer').addEventListener('click', function(){
+  if (_drawerActionBusy) return;
+  close();
+});
+overlay.addEventListener('click', function(){
+  if (_drawerActionBusy) return;
+  close();
+});
 function close(){ overlay.classList.remove('show'); drawer.classList.remove('show'); }
 
 // hybrid date UX: picking a sprint auto-fills start/due unless the user has
@@ -1735,6 +1748,105 @@ function loadSprintView(){
       reportWrap.innerHTML = '<div class="view-sub">Không tải được dữ liệu Sprint. Thử tải lại trang.</div>';
     });
 }
+
+// ---- export JSON (Sprint tab: "Overview tất cả Sprint" / "Sprint hiện tại
+// & sau") — shaped to match an existing external delivery-plan JSON format
+// (title/source/asOf/sprints/tasks) this app's data can stand in for, so an
+// export here is a drop-in replacement for that file. ----
+var SPRINT_STATUS_TO_EXPORT_CODE = {
+  '0.backlog': 'backlog',
+  '1.ready_for_dev': 'ready-dev',
+  '2.in_test': 'in-test',
+  '3.ready_for_staging': 'ready-stg',
+  '4.done': 'done'
+};
+function buildDeliveryPlanExport(tasksSubset, sprintsSubset, scopeLabel, allLogs){
+  var sprintCodeById = {};
+  sprintsSubset.forEach(function(s){ sprintCodeById[s.id] = s.code; });
+  // notes: every activity-log entry for the task, newest first (same order
+  // /api/logs already returns) — exports stay complete rather than
+  // guessing which log entries count as "real" status notes.
+  var notesByTaskId = {};
+  allLogs.forEach(function(l){
+    if (!notesByTaskId[l.task_id]) notesByTaskId[l.task_id] = [];
+    notesByTaskId[l.task_id].push({ date: (l.created_at || '').slice(0, 10), text: l.note });
+  });
+  return {
+    title: 'TTT New — Delivery Plan',
+    source: 'Túi Thần Tài — ' + scopeLabel,
+    asOf: todayIsoLocal(),
+    sprints: sprintsSubset.map(function(s){
+      return { id: s.code, label: s.code, start: s.start_date, end: s.end_date };
+    }),
+    tasks: tasksSubset.map(function(t){
+      // effectiveRange (not the task's raw start_date/due_date columns)
+      // so a non-overridden task's dates always match what the rest of the
+      // app shows — those columns can go stale if its sprint's own dates
+      // shift later, since effectiveRange re-derives from the sprint live.
+      var range = effectiveRange(t);
+      return {
+        id: 't' + String(t.id).padStart(3, '0'),
+        stt: t.stt != null ? t.stt : null,
+        label: t.name,
+        category: t.category,
+        platform: t.platform,
+        sprint: t.sprint_id != null ? (sprintCodeById[t.sprint_id] || null) : null,
+        status: SPRINT_STATUS_TO_EXPORT_CODE[t.status] || t.status,
+        start: range ? toIsoDate(range.start) : (t.start_date || null),
+        end: range ? toIsoDate(range.end) : (t.due_date || null),
+        progress: { analyst: !!t.done_analyst, dev: !!t.done_dev, uat: !!t.done_uat, staging: !!t.done_staging },
+        notes: notesByTaskId[t.id] || undefined
+      };
+    })
+  };
+}
+function downloadJsonFile(obj, filename){
+  var blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+}
+function wireExportJsonButton(btnId, buildScopeFn, filenamePrefix){
+  var btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    var origText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Đang xuất...';
+    buildScopeFn()
+      .then(function(exportObj){
+        downloadJsonFile(exportObj, filenamePrefix + '-' + todayIsoLocal() + '.json');
+        toastSuccess('Đã xuất JSON');
+      })
+      .catch(function(err){
+        console.error('Export JSON failed (' + btnId + ')', err);
+        toastError('Không xuất được JSON: ' + err.message);
+      })
+      .finally(function(){
+        btn.disabled = false; btn.textContent = origText;
+      });
+  });
+}
+wireExportJsonButton('exportOverviewJsonBtn', function(){
+  return Promise.all([loadTasks(), loadSprints(), fetchJSON('/api/logs')])
+    .then(function(results){
+      return buildDeliveryPlanExport(results[0], results[1], 'Overview tất cả Sprint', results[2]);
+    });
+}, 'ttt-overview-tat-ca-sprint');
+wireExportJsonButton('exportCurrentNextJsonBtn', function(){
+  return Promise.all([loadTasks(), loadSprints(), fetchJSON('/api/sprints/current-next'), fetchJSON('/api/logs')])
+    .then(function(results){
+      var tasks = results[0], sprints = results[1], currentNext = results[2], allLogs = results[3];
+      var relevantSprintIds = [currentNext.current, currentNext.next]
+        .filter(Boolean).map(function(s){ return s.id; });
+      var relevantSprints = sprints.filter(function(s){ return relevantSprintIds.indexOf(s.id) !== -1; });
+      var relevantTasks = tasks.filter(function(t){ return relevantSprintIds.indexOf(t.sprint_id) !== -1; });
+      return buildDeliveryPlanExport(relevantTasks, relevantSprints, 'Sprint hiện tại & sau', allLogs);
+    });
+}, 'ttt-sprint-hien-tai-va-sau');
 
 var GROUP_BY_LABEL = { platform: 'Platform', category: 'Category', status: 'Status' };
 var _sprintActiveTab = 'overview';
@@ -4278,6 +4390,18 @@ function refreshAllViews(){
 // same task, so they share one busy flag rather than tracking independently
 var _drawerActionBusy = false;
 
+// closing the drawer mid-save doesn't cancel the underlying request (see
+// the closeDrawer/overlay guards above) — but closing the TAB or reloading
+// the page does. A save that takes a few seconds (a cold-started DB, a
+// slow connection) is exactly when a user is most likely to give up and
+// navigate away, right when doing so would actually lose the edit — so
+// warn before that specific action, not just the in-app ones.
+window.addEventListener('beforeunload', function(e){
+  if (!_drawerActionBusy) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
 document.getElementById('saveBtn').addEventListener('click', function(){
   if (_drawerActionBusy) return;
   var name = document.getElementById('f-name').value.trim();
@@ -4359,6 +4483,15 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   document.getElementById('drawerLoadingText').textContent = isCreate ? 'Đang lưu...' : 'Đang lưu thay đổi...';
   document.getElementById('drawerLoading').style.display = 'flex';
 
+  // tracks a note/log POST that failed AFTER the task itself already saved
+  // successfully — that's a real partial failure (the task's fields are
+  // safe in the DB, but the note the user just wrote is not), and it must
+  // never be papered over by the blanket "Đã lưu thay đổi" success toast
+  // below. console.error alone was the bug here: it recorded the failure
+  // where only a developer would ever see it, while the user got told
+  // everything worked.
+  var noteSaveError = null;
+
   authFetch(url, {
     method: method,
     headers: { 'Content-Type': 'application/json' },
@@ -4371,18 +4504,18 @@ document.getElementById('saveBtn').addEventListener('click', function(){
     }
     return res.json();
   }).then(function(savedTask){
-    // spec requires an optional initial note on CREATE only; best-effort — a
-    // failure here shouldn't block the drawer from closing, the task itself
-    // was already created successfully.
+    // spec requires an optional initial note on CREATE only — a failure
+    // here doesn't block the drawer from closing (the task itself already
+    // saved), but it must still be reported, not silently dropped.
     if (isCreate && notesValue && savedTask && savedTask.id){
       return authFetch('/api/tasks/' + savedTask.id + '/logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ note: notesValue })
       }).then(function(logRes){
-        if (!logRes.ok) console.error('Failed to save initial note: HTTP ' + logRes.status);
+        if (!logRes.ok) noteSaveError = 'HTTP ' + logRes.status;
       }).catch(function(err){
-        console.error('Failed to save initial note', err);
+        noteSaveError = err.message;
       });
     }
     // "Cập nhật tình trạng task" always saves as a real log entry alongside
@@ -4395,16 +4528,22 @@ document.getElementById('saveBtn').addEventListener('click', function(){
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ note: progressNoteValue })
       }).then(function(logRes){
-        if (!logRes.ok) console.error('Failed to save progress note: HTTP ' + logRes.status);
+        if (!logRes.ok) noteSaveError = 'HTTP ' + logRes.status;
         else document.getElementById('f-newlog').value = '';
       }).catch(function(err){
-        console.error('Failed to save progress note', err);
+        noteSaveError = err.message;
       });
     }
   }).then(function(){
     close();
     refreshAllViews();
-    toastSuccess(isCreate ? 'Đã tạo nghiệp vụ "' + name + '"' : 'Đã lưu thay đổi cho "' + name + '"');
+    var taskSavedMsg = isCreate ? 'Đã tạo nghiệp vụ "' + name + '"' : 'Đã lưu thay đổi cho "' + name + '"';
+    if (noteSaveError){
+      console.error('Note/log save failed after task save succeeded', noteSaveError);
+      toastError(taskSavedMsg + ', nhưng KHÔNG lưu được ghi chú (' + noteSaveError + ') — vui lòng nhập lại ghi chú.');
+    } else {
+      toastSuccess(taskSavedMsg);
+    }
   }).catch(function(err){
     console.error('Save task failed', err);
     toastError('Không lưu được nghiệp vụ: ' + err.message);
