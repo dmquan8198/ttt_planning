@@ -1848,6 +1848,75 @@ wireExportJsonButton('exportCurrentNextJsonBtn', function(){
     });
 }, 'ttt-sprint-hien-tai-va-sau');
 
+// ---- export Excel (Sprint tab: "Sprint hiện tại & sau" only) — a flat,
+// report-ready table (one row per task, human-readable status/dates/latest
+// note) rather than the JSON export's nested machine format, so people can
+// select-all and paste straight into their own report doc/sheet. Uses the
+// xlsx package already vendored for the server-side import script
+// (public/vendor/xlsx.mini.min.js), not a new dependency. ----
+function buildSprintExcelRows(tasksSubset, sprintsSubset, allLogs){
+  var sprintCodeById = {};
+  sprintsSubset.forEach(function(s){ sprintCodeById[s.id] = s.code; });
+  var latestLogByTaskId = {};
+  allLogs.forEach(function(l){
+    if (!(l.task_id in latestLogByTaskId)) latestLogByTaskId[l.task_id] = l;
+  });
+  var header = ['STT', 'Category', 'Nghiệp vụ', 'Platform', 'Sprint', 'Trạng thái', 'Bắt đầu', 'Hạn chót', 'Lý do', 'Cập nhật mới nhất'];
+  var rows = tasksSubset.slice().sort(function(a, b){
+    var sprintDelta = (a.sprint_id || 0) - (b.sprint_id || 0);
+    if (sprintDelta !== 0) return sprintDelta;
+    var catDelta = categorySortIndex(a.category) - categorySortIndex(b.category);
+    if (catDelta !== 0) return catDelta;
+    return (a.stt || 0) - (b.stt || 0);
+  }).map(function(t){
+    var range = effectiveRange(t);
+    var log = latestLogByTaskId[t.id];
+    return [
+      t.stt != null ? t.stt : '',
+      t.category, t.name, t.platform,
+      t.sprint_id != null ? (sprintCodeById[t.sprint_id] || '') : '',
+      statusLabel[statusDotToNum(t.status)].replace(/^\d+\.\s*/, ''),
+      range ? fmtDMY(toIsoDate(range.start)) : (t.start_date ? fmtDMY(t.start_date) : ''),
+      range ? fmtDMY(toIsoDate(range.end)) : (t.due_date ? fmtDMY(t.due_date) : ''),
+      t.why || '',
+      log ? stripActorSuffix(log.note) : ''
+    ];
+  });
+  return [header].concat(rows);
+}
+function downloadSprintExcel(tasksSubset, sprintsSubset, allLogs, filename){
+  var aoa = buildSprintExcelRows(tasksSubset, sprintsSubset, allLogs);
+  var ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 5 }, { wch: 26 }, { wch: 42 }, { wch: 8 }, { wch: 8 }, { wch: 14 }, { wch: 11 }, { wch: 11 }, { wch: 36 }, { wch: 48 }];
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sprint hien tai va sau');
+  XLSX.writeFile(wb, filename);
+}
+(function(){
+  var btn = document.getElementById('exportCurrentNextExcelBtn');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    var origText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Đang xuất...';
+    Promise.all([loadTasks(), loadSprints(), fetchJSON('/api/sprints/current-next'), fetchJSON('/api/logs')])
+      .then(function(results){
+        var tasks = results[0], sprints = results[1], currentNext = results[2], allLogs = results[3];
+        var relevantSprintIds = [currentNext.current, currentNext.next].filter(Boolean).map(function(s){ return s.id; });
+        var relevantSprints = sprints.filter(function(s){ return relevantSprintIds.indexOf(s.id) !== -1; });
+        var relevantTasks = tasks.filter(function(t){ return relevantSprintIds.indexOf(t.sprint_id) !== -1; });
+        downloadSprintExcel(relevantTasks, relevantSprints, allLogs, 'ttt-sprint-hien-tai-va-sau-' + todayIsoLocal() + '.xlsx');
+        toastSuccess('Đã xuất Excel');
+      })
+      .catch(function(err){
+        console.error('Export Excel failed', err);
+        toastError('Không xuất được Excel: ' + err.message);
+      })
+      .finally(function(){
+        btn.disabled = false; btn.textContent = origText;
+      });
+  });
+})();
+
 var GROUP_BY_LABEL = { platform: 'Platform', category: 'Category', status: 'Status' };
 var _sprintActiveTab = 'overview';
 var SPRINT_TAB_SUB = {
