@@ -433,33 +433,31 @@
   </div>
   <div class="field-row">
     <div class="field">
-      <label>Platform</label>
-      <select id="f-platform"><option>Web</option><option>App</option><option>BE</option><option>App/Auto</option></select>
-    </div>
-    <div class="field">
       <label>Phase</label>
       <select id="f-phase"></select>
+    </div>
+    <div class="field">
+      <label>Sprint</label>
+      <select id="f-sprint"></select>
     </div>
   </div>
   <div class="field">
     <label>Resource cần</label>
     <div id="f-resource-roles-ms"></div>
   </div>
-  <div class="field-row">
-    <div class="field">
-      <label>Sprint</label>
-      <select id="f-sprint"></select>
-    </div>
-    <div class="field">
-      <label>Status</label>
-      <select id="f-status">
-        <option value="0.backlog">0. Backlog</option>
-        <option value="1.ready_for_dev">1. Ready for Dev</option>
-        <option value="2.in_test">2. In Dev</option>
-        <option value="3.ready_for_staging">3. Done UAT</option>
-        <option value="4.done">4. Done</option>
-      </select>
-    </div>
+  <div class="field">
+    <label>Platform</label>
+    <div class="resource-checkbox-group" id="f-platform-chips"></div>
+  </div>
+  <div class="field">
+    <label>Status</label>
+    <select id="f-status">
+      <option value="0.backlog">0. Backlog</option>
+      <option value="1.ready_for_dev">1. Ready for Dev</option>
+      <option value="2.in_test">2. In Dev</option>
+      <option value="3.ready_for_staging">3. Done UAT</option>
+      <option value="4.done">4. Done</option>
+    </select>
   </div>
   <div class="field-row">
     <div class="field">
@@ -470,10 +468,6 @@
       <label>Due * (mặc định = cuối Sprint)</label>
       <input id="f-due" type="date" required>
     </div>
-  </div>
-  <div class="field">
-    <label>Ghi chú</label>
-    <textarea id="f-notes" placeholder="Thêm ghi chú cập nhật..."></textarea>
   </div>
 
   <div class="field" id="logField" style="margin-top:22px;">
@@ -489,8 +483,10 @@
   </div>
 
   <div class="drawer-actions">
+    <button class="icon-btn-delete" id="deleteBtn" style="display:none;" title="Xoá nghiệp vụ" aria-label="Xoá nghiệp vụ">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h12"/><path d="M8 6V4.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V6"/><path d="M5.5 6l.6 10a1.5 1.5 0 0 0 1.5 1.4h4.8a1.5 1.5 0 0 0 1.5-1.4l.6-10"/><path d="M8.3 9v5"/><path d="M11.7 9v5"/></svg>
+    </button>
     <button class="save-btn" id="saveBtn">Lưu nghiệp vụ</button>
-    <button class="save-btn save-btn-delete" id="deleteBtn" style="display:none;">Xoá nghiệp vụ</button>
   </div>
 </div>
 

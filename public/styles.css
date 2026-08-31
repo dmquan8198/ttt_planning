@@ -392,7 +392,7 @@ body{
 .resource-checkbox-group .resource-checkbox-chip{
   display:flex; align-items:center; gap:6px; padding:6px 11px; border:1px solid var(--border);
   border-radius:16px; background:var(--surface); font-size:12.5px; color:var(--ink); cursor:pointer;
-  user-select:none;
+  user-select:none; white-space:nowrap; flex:0 0 auto;
 }
 .resource-checkbox-group .resource-checkbox-chip:has(input:checked){border-color:var(--accent-ink); background:var(--surface-2); color:var(--accent-ink);}
 .resource-checkbox-group .resource-checkbox-chip input[type=checkbox]{margin:0; cursor:pointer;}
@@ -913,10 +913,20 @@ body{
    always reachable without scrolling, and covered by .drawer-loading
    (position:absolute; inset:0 on .drawer) while a save is in flight so it
    can't be double-clicked. */
-.drawer-actions{flex:none; display:flex; gap:10px; padding:14px 24px; border-top:1px solid var(--border); background:var(--surface);}
-.drawer-actions .save-btn{width:auto; margin-top:0;}
-.drawer-actions #saveBtn{flex:2;}
-.drawer-actions .save-btn-delete{flex:1; background:var(--red-ink);}
+.drawer-actions{flex:none; display:flex; align-items:center; gap:10px; padding:14px 24px; border-top:1px solid var(--border); background:var(--surface);}
+/* save-btn fills all the space the icon-only delete button freed up —
+   gap above keeps it from touching delete, not a fixed width/space-between. */
+.drawer-actions .save-btn{flex:1; width:auto; margin-top:0; padding:10px 22px;}
+/* delete is icon-only so it doesn't compete with the primary "Lưu thay đổi"
+   CTA for space or attention — square outline button, only turns red on
+   hover/focus since it's destructive. */
+.icon-btn-delete{
+  flex:none; width:36px; height:36px; display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--ink-muted); cursor:pointer;
+}
+.icon-btn-delete svg{width:17px; height:17px;}
+.icon-btn-delete:hover{border-color:var(--red-ink); color:var(--red-ink); background:var(--red-bg);}
+.icon-btn-delete:disabled{opacity:0.6; cursor:not-allowed;}
 .log-format-hint{
   font-size:11px; color:var(--ink-muted); line-height:1.6; margin-bottom:8px;
   background:var(--surface-2); border-radius:6px; padding:8px 10px;

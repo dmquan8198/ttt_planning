@@ -468,6 +468,32 @@ function renderResourceRoleCheckboxes(containerEl, options, selected, canEdit){
 }
 var _drawerResourceRoles = [];
 
+// Platform: same single-value field as before (still one platform per
+// task — every group-by/report/export downstream still assumes a scalar),
+// just rendered as tick chips instead of a <select> for faster picking.
+// Reuses the exact ".resource-checkbox-chip" visual (containerEl already
+// carries "resource-checkbox-group"), with radio inputs sharing one `name`
+// so the browser enforces single-select natively — no manual exclusivity
+// bookkeeping needed like the real multi-select checkboxes above.
+var PLATFORM_OPTIONS = ['Web', 'App', 'BE', 'App/Auto'];
+function renderPlatformChips(containerEl, selectedValue, canEdit){
+  containerEl.innerHTML = '';
+  PLATFORM_OPTIONS.forEach(function(opt){
+    var label = document.createElement('label'); label.className = 'resource-checkbox-chip';
+    var radio = document.createElement('input');
+    radio.type = 'radio'; radio.name = 'f-platform-radio'; radio.value = opt;
+    radio.checked = opt === selectedValue;
+    radio.disabled = !canEdit;
+    label.appendChild(radio);
+    label.appendChild(document.createTextNode(opt));
+    containerEl.appendChild(label);
+  });
+}
+function getSelectedPlatform(){
+  var checked = document.querySelector('#f-platform-chips input[type=radio]:checked');
+  return checked ? checked.value : '';
+}
+
 function openDrawer(mode, t){
   t = t || {};
   var isEdit = mode === 'edit';
@@ -499,16 +525,21 @@ function openDrawer(mode, t){
   document.getElementById('saveBtn').style.display = canEdit ? '' : 'none';
   document.getElementById('saveBtn').textContent = isEdit ? 'Lưu thay đổi' : 'Lưu nghiệp vụ';
   document.getElementById('saveBtn').disabled = false;
-  document.getElementById('deleteBtn').style.display = (isEdit && canDelete) ? 'block' : 'none';
-  document.getElementById('deleteBtn').textContent = 'Xoá nghiệp vụ';
+  document.getElementById('deleteBtn').style.display = (isEdit && canDelete) ? 'flex' : 'none';
   document.getElementById('deleteBtn').disabled = false;
-  document.getElementById('logField').style.display = isEdit ? 'block' : 'none';
+  // always visible (not just isEdit) — "Ghi chú" was removed as a separate
+  // create-only field, so this is now the single place to write a note on
+  // both create and edit; the placeholder below explains what happens to it
+  // in each mode.
+  document.getElementById('logField').style.display = 'block';
   document.getElementById('f-newlog').style.display = canEdit ? '' : 'none';
-  document.getElementById('f-notes').value = '';
+  document.getElementById('f-newlog').placeholder = isEdit
+    ? 'Ghi chú mới — sẽ được lưu cùng lúc bấm "Lưu thay đổi"'
+    : 'Ghi chú ban đầu (tuỳ chọn) — sẽ được lưu cùng lúc tạo nghiệp vụ';
   document.getElementById('f-newlog').value = '';
   manualDateEdit = false;
 
-  ['f-cat', 'f-cat-new', 'f-name', 'f-why', 'f-platform', 'f-phase', 'f-sprint', 'f-status', 'f-start', 'f-due', 'f-notes'].forEach(function(id){
+  ['f-cat', 'f-cat-new', 'f-name', 'f-why', 'f-phase', 'f-sprint', 'f-status', 'f-start', 'f-due'].forEach(function(id){
     document.getElementById(id).disabled = !canEdit;
   });
 
@@ -550,7 +581,7 @@ function openDrawer(mode, t){
         addCategoryOptionIfMissing(full.category);
         document.getElementById('f-cat').value = full.category || '';
         document.getElementById('f-cat-new').style.display = 'none';
-        document.getElementById('f-platform').value = full.platform || '';
+        renderPlatformChips(document.getElementById('f-platform-chips'), full.platform || PLATFORM_OPTIONS[0], canEdit);
         document.getElementById('f-status').value = full.status || STATUS_ORDER[0];
         document.getElementById('f-phase').value = full.phase_id != null ? String(full.phase_id) : '';
         document.getElementById('f-sprint').value = full.sprint_id != null ? String(full.sprint_id) : '';
@@ -563,7 +594,7 @@ function openDrawer(mode, t){
         document.getElementById('f-why').value = '';
         document.getElementById('f-cat').value = 'TTT New - Product Foundation';
         document.getElementById('f-cat-new').style.display = 'none';
-        document.getElementById('f-platform').selectedIndex = 0;
+        renderPlatformChips(document.getElementById('f-platform-chips'), PLATFORM_OPTIONS[0], canEdit);
         document.getElementById('f-status').value = STATUS_ORDER[0];
         document.getElementById('f-phase').value = '';
         document.getElementById('f-sprint').value = '';
@@ -647,7 +678,7 @@ document.getElementById('generateWhyBtn').addEventListener('click', function(){
   if (!name) return;
   var category = document.getElementById('f-cat').value;
   if (category === '__add_new__') category = document.getElementById('f-cat-new').value.trim();
-  var platform = document.getElementById('f-platform').value;
+  var platform = getSelectedPlatform();
 
   btn.disabled = true;
   var originalLabel = btn.textContent;
@@ -4478,7 +4509,7 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   if (category === '__add_new__'){
     category = document.getElementById('f-cat-new').value.trim();
   }
-  var platform = document.getElementById('f-platform').value;
+  var platform = getSelectedPlatform();
   var status = document.getElementById('f-status').value;
   var phaseVal = document.getElementById('f-phase').value;
   var sprintVal = document.getElementById('f-sprint').value;
@@ -4541,7 +4572,6 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   var isCreate = !editingTaskId;
   var url = isCreate ? '/api/tasks' : ('/api/tasks/' + editingTaskId);
   var method = isCreate ? 'POST' : 'PUT';
-  var notesValue = document.getElementById('f-notes').value.trim();
 
   _drawerActionBusy = true;
   var saveBtnEl = document.getElementById('saveBtn');
@@ -4573,24 +4603,12 @@ document.getElementById('saveBtn').addEventListener('click', function(){
     }
     return res.json();
   }).then(function(savedTask){
-    // spec requires an optional initial note on CREATE only — a failure
-    // here doesn't block the drawer from closing (the task itself already
-    // saved), but it must still be reported, not silently dropped.
-    if (isCreate && notesValue && savedTask && savedTask.id){
-      return authFetch('/api/tasks/' + savedTask.id + '/logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: notesValue })
-      }).then(function(logRes){
-        if (!logRes.ok) noteSaveError = 'HTTP ' + logRes.status;
-      }).catch(function(err){
-        noteSaveError = err.message;
-      });
-    }
     // "Cập nhật tình trạng task" always saves as a real log entry alongside
-    // the task itself when there's anything in it — not just when it was
-    // the mandatory date-change explanation (validated above). This is the
-    // single save action now; there's no separate "Thêm" button anymore.
+    // the task itself when there's anything in it — on both create (the
+    // old separate "Ghi chú" field was removed; this is now the one place
+    // for an initial note too) and edit, and not just when it was the
+    // mandatory date-change explanation (validated above). Single save
+    // action — no separate "Thêm" button.
     if (progressNoteValue && savedTask && savedTask.id){
       return authFetch('/api/tasks/' + savedTask.id + '/logs', {
         method: 'POST',
@@ -4635,7 +4653,6 @@ document.getElementById('deleteBtn').addEventListener('click', function(){
   var deleteBtnEl = document.getElementById('deleteBtn');
   saveBtnEl.disabled = true;
   deleteBtnEl.disabled = true;
-  deleteBtnEl.textContent = 'Đang xoá...';
 
   var deletedTaskName = document.getElementById('f-name').value;
   authFetch('/api/tasks/' + editingTaskId, { method: 'DELETE' })
@@ -4659,7 +4676,6 @@ document.getElementById('deleteBtn').addEventListener('click', function(){
       _drawerActionBusy = false;
       saveBtnEl.disabled = false;
       deleteBtnEl.disabled = false;
-      deleteBtnEl.textContent = 'Xoá nghiệp vụ';
     });
 });
 
