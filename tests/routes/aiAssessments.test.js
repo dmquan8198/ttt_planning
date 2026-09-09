@@ -19,7 +19,7 @@ async function seedPhaseAndTask(pool) {
   const { rows: [phase] } = await pool.query("SELECT id FROM phases WHERE code='P1'");
   await pool.query(
     `INSERT INTO tasks (category, name, platform, phase_id, status, start_date, due_date)
-     VALUES ('Product Foundation', 'Task A', 'Web', $1, '4.done', '2026-07-01', '2026-07-05')`,
+     VALUES ('Product Foundation', 'Task A', 'Web', $1, '5.done', '2026-07-01', '2026-07-05')`,
     [phase.id]
   );
   // a not-done task too, so prompt-building tests can see it show up in

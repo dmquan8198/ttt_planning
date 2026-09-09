@@ -61,6 +61,10 @@
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M7.5 3v14M12.5 3v14"/></svg>
           <span class="nav-label">Board</span>
         </div>
+        <div class="nav-item" data-view="table" title="Bảng danh sách">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3.5" width="15" height="13" rx="1.5"/><path d="M2.5 8h15M2.5 12.5h15M8 3.5v13M13 3.5v13"/></svg>
+          <span class="nav-label">Bảng danh sách</span>
+        </div>
         <div class="nav-item" data-view="log" title="Log">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3.5h9l3 3v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M13 3.5V7h3"/><path d="M6 10.5h6M6 13.5h6"/></svg>
           <span class="nav-label">Log</span>
@@ -193,8 +197,8 @@
             <div class="gantt-legend" id="sprintLegend"></div>
             <div class="groupby-chips" id="sprintOverviewGroupChips">
               <span class="chip-label">Nhóm theo</span>
-              <button type="button" class="chip active" data-groupby="platform">Platform</button>
-              <button type="button" class="chip" data-groupby="category">Category</button>
+              <button type="button" class="chip" data-groupby="platform">Platform</button>
+              <button type="button" class="chip active" data-groupby="category">Category</button>
               <button type="button" class="chip" data-groupby="status">Status</button>
             </div>
           </div>
@@ -293,6 +297,11 @@
           </div>
         </div>
 
+        <div class="view-sub-actions">
+          <button type="button" class="chip" id="exportGtJsonBtn">⭳ Xuất JSON</button>
+          <button type="button" class="chip" id="exportGtExcelBtn">⭳ Xuất Excel</button>
+        </div>
+
         <div class="gantt-legend" id="gtLegend"></div>
 
         <div class="gt-chart" id="gtChart"></div>
@@ -314,6 +323,46 @@
           </div>
         </div>
         <div class="board" id="board"></div>
+      </section>
+
+      <!-- TABLE -->
+      <section class="view" id="view-table">
+        <div class="view-head">
+          <div>
+            <div class="view-title">Bảng danh sách</div>
+            <div class="view-sub">Toàn bộ nghiệp vụ dạng bảng — ẩn/hiện cột theo ý bạn (tự nhớ cho lần sau), lọc, nhóm, bấm 1 dòng để sửa</div>
+          </div>
+          <div class="view-head-controls">
+            <div id="tableColumnsMs"></div>
+            <button type="button" class="chip" id="tableClearFiltersBtn">✕ Bỏ lọc</button>
+          </div>
+        </div>
+
+        <div class="phase-summary" id="phaseSummaryWrap">
+          <div class="phase-summary-head">
+            <button type="button" class="phase-summary-nav" id="phaseSummaryPrev" title="Phase trước">‹</button>
+            <div class="phase-summary-title" id="phaseSummaryTitle"></div>
+            <button type="button" class="phase-summary-nav" id="phaseSummaryNext" title="Phase sau">›</button>
+          </div>
+          <div id="phaseSummaryTableWrap"></div>
+        </div>
+
+        <div class="groupby-chips" id="tableGroupByChips">
+          <span class="chip-label">Nhóm theo</span>
+          <button type="button" class="chip" data-groupby="category">Category</button>
+          <button type="button" class="chip active" data-groupby="sprint">Sprint</button>
+          <button type="button" class="chip" data-groupby="phase">Phase</button>
+          <button type="button" class="chip" data-groupby="platform">Platform</button>
+          <button type="button" class="chip" data-groupby="status">Status</button>
+          <div class="table-export-actions">
+            <button type="button" class="chip" id="exportTableJsonBtn">⭳ Xuất JSON</button>
+            <button type="button" class="chip" id="exportTableExcelBtn">⭳ Xuất Excel</button>
+          </div>
+        </div>
+
+        <div class="data-table-card">
+          <div class="data-table-scroll" id="tableViewWrap"></div>
+        </div>
       </section>
 
       <!-- LOG -->
@@ -453,10 +502,11 @@
     <label>Status</label>
     <select id="f-status">
       <option value="0.backlog">0. Backlog</option>
-      <option value="1.ready_for_dev">1. Ready for Dev</option>
-      <option value="2.in_test">2. In Dev</option>
-      <option value="3.ready_for_staging">3. Done UAT</option>
-      <option value="4.done">4. Done</option>
+      <option value="1.in_analyst">1. In Analyst</option>
+      <option value="2.ready_for_dev">2. Ready for Dev</option>
+      <option value="3.in_test">3. In Dev</option>
+      <option value="4.ready_for_staging">4. Done UAT</option>
+      <option value="5.done">5. Done</option>
     </select>
   </div>
   <div class="field-row">

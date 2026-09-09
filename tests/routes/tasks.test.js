@@ -50,7 +50,7 @@ test('full CRUD lifecycle: create, list, update, delete', async () => {
 
   const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
-      name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '2.ready_for_dev',
       start_date: '2026-08-05', due_date: '2026-08-10'
     });
   assert.equal(created.status, 201);
@@ -62,11 +62,11 @@ test('full CRUD lifecycle: create, list, update, delete', async () => {
 
   const updated = await asAdmin(request(app).put(`/api/tasks/${id}`))
     .send({
-      name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '4.done',
+      name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '5.done',
       start_date: '2026-08-05', due_date: '2026-08-10'
     });
   assert.equal(updated.status, 200);
-  assert.equal(updated.body.status, '4.done');
+  assert.equal(updated.body.status, '5.done');
 
   const deleted = await asAdmin(request(app).delete(`/api/tasks/${id}`));
   assert.equal(deleted.status, 204);
@@ -168,7 +168,7 @@ test('PUT /api/tasks/:id/resources updates only the roles, without touching othe
   const app = createApp(makeTestPool());
   const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
-      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '2.ready_for_dev',
       start_date: '2026-08-05', due_date: '2026-08-10'
     });
   const id = created.body.id;
@@ -180,7 +180,7 @@ test('PUT /api/tasks/:id/resources updates only the roles, without touching othe
 
   const listed = await request(app).get('/api/tasks');
   const task = listed.body.find((t) => t.id === id);
-  assert.equal(task.status, '1.ready_for_dev'); // untouched
+  assert.equal(task.status, '2.ready_for_dev'); // untouched
   assert.deepEqual(task.resource_roles.sort(), ['App Dev', 'Web Dev']);
 });
 
@@ -212,7 +212,7 @@ test('PUT persists stt when given (Timeline drag-to-reorder relies on this) — 
   // mutation call site must pass the task's current stt through explicitly
   const statusOnlyChange = await asAdmin(request(app).put(`/api/tasks/${id}`))
     .send({
-      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '2.ready_for_dev',
       start_date: '2026-08-05', due_date: '2026-08-10'
     });
   assert.equal(statusOnlyChange.body.stt, null);
@@ -299,14 +299,14 @@ test('PUT that changes start_date/due_date auto-records an activity log entry', 
   const app = createApp(makeTestPool());
   const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
-      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '2.ready_for_dev',
       start_date: '2026-07-06', due_date: '2026-07-17'
     });
   const id = created.body.id;
 
   await asAdmin(request(app).put(`/api/tasks/${id}`))
     .send({
-      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '2.ready_for_dev',
       start_date: '2026-07-15', due_date: '2026-07-26', date_overridden: true
     });
 
@@ -324,7 +324,7 @@ test('PUT with an X-Actor-Name header attributes the date-change log entry to th
   const app = createApp(pool);
   const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
-      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '2.ready_for_dev',
       start_date: '2026-07-06', due_date: '2026-07-17'
     });
   const id = created.body.id;
@@ -337,7 +337,7 @@ test('PUT with an X-Actor-Name header attributes the date-change log entry to th
     .set('X-Actor-Name', encodeURIComponent('Quân'))
     .set('X-Actor-Email', encodeURIComponent('quan-test@example.com'))
     .send({
-      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '2.ready_for_dev',
       start_date: '2026-07-15', due_date: '2026-07-26', date_overridden: true
     });
 
@@ -349,14 +349,14 @@ test('PUT that leaves dates unchanged does not record an activity log entry', as
   const app = createApp(makeTestPool());
   const created = await asAdmin(request(app).post('/api/tasks'))
     .send({
-      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '2.ready_for_dev',
       start_date: '2026-07-06', due_date: '2026-07-17'
     });
   const id = created.body.id;
 
   await asAdmin(request(app).put(`/api/tasks/${id}`))
     .send({
-      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '2.in_test',
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '3.in_test',
       start_date: '2026-07-06', due_date: '2026-07-17'
     });
 

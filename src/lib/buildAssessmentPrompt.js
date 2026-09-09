@@ -28,12 +28,12 @@ function statusLabel(status) {
 }
 
 function formatTaskLine(t, todayIso) {
-  const overdue = t.status !== '4.done' && t.due_date < todayIso ? ' — TRỄ HẠN' : '';
+  const overdue = t.status !== '5.done' && t.due_date < todayIso ? ' — TRỄ HẠN' : '';
   return `  - ${t.name} [${t.category}/${t.platform}] — ${statusLabel(t.status)}, due ${fmtDMY(t.due_date)}${overdue}`;
 }
 
 function formatNotDoneList(tasks, todayIso) {
-  const notDone = tasks.filter((t) => t.status !== '4.done');
+  const notDone = tasks.filter((t) => t.status !== '5.done');
   if (notDone.length === 0) return '  (không còn task nào chưa xong)';
   const shown = notDone.slice(0, NOT_DONE_LIST_CAP).map((t) => formatTaskLine(t, todayIso));
   const rest = notDone.length - NOT_DONE_LIST_CAP;
@@ -71,7 +71,7 @@ function buildAssessmentPrompt({ phases, sprints, tasks, todayIso }) {
     .sort((a, b) => (a.start_date < b.start_date ? -1 : 1))
     .map((sprint) => {
       const sprintTasks = tasks.filter((t) => t.sprint_id === sprint.id);
-      const doneCount = sprintTasks.filter((t) => t.status === '4.done').length;
+      const doneCount = sprintTasks.filter((t) => t.status === '5.done').length;
       const when = sprint.end_date < todayIso ? 'đã qua' : sprint.start_date > todayIso ? 'sắp tới' : 'đang chạy';
       return (
         `### Sprint ${sprint.code} (${fmtDMY(sprint.start_date)}–${fmtDMY(sprint.end_date)}, ${when})\n` +
@@ -87,7 +87,7 @@ function buildAssessmentPrompt({ phases, sprints, tasks, todayIso }) {
     const start = addDaysIso(currentWeekStart, i * 7);
     const end = addDaysIso(start, 6);
     const weekTasks = tasks.filter((t) => t.due_date >= start && t.due_date <= end);
-    const doneCount = weekTasks.filter((t) => t.status === '4.done').length;
+    const doneCount = weekTasks.filter((t) => t.status === '5.done').length;
     const label = i === 0 ? ' (tuần này)' : i < 0 ? ' (đã qua)' : '';
     weekBlocks.push(
       `### Tuần ${fmtDMY(start)}–${fmtDMY(end)}${label}\n` +

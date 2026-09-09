@@ -16,7 +16,7 @@ test('includes the requested markdown section headings', () => {
 test('lists not-done tasks per phase and marks overdue ones', () => {
   const tasks = [
     { id: 1, name: 'Task overdue', category: 'Cat', platform: 'Web', status: '0.backlog', phase_id: 1, sprint_id: 1, due_date: '2026-08-01' },
-    { id: 2, name: 'Task done', category: 'Cat', platform: 'Web', status: '4.done', phase_id: 1, sprint_id: 1, due_date: '2026-08-01' }
+    { id: 2, name: 'Task done', category: 'Cat', platform: 'Web', status: '5.done', phase_id: 1, sprint_id: 1, due_date: '2026-08-01' }
   ];
   const prompt = buildAssessmentPrompt({ phases: [PHASE], sprints: [SPRINT], tasks, todayIso: '2026-08-08' });
   assert.ok(prompt.includes('Task overdue'));

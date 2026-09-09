@@ -72,7 +72,7 @@ test('editor can create/update tasks but is blocked from delete', async () => {
   assert.equal(post.status, 201);
   const taskId = post.body.id;
 
-  const put = await asActor(request(app).put(`/api/tasks/${taskId}`), EDITOR).send({ ...TASK_BODY, status: '1.ready_for_dev' });
+  const put = await asActor(request(app).put(`/api/tasks/${taskId}`), EDITOR).send({ ...TASK_BODY, status: '2.ready_for_dev' });
   assert.equal(put.status, 200);
 
   const del = await asActor(request(app).delete(`/api/tasks/${taskId}`), EDITOR);
@@ -87,7 +87,7 @@ test('admin can create, update, and delete tasks', async () => {
   assert.equal(post.status, 201);
   const taskId = post.body.id;
 
-  const put = await asActor(request(app).put(`/api/tasks/${taskId}`), ADMIN).send({ ...TASK_BODY, status: '1.ready_for_dev' });
+  const put = await asActor(request(app).put(`/api/tasks/${taskId}`), ADMIN).send({ ...TASK_BODY, status: '2.ready_for_dev' });
   assert.equal(put.status, 200);
 
   const del = await asActor(request(app).delete(`/api/tasks/${taskId}`), ADMIN);

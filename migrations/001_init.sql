@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   phase_id INTEGER REFERENCES phases(id) ON DELETE SET NULL,
   sprint_id INTEGER REFERENCES sprints(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT '0.backlog'
-    CHECK (status IN ('0.backlog','1.ready_for_dev','2.in_test','3.ready_for_staging','4.done')),
+    CHECK (status IN ('0.backlog','1.in_analyst','2.ready_for_dev','3.in_test','4.ready_for_staging','5.done')),
   done_analyst BOOLEAN NOT NULL DEFAULT FALSE,
   done_dev BOOLEAN NOT NULL DEFAULT FALSE,
   done_uat BOOLEAN NOT NULL DEFAULT FALSE,
@@ -145,3 +145,29 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_task ON activity_logs(task_id);
 CREATE INDEX IF NOT EXISTS idx_ai_assessments_created ON ai_assessments(created_at);
 CREATE INDEX IF NOT EXISTS idx_task_resource_roles_role ON task_resource_roles(role);
+
+-- 'In Analyst' inserted as its own Kanban stage between Backlog and Ready
+-- for Dev (business analysis previously only tracked via the separate
+-- done_analyst boolean, not a status a task could actually sit in) — every
+-- code from Ready for Dev onward shifts up by one. The CHECK constraint
+-- must be dropped BEFORE renumbering existing rows on an already-existing
+-- table (CREATE TABLE IF NOT EXISTS above is a no-op there, so the
+-- ORIGINAL 5-value constraint is still the live one) — renumbering first
+-- would have every renamed row transiently violate that still-active old
+-- constraint. Re-added after with the final 6-value list. The UPDATE's
+-- CASE targets are each other's non-overlapping old values, so it's a
+-- no-op (WHERE matches nothing) once already applied, and safe to re-run.
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
+
+UPDATE tasks SET status = CASE status
+  WHEN '4.done' THEN '5.done'
+  WHEN '3.ready_for_staging' THEN '4.ready_for_staging'
+  WHEN '2.in_test' THEN '3.in_test'
+  WHEN '1.ready_for_dev' THEN '2.ready_for_dev'
+  ELSE status
+END
+WHERE status IN ('4.done', '3.ready_for_staging', '2.in_test', '1.ready_for_dev');
+
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
+ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
+  CHECK (status IN ('0.backlog','1.in_analyst','2.ready_for_dev','3.in_test','4.ready_for_staging','5.done'));

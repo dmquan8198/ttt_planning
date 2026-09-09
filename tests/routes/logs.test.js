@@ -120,13 +120,13 @@ test('PUT rejects editing an auto-generated date-change note', async () => {
   const pool = makeTestPool();
   const created = await pool.query(
     `INSERT INTO tasks (category, name, platform, status, start_date, due_date)
-     VALUES ('Product Foundation','Task A','Web','1.ready_for_dev','2026-08-05','2026-08-10') RETURNING id`
+     VALUES ('Product Foundation','Task A','Web','2.ready_for_dev','2026-08-05','2026-08-10') RETURNING id`
   );
   const taskId = created.rows[0].id;
   const app = createApp(pool);
 
   await asAdmin(request(app).put(`/api/tasks/${taskId}`)).send({
-    name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '1.ready_for_dev',
+    name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '2.ready_for_dev',
     start_date: '2026-08-06', due_date: '2026-08-11'
   });
   const logs = await request(app).get(`/api/tasks/${taskId}/logs`);

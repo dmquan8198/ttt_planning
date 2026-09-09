@@ -9,8 +9,16 @@ function phasesRouter(pool) {
   const router = Router();
 
   router.get('/', asyncHandler(async (req, res) => {
+    // ORDER BY id (insertion order, matches P1/P2/P3/P4), NOT target_date —
+    // target_date is exactly the field an admin edits, and phases are a
+    // fixed, ordered catalog (P1 → P2 → P3 → P4). Sorting by it meant
+    // editing one phase's date past a neighbor's silently reordered every
+    // consumer of this list (Roadmap cards, phase filters/dropdowns,
+    // Timeline nhóm's phase grouping) — the cards themselves would render
+    // out of sequence, which read as the whole timeline "getting confused"
+    // even though each phase's own date-based position was still correct.
     const { rows: phasesRaw } = await pool.query(
-      'SELECT id, code, name, target_date, updated_at FROM phases ORDER BY target_date'
+      'SELECT id, code, name, target_date, updated_at FROM phases ORDER BY id'
     );
     const phases = phasesRaw.map((p) => ({ ...p, target_date: normalizeDate(p.target_date) }));
     const { rows: tasks } = await pool.query(

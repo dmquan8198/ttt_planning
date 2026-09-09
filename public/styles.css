@@ -8,14 +8,16 @@
   --neutral-bg:#F1EFEA; --neutral-ink:#6B6A63;
   --status-blue-bg:#E1F3FE; --status-blue-ink:#1F6C9F;
   --status-orange-bg:#FDECD9; --status-orange-ink:#A0501C;
+  --status-purple-bg:#F1E9FB; --status-purple-ink:#7B4FA0;
   /* status pipeline, per-status fixed hue (not a gradient):
-     Backlog=gray, Ready for Dev=blue, In Dev=yellow, Done UAT=orange,
-     Done=green. */
+     Backlog=gray, In Analyst=purple, Ready for Dev=blue, In Dev=yellow,
+     Done UAT=orange, Done=green. */
   --status-0-bg:var(--neutral-bg); --status-0-ink:var(--neutral-ink);
-  --status-1-bg:var(--status-blue-bg); --status-1-ink:var(--status-blue-ink);
-  --status-2-bg:var(--yellow-bg); --status-2-ink:var(--yellow-ink);
-  --status-3-bg:var(--status-orange-bg); --status-3-ink:var(--status-orange-ink);
-  --status-4-bg:var(--green-bg); --status-4-ink:var(--green-ink);
+  --status-1-bg:var(--status-purple-bg); --status-1-ink:var(--status-purple-ink);
+  --status-2-bg:var(--status-blue-bg); --status-2-ink:var(--status-blue-ink);
+  --status-3-bg:var(--yellow-bg); --status-3-ink:var(--yellow-ink);
+  --status-4-bg:var(--status-orange-bg); --status-4-ink:var(--status-orange-ink);
+  --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
   --milestone-ink:#A6295C;
   --shadow: 0 1px 2px rgba(32,31,27,0.03);
   --serif: 'Iowan Old Style','Palatino Linotype', Georgia, 'Charter', serif;
@@ -33,11 +35,13 @@
     --neutral-bg:#2A2924; --neutral-ink:#A6A398;
     --status-blue-bg:#1F2E38; --status-blue-ink:#8FC4EA;
     --status-orange-bg:#3A2A18; --status-orange-ink:#E8A85E;
+    --status-purple-bg:#2E2438; --status-purple-ink:#C9A6E8;
     --status-0-bg:var(--neutral-bg); --status-0-ink:var(--neutral-ink);
-    --status-1-bg:var(--status-blue-bg); --status-1-ink:var(--status-blue-ink);
-    --status-2-bg:var(--yellow-bg); --status-2-ink:var(--yellow-ink);
-    --status-3-bg:var(--status-orange-bg); --status-3-ink:var(--status-orange-ink);
-    --status-4-bg:var(--green-bg); --status-4-ink:var(--green-ink);
+    --status-1-bg:var(--status-purple-bg); --status-1-ink:var(--status-purple-ink);
+    --status-2-bg:var(--status-blue-bg); --status-2-ink:var(--status-blue-ink);
+    --status-3-bg:var(--yellow-bg); --status-3-ink:var(--yellow-ink);
+    --status-4-bg:var(--status-orange-bg); --status-4-ink:var(--status-orange-ink);
+    --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
     --milestone-ink:#E39BC0;
     --shadow: 0 1px 3px rgba(0,0,0,0.3);
   }
@@ -52,11 +56,13 @@
   --neutral-bg:#2A2924; --neutral-ink:#A6A398;
   --status-blue-bg:#1F2E38; --status-blue-ink:#8FC4EA;
   --status-orange-bg:#3A2A18; --status-orange-ink:#E8A85E;
+  --status-purple-bg:#2E2438; --status-purple-ink:#C9A6E8;
   --status-0-bg:var(--neutral-bg); --status-0-ink:var(--neutral-ink);
-  --status-1-bg:var(--status-blue-bg); --status-1-ink:var(--status-blue-ink);
-  --status-2-bg:var(--yellow-bg); --status-2-ink:var(--yellow-ink);
-  --status-3-bg:var(--status-orange-bg); --status-3-ink:var(--status-orange-ink);
-  --status-4-bg:var(--green-bg); --status-4-ink:var(--green-ink);
+  --status-1-bg:var(--status-purple-bg); --status-1-ink:var(--status-purple-ink);
+  --status-2-bg:var(--status-blue-bg); --status-2-ink:var(--status-blue-ink);
+  --status-3-bg:var(--yellow-bg); --status-3-ink:var(--yellow-ink);
+  --status-4-bg:var(--status-orange-bg); --status-4-ink:var(--status-orange-ink);
+  --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
   --milestone-ink:#E39BC0;
 }
 :root[data-theme="light"]{
@@ -74,11 +80,13 @@
   --neutral-bg:#F1EFEA; --neutral-ink:#6B6A63;
   --status-blue-bg:#E1F3FE; --status-blue-ink:#1F6C9F;
   --status-orange-bg:#FDECD9; --status-orange-ink:#A0501C;
+  --status-purple-bg:#F1E9FB; --status-purple-ink:#7B4FA0;
   --status-0-bg:var(--neutral-bg); --status-0-ink:var(--neutral-ink);
-  --status-1-bg:var(--status-blue-bg); --status-1-ink:var(--status-blue-ink);
-  --status-2-bg:var(--yellow-bg); --status-2-ink:var(--yellow-ink);
-  --status-3-bg:var(--status-orange-bg); --status-3-ink:var(--status-orange-ink);
-  --status-4-bg:var(--green-bg); --status-4-ink:var(--green-ink);
+  --status-1-bg:var(--status-purple-bg); --status-1-ink:var(--status-purple-ink);
+  --status-2-bg:var(--status-blue-bg); --status-2-ink:var(--status-blue-ink);
+  --status-3-bg:var(--yellow-bg); --status-3-ink:var(--yellow-ink);
+  --status-4-bg:var(--status-orange-bg); --status-4-ink:var(--status-orange-ink);
+  --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
   --milestone-ink:#A6295C;
 }
 
@@ -226,6 +234,7 @@ body{
 .pill.st-2{background:var(--status-2-bg); color:var(--status-2-ink);}
 .pill.st-3{background:var(--status-3-bg); color:var(--status-3-ink);}
 .pill.st-4{background:var(--status-4-bg); color:var(--status-4-ink);}
+.pill.st-5{background:var(--status-5-bg); color:var(--status-5-ink);}
 
 /* ===== FEATURE INTRO (Roadmap page) ===== */
 .feature-intro{
@@ -367,6 +376,7 @@ body{
   background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:var(--shadow);
   padding:6px; display:flex; flex-direction:column; gap:1px;
 }
+.multiselect-panel-right{left:auto; right:0;}
 .multiselect-actions{display:flex; gap:12px; padding:2px 8px 8px; margin-bottom:4px; border-bottom:1px solid var(--border);}
 .multiselect-action-btn{font-size:11px; color:var(--accent-ink); background:none; border:none; cursor:pointer; padding:0;}
 .multiselect-action-btn:hover{text-decoration:underline;}
@@ -462,6 +472,11 @@ body{
 .gantt-legend-row .gantt-legend{margin-bottom:0;}
 .gantt-legend-row .groupby-chips{margin-bottom:0;}
 .groupby-chips .chip-label{font-size:11px; color:var(--ink-muted); margin-right:2px;}
+/* Bảng danh sách's export buttons share the "Nhóm theo" chip row instead of
+   sitting on their own line below it — margin-left:auto on this flex child
+   pushes it (and nothing else follows it) to the row's right edge; wraps
+   to its own line below only if the row is too narrow to fit both. */
+.table-export-actions{display:flex; gap:8px; margin-left:auto;}
 .chip{
   font-family:var(--sans); font-size:12px; padding:6px 13px; border-radius:999px;
   border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); cursor:pointer;
@@ -479,6 +494,7 @@ body{
 .legend-swatch.st-2{background:var(--status-2-bg); border:1px solid var(--status-2-ink);}
 .legend-swatch.st-3{background:var(--status-3-bg); border:1px solid var(--status-3-ink);}
 .legend-swatch.st-4{background:var(--status-4-bg); border:1px solid var(--status-4-ink);}
+.legend-swatch.st-5{background:var(--status-5-bg); border:1px solid var(--status-5-ink);}
 .gantt{
   border:1px solid var(--border); border-radius:8px; background:var(--surface); position:relative;
   overflow-x:auto; overflow-y:hidden;
@@ -635,6 +651,7 @@ body{
 .gt-task-card.st-2{border-left-color:var(--status-2-ink);}
 .gt-task-card.st-3{border-left-color:var(--status-3-ink);}
 .gt-task-card.st-4{border-left-color:var(--status-4-ink);}
+.gt-task-card.st-5{border-left-color:var(--status-5-ink);}
 .gt-task-card-title{font-size:12px; font-weight:700; color:var(--ink); white-space:normal; overflow-wrap:break-word; line-height:1.3;}
 .gt-task-card-dates{font-size:10.5px; color:var(--ink-muted); margin-top:2px; white-space:normal; overflow-wrap:break-word; line-height:1.3;}
 
@@ -652,6 +669,7 @@ body{
 .gt-cluster-card.st-2{border-left-color:var(--status-2-ink);}
 .gt-cluster-card.st-3{border-left-color:var(--status-3-ink);}
 .gt-cluster-card.st-4{border-left-color:var(--status-4-ink);}
+.gt-cluster-card.st-5{border-left-color:var(--status-5-ink);}
 .gt-cluster-card-meta{
   font-size:10px; color:var(--ink-muted); font-weight:600; white-space:nowrap; overflow:hidden;
   text-overflow:ellipsis; flex:none; min-width:0; margin-bottom:3px;
@@ -686,6 +704,7 @@ body{
 .bar.st-2{background:var(--status-2-bg); color:var(--status-2-ink);}
 .bar.st-3{background:var(--status-3-bg); color:var(--status-3-ink);}
 .bar.st-4{background:var(--status-4-bg); color:var(--status-4-ink);}
+.bar.st-5{background:var(--status-5-bg); color:var(--status-5-ink);}
 
 /* ===== KANBAN ===== */
 .board{display:grid; grid-template-columns:repeat(5,1fr); gap:12px; align-items:start;}
@@ -739,6 +758,7 @@ body{
 .sprint-overview-task-chip.st-2{background:var(--status-2-bg); color:var(--status-2-ink);}
 .sprint-overview-task-chip.st-3{background:var(--status-3-bg); color:var(--status-3-ink);}
 .sprint-overview-task-chip.st-4{background:var(--status-4-bg); color:var(--status-4-ink);}
+.sprint-overview-task-chip.st-5{background:var(--status-5-bg); color:var(--status-5-ink);}
 .sprint-columns{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
 .sprint-panel{border:1px solid var(--border); border-radius:8px; background:var(--surface); padding:14px 14px 6px;}
 .sprint-panel.is-current{border-color:var(--accent-ink);}
@@ -976,3 +996,108 @@ body{
 .log-edit-textarea{width:100%; font-family:var(--sans); font-size:11.5px; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--canvas); color:var(--ink); resize:vertical; min-height:56px;}
 .log-edit-actions{display:flex; gap:8px; margin-top:6px;}
 .log-edit-cancel{background:var(--surface); color:var(--ink);}
+
+/* ---- Bảng danh sách: every task, every column, user picks which columns
+   show (persisted in localStorage — see _tableVisibleColumns) — the
+   "spreadsheet" view this app never had after replacing the original Excel
+   sheet. A row click opens the same edit drawer every other view uses,
+   rather than a second inline-editing UI. ---- */
+/* the filter row and the table live inside one bordered card — filters
+   stay fixed at the top of it (not part of the scrolling rows below), so
+   "lọc theo" visually reads as part of the table rather than a separate
+   floating row above it. */
+.data-table-card{border:1px solid var(--border); border-radius:8px; overflow:hidden;}
+/* max-height + its own overflow-y keeps the table pinned to one screen —
+   the phase summary/filters/groupby chips above stay put, and only the
+   rows themselves scroll, instead of the whole page growing with the row
+   count. The sticky <th> below is relative to THIS scroller. */
+.data-table-scroll{
+  overflow-x:auto; overflow-y:auto; max-height:calc(100vh - 380px); min-height:240px;
+}
+.data-table{width:100%; border-collapse:collapse; font-size:12.5px; white-space:nowrap;}
+.data-table th, .data-table td{text-align:left; padding:8px 12px; border-bottom:1px solid var(--border);}
+.data-table th{
+  font-size:11px; color:var(--ink-muted); font-weight:600; background:var(--surface-2);
+  position:sticky; top:0; z-index:1;
+}
+/* per-column filter trigger, sitting right next to that column's label —
+   replaces the old standalone "Lọc theo" row. Deliberately borderless/
+   compact so a header full of these still reads as a header, not a toolbar. */
+.data-table-th-filter{display:inline-block; margin-left:3px; vertical-align:middle;}
+.data-table-th-filter .multiselect-btn{
+  padding:1px 3px; font-size:9px; border:none; background:transparent; color:var(--ink-faint);
+}
+.data-table-th-filter .multiselect-btn:hover{background:var(--surface); color:var(--ink);}
+.data-table-th-filter .multiselect-btn.active{color:var(--accent-ink);}
+.data-table-row{cursor:pointer;}
+.data-table-row:hover{background:var(--surface-2);}
+.data-table-group-row td{
+  background:var(--surface-2); font-family:var(--serif); font-size:12.5px; font-weight:700;
+  color:var(--ink); border-bottom:1px solid var(--border);
+}
+/* the "Cập nhật mới nhất" cell is the one column meant to be read, not
+   scanned — force-wrapping it (instead of the table's default nowrap)
+   keeps a long note readable without pushing the whole table absurdly wide. */
+.data-table td.data-table-cell-wrap{white-space:normal; word-break:break-word; min-width:220px;}
+/* "Cập nhật mới nhất" carries actual "\n" line breaks the user typed into
+   the log note (bullet-style updates) — plain white-space:normal above
+   still wraps by width, but collapses those literal newlines into one
+   run-on paragraph. pre-wrap keeps both: respects the typed line breaks
+   AND still wraps a long line within one of them. */
+.data-table td.data-table-cell-wrap.data-table-cell-notes{white-space:pre-wrap;}
+/* inline-editable cells: blend into the row until touched, so the table
+   still reads like a normal grid rather than a form full of boxes.
+   min-width is generous for name/category/phase specifically — an <input>
+   or <select>'s OWN intrinsic width (not its current value's text length)
+   is what a table's auto-layout sizes the column by, so without this a
+   long task/category/phase name renders clipped inside a narrow box even
+   though the underlying table column had room to spare. */
+.table-cell-input{
+  width:100%; min-width:64px; font-family:var(--sans); font-size:12.5px; color:var(--ink);
+  background:transparent; border:1px solid transparent; border-radius:4px; padding:3px 5px; margin:-3px -5px;
+}
+.table-cell-input[data-field="name"]{min-width:260px;}
+/* wraps and grows with content (height is set from JS via scrollHeight,
+   see autoGrowTableTextarea) instead of clipping/scrolling internally like
+   a single-line <input> would for a long task name. */
+.table-cell-textarea{
+  display:block; resize:none; overflow:hidden; white-space:pre-wrap; word-break:break-word;
+  line-height:1.4; font-family:var(--sans);
+}
+.table-cell-input[data-field="category"]{min-width:230px;}
+.table-cell-input[data-field="phase"]{min-width:220px;}
+.table-cell-input[data-field="why"]{min-width:200px;}
+.table-cell-input[data-field="status"]{min-width:120px;}
+/* no native dropdown arrow on the <select> cells — clicking anywhere in
+   the cell still opens it, the arrow was just visual noise in a dense grid. */
+select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearance:none;}
+.table-cell-input:hover{border-color:var(--border);}
+.table-cell-input:focus{border-color:var(--accent-ink); background:var(--canvas); outline:none;}
+.table-cell-input:disabled{opacity:0.5; cursor:not-allowed;}
+
+/* ---- phase summary (Bảng danh sách): a category x status pivot for
+   whichever phase is currently in focus, with prev/next arrows to page
+   through every phase — sits above the filters/table so "which phase am I
+   looking at" is answered before you even scroll to the grid. ---- */
+.phase-summary{
+  margin-bottom:16px; padding:14px 16px; border:1px solid var(--border); border-radius:8px; background:var(--surface);
+}
+.phase-summary-head{display:flex; align-items:center; justify-content:center; gap:14px; margin-bottom:10px;}
+.phase-summary-nav{
+  flex:none; width:28px; height:28px; border-radius:6px; border:1px solid var(--border);
+  background:var(--surface-2); color:var(--ink); font-size:15px; line-height:1; cursor:pointer;
+}
+.phase-summary-nav:hover{background:var(--surface); border-color:var(--accent-ink); color:var(--accent-ink);}
+.phase-summary-nav:disabled{opacity:0.4; cursor:not-allowed;}
+.phase-summary-title{font-family:var(--serif); font-size:14.5px; font-weight:700; text-align:center;}
+.phase-summary-table{width:100%; border-collapse:collapse; font-size:12px;}
+.phase-summary-table th, .phase-summary-table td{text-align:center; padding:6px 8px; border-bottom:1px solid var(--border);}
+.phase-summary-table th{font-size:10.5px; color:var(--ink-muted); font-weight:600;}
+.phase-summary-table td.phase-summary-cat, .phase-summary-table th:first-child{text-align:left;}
+.phase-summary-table td.phase-summary-cat{font-weight:600;}
+.phase-summary-total-row td{font-weight:700; border-top:1px solid var(--border); border-bottom:none;}
+/* every count cell doubles as a shortcut into the table below (see the
+   phaseSummaryTableWrap click handler) — a hover highlight is the only
+   affordance needed since the whole cell is already the click target. */
+.phase-summary-value{cursor:pointer;}
+.phase-summary-value:hover{background:var(--surface-2); color:var(--accent-ink);}

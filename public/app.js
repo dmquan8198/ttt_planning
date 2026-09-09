@@ -5,6 +5,11 @@ document.querySelectorAll('.nav-item').forEach(function(el){
     document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
     el.classList.add('active');
     document.getElementById('view-' + el.dataset.view).classList.add('active');
+    // Bảng danh sách's task-name textareas auto-grow from scrollHeight,
+    // which reads as 0 for anything rendered while this view was hidden
+    // (e.g. the very first render, on initial page load, before any nav
+    // click) — redo it now that the view is actually visible.
+    if (el.dataset.view === 'table' && typeof autoGrowAllTableTextareas === 'function') autoGrowAllTableTextareas();
   });
 });
 
@@ -22,11 +27,14 @@ document.querySelectorAll('.nav-item').forEach(function(el){
 
 // ---- drawer: shared by "create" and "edit" ----
 var overlay = document.getElementById('overlay'), drawer = document.getElementById('drawer');
-var statusLabel = {0:'0. Backlog', 1:'1. Ready for Dev', 2:'2. In Dev', 3:'3. Done UAT', 4:'4. Done'};
+var statusLabel = {0:'0. Backlog', 1:'1. In Analyst', 2:'2. Ready for Dev', 3:'3. In Dev', 4:'4. Done UAT', 5:'5. Done'};
 
 // dotted status string (from the real API) -> numeric suffix used by the
 // existing .pill.st-N / .bar.st-N CSS classes and the statusLabel map above.
-var STATUS_ORDER = ['0.backlog', '1.ready_for_dev', '2.in_test', '3.ready_for_staging', '4.done'];
+// 'in_analyst' sits between backlog and ready_for_dev — every code from
+// ready_for_dev on is shifted up one from what it used to be (see
+// migrations/001_init.sql for the constraint/data migration).
+var STATUS_ORDER = ['0.backlog', '1.in_analyst', '2.ready_for_dev', '3.in_test', '4.ready_for_staging', '5.done'];
 function statusDotToNum(status){ return STATUS_ORDER.indexOf(status); }
 
 // ---- light/dark theme toggle: persists the viewer's explicit choice in
@@ -79,6 +87,12 @@ function renderMultiSelectDropdown(containerEl, buttonLabel, options, selected, 
   var btn = document.createElement('button');
   btn.type = 'button'; btn.className = 'multiselect-btn';
   var panel = document.createElement('div'); panel.className = 'multiselect-panel';
+  // anchor the panel to the button's RIGHT edge instead of its left — for
+  // a trigger sitting near the page's right edge (e.g. the Table view's
+  // "Cột" button), the default left-anchor lets a wide panel spill off the
+  // right side of the viewport and force a horizontal scrollbar; opening
+  // it inward (growing leftward) instead keeps it fully on-screen.
+  if (opts && opts.alignRight) panel.classList.add('multiselect-panel-right');
   panel.style.display = 'none';
 
   function updateBtn(){
@@ -265,8 +279,10 @@ var _drawerLoadToken = 0;
 var editingTaskDoneFlags = null;
 // the manual sort position of the task currently being edited (from the
 // Timeline's drag-to-reorder) — has no form field, so must be passed straight
-// through on save or the PUT handler would wipe it to null. null in "create"
-// mode, where a brand-new task has no position yet.
+// through on save or the PUT handler would wipe it to null. In "create" mode
+// this is set to max(existing STT)+1 once openDrawer's data loads (see
+// below), not left null — a brand-new task used to get no STT at all,
+// which is exactly why some rows have no sequence number in Bảng danh sách.
 var editingTaskStt = null;
 // whether the task currently being edited already had date_overridden=true when
 // loaded. manualDateEdit alone can't detect this — it only tracks hand-edits
@@ -590,6 +606,11 @@ function openDrawer(mode, t){
         fetchAndRenderLogs(full.id);
         _drawerResourceRoles = (full.resource_roles || []).slice();
       } else {
+        // auto-assign the next STT rather than leaving it null — every task
+        // created through this drawer used to have no sequence number at
+        // all (only rows from the original Excel import ever got one),
+        // which is exactly why "Bảng danh sách" sorts by STT show gaps.
+        editingTaskStt = allTasks.reduce(function(max, t){ return t.stt != null && t.stt > max ? t.stt : max; }, 0) + 1;
         document.getElementById('f-name').value = '';
         document.getElementById('f-why').value = '';
         document.getElementById('f-cat').value = 'TTT New - Product Foundation';
@@ -967,9 +988,9 @@ var _roadmapPhaseCategoryFilter = [];
 
 function computePhaseRollupClient(phase, tasksForPhase){
   var total = tasksForPhase.length;
-  var doneAnalyst = tasksForPhase.filter(function(t){ return statusDotToNum(t.status) >= 1; }).length;
-  var doneDevQc = tasksForPhase.filter(function(t){ return statusDotToNum(t.status) >= 3; }).length;
-  var golive = tasksForPhase.filter(function(t){ return statusDotToNum(t.status) >= 4; }).length;
+  var doneAnalyst = tasksForPhase.filter(function(t){ return statusDotToNum(t.status) >= 2; }).length;
+  var doneDevQc = tasksForPhase.filter(function(t){ return statusDotToNum(t.status) >= 4; }).length;
+  var golive = tasksForPhase.filter(function(t){ return statusDotToNum(t.status) >= 5; }).length;
   var pctComplete = total === 0 ? null : Math.round((doneDevQc / total) * 1000) / 10;
   return {
     id: phase.id, code: phase.code, name: phase.name, target_date: phase.target_date,
@@ -1038,10 +1059,10 @@ function enterPhaseDateEdit(card, phase){
 // if someone else changed the date in between, the server returns 409
 // instead of one edit silently clobbering the other.
 // jumps to the Timeline pre-filtered to this phase + every status short of
-// Done UAT (Backlog/Ready for Dev/In Dev) — "what's still not done dev/QC
-// for this phase", one click from the roadmap card that flags it.
+// Done UAT (Backlog/In Analyst/Ready for Dev/In Dev) — "what's still not
+// done dev/QC for this phase", one click from the roadmap card that flags it.
 function goToTimelineNotYetDoneDevQc(phase){
-  var notYetDoneDevQc = STATUS_ORDER.slice(0, STATUS_ORDER.indexOf('3.ready_for_staging'));
+  var notYetDoneDevQc = STATUS_ORDER.slice(0, STATUS_ORDER.indexOf('4.ready_for_staging'));
   _timelineFilterPhase.length = 0; _timelineFilterPhase.push(String(phase.id));
   _timelineFilterStatus.length = 0; notYetDoneDevQc.forEach(function(s){ _timelineFilterStatus.push(s); });
   _timelineFilterCategory.length = 0;
@@ -1389,11 +1410,11 @@ function renderSprintReportTask(t, latestLogByTaskId){
 }
 
 // "effectively complete" threshold for progress headlines — same call the
-// Roadmap's own default % uses (see _riskThreshold): literal '4.done' lags
+// Roadmap's own default % uses (see _riskThreshold): literal '5.done' lags
 // behind a formal golive event and stays near-zero for most of a sprint's
 // life, which would make an in-progress sprint look falsely empty in front
 // of an audience. Done UAT is the point work is realistically finished.
-function isEffectivelyDone(t){ return statusDotToNum(t.status) >= 3; }
+function isEffectivelyDone(t){ return statusDotToNum(t.status) >= 4; }
 
 // one group (category, or — for carry-over — origin sprint) within a
 // sprint column, with its own mini progress count — lets a presenter say
@@ -1543,7 +1564,7 @@ var SPRINT_OVERVIEW_CATEGORIES = [
   'TTT New - Product Foundation', 'TTT New - Cross Service Integration',
   'TTT New - Internal Features', 'TTT New - Convert & Scale'
 ];
-var _sprintOverviewGroupBy = 'platform';
+var _sprintOverviewGroupBy = 'category';
 // cached inputs from the last renderSprintOverviewTable call, so switching
 // the group-by chip can just re-render instantly instead of refetching.
 var _lastSprintOverviewArgs = null;
@@ -1608,7 +1629,7 @@ function renderSprintOverviewTable(sprints, tasks, currentSprintId, nextSprintId
 
   sprints.forEach(function(s){
     var sprintTasks = tasks.filter(function(t){ return t.sprint_id === s.id; });
-    var doneCount = sprintTasks.filter(function(t){ return t.status === '4.done'; }).length;
+    var doneCount = sprintTasks.filter(function(t){ return t.status === '5.done'; }).length;
     var isCurrent = s.id === currentSprintId, isNext = s.id === nextSprintId;
 
     var row = document.createElement('div');
@@ -1738,7 +1759,7 @@ function loadSprintView(){
           .map(function(s){ return s.id; });
         carryOver = tasks
           .filter(function(t){
-            return t.sprint_id != null && earlierSprintIds.indexOf(t.sprint_id) !== -1 && statusDotToNum(t.status) < 3;
+            return t.sprint_id != null && earlierSprintIds.indexOf(t.sprint_id) !== -1 && statusDotToNum(t.status) < 4;
           })
           .sort(function(a, b){
             return new Date(sprintById[a.sprint_id].start_date) - new Date(sprintById[b.sprint_id].start_date);
@@ -1786,10 +1807,11 @@ function loadSprintView(){
 // export here is a drop-in replacement for that file. ----
 var SPRINT_STATUS_TO_EXPORT_CODE = {
   '0.backlog': 'backlog',
-  '1.ready_for_dev': 'ready-dev',
-  '2.in_test': 'in-test',
-  '3.ready_for_staging': 'ready-stg',
-  '4.done': 'done'
+  '1.in_analyst': 'in-analyst',
+  '2.ready_for_dev': 'ready-dev',
+  '3.in_test': 'in-test',
+  '4.ready_for_staging': 'ready-stg',
+  '5.done': 'done'
 };
 function buildDeliveryPlanExport(tasksSubset, sprintsSubset, scopeLabel, allLogs){
   var sprintCodeById = {};
@@ -1915,38 +1937,57 @@ function buildSprintExcelRows(tasksSubset, sprintsSubset, allLogs){
   });
   return [header].concat(rows);
 }
-function downloadSprintExcel(tasksSubset, sprintsSubset, allLogs, filename){
-  var aoa = buildSprintExcelRows(tasksSubset, sprintsSubset, allLogs);
-  var ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 5 }, { wch: 26 }, { wch: 42 }, { wch: 8 }, { wch: 8 }, { wch: 14 }, { wch: 11 }, { wch: 11 }, { wch: 36 }, { wch: 48 }];
-  var wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Sprint hien tai va sau');
-  XLSX.writeFile(wb, filename);
-}
-(function(){
-  var btn = document.getElementById('exportCurrentNextExcelBtn');
+// same shape as wireExportJsonButton, for the Excel export: buildRowsFn
+// resolves to an array-of-arrays (buildSprintExcelRows' output), reused by
+// every "Xuất Excel" button in the app so they all share one busy-state/
+// toast/error pattern instead of each hand-rolling it.
+function wireExportExcelButton(btnId, buildRowsFn, filenamePrefix, sheetName){
+  var btn = document.getElementById(btnId);
   if (!btn) return;
   btn.addEventListener('click', function(){
     var origText = btn.textContent;
     btn.disabled = true; btn.textContent = 'Đang xuất...';
-    Promise.all([loadTasks(), loadSprints(), fetchJSON('/api/sprints/current-next'), fetchJSON('/api/logs')])
-      .then(function(results){
-        var tasks = results[0], sprints = results[1], currentNext = results[2], allLogs = results[3];
-        var relevantSprintIds = [currentNext.current, currentNext.next].filter(Boolean).map(function(s){ return s.id; });
-        var relevantSprints = sprints.filter(function(s){ return relevantSprintIds.indexOf(s.id) !== -1; });
-        var relevantTasks = tasks.filter(function(t){ return relevantSprintIds.indexOf(t.sprint_id) !== -1; });
-        downloadSprintExcel(relevantTasks, relevantSprints, allLogs, 'ttt-sprint-hien-tai-va-sau-' + todayIsoLocal() + '.xlsx');
+    buildRowsFn()
+      .then(function(aoa){
+        var ws = XLSX.utils.aoa_to_sheet(aoa);
+        // column widths sized from actual content (header label vs. a
+        // sample of row values) instead of a hardcoded per-column list —
+        // this same helper now backs exports with very different column
+        // sets/orders (Sprint's fixed 10 columns, Bảng danh sách's
+        // user-chosen ones), so a fixed-position width array would
+        // silently misalign the moment the column count/order differs.
+        ws['!cols'] = aoa.length ? aoa[0].map(function(header, i){
+          var maxLen = String(header || '').length;
+          aoa.slice(1, 200).forEach(function(row){
+            var len = row[i] == null ? 0 : String(row[i]).length;
+            if (len > maxLen) maxLen = len;
+          });
+          return { wch: Math.min(Math.max(maxLen + 2, 8), 60) };
+        }) : [];
+        var wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        XLSX.writeFile(wb, filenamePrefix + '-' + todayIsoLocal() + '.xlsx');
         toastSuccess('Đã xuất Excel');
       })
       .catch(function(err){
-        console.error('Export Excel failed', err);
+        console.error('Export Excel failed (' + btnId + ')', err);
         toastError('Không xuất được Excel: ' + err.message);
       })
       .finally(function(){
         btn.disabled = false; btn.textContent = origText;
       });
   });
-})();
+}
+wireExportExcelButton('exportCurrentNextExcelBtn', function(){
+  return Promise.all([loadTasks(), loadSprints(), fetchJSON('/api/sprints/current-next'), fetchJSON('/api/logs')])
+    .then(function(results){
+      var tasks = results[0], sprints = results[1], currentNext = results[2], allLogs = results[3];
+      var relevantSprintIds = [currentNext.current, currentNext.next].filter(Boolean).map(function(s){ return s.id; });
+      var relevantSprints = sprints.filter(function(s){ return relevantSprintIds.indexOf(s.id) !== -1; });
+      var relevantTasks = tasks.filter(function(t){ return relevantSprintIds.indexOf(t.sprint_id) !== -1; });
+      return buildSprintExcelRows(relevantTasks, relevantSprints, allLogs);
+    });
+}, 'ttt-sprint-hien-tai-va-sau', 'Sprint hien tai va sau');
 
 var GROUP_BY_LABEL = { platform: 'Platform', category: 'Category', status: 'Status' };
 var _sprintActiveTab = 'overview';
@@ -1970,6 +2011,10 @@ document.querySelectorAll('#sprintTabChips .chip').forEach(function(btn){
     updateSprintTabSub();
   });
 });
+// set once on load too (not just on chip click) — otherwise the subtitle
+// shows whatever text was hardcoded in index.html until the user clicks a
+// chip, which silently goes stale the moment a default above changes.
+updateSprintTabSub();
 document.querySelectorAll('#sprintOverviewGroupChips .chip').forEach(function(btn){
   btn.addEventListener('click', function(){
     document.querySelectorAll('#sprintOverviewGroupChips .chip').forEach(function(b){ b.classList.remove('active'); });
@@ -2028,10 +2073,10 @@ function renderRiskGroups(containerId, riskTasks, groupList, groupKeyFn, today, 
 }
 
 // which status a task must have reached to no longer count as "at risk"
-// for due-soon filtering below; STATUS_ORDER index, so 3 = Done UAT.
+// for due-soon filtering below; STATUS_ORDER index, so 4 = Done UAT.
 // Default per product call: Done UAT counts as "basically shipped", so
-// only Backlog/Ready for Dev/In Dev tasks are flagged once overdue.
-var _riskThreshold = 3;
+// only Backlog/In Analyst/Ready for Dev/In Dev tasks are flagged once overdue.
+var _riskThreshold = 4;
 
 // how many days ahead counts as "sắp đến hạn" (due soon) — a forward-looking
 // companion to the overdue risk report above, so a PM can act before a task
@@ -2050,7 +2095,7 @@ document.querySelectorAll('#dueSoonWindowChips .chip').forEach(function(btn){
 function loadRiskReports(){
   var dueSoonSprintEl = document.getElementById('dueSoonBySprint');
   var dueSoonPhaseEl = document.getElementById('dueSoonByPhase');
-  var thresholdLabel = _riskThreshold === 4 ? 'Done' : 'Done UAT';
+  var thresholdLabel = _riskThreshold === 5 ? 'Done' : 'Done UAT';
   var dueSoonSubText = 'Nghiệp vụ due trong ' + _dueSoonWindow + ' ngày tới nhưng chưa tới ' + thresholdLabel;
   document.getElementById('dueSoonSubSprint').textContent = dueSoonSubText;
   document.getElementById('dueSoonSubPhase').textContent = dueSoonSubText;
@@ -3212,6 +3257,737 @@ function loadGroupedTimelineView(){
     })
     .catch(function(err){ console.error('Failed to load Timeline nhóm', err); });
 }
+
+// export: whatever is currently on screen (respecting the active Phase/
+// Sprint/Category filter chips), not a fresh independent fetch — Timeline
+// nhóm's whole point is filtering, so the export should match exactly what
+// the user is looking at right now, same _gtLastTasks/applyGtFilters the
+// chart itself renders from. allLogs is still fetched fresh at click time
+// (not reused from _gtLatestLogByTaskId, which only keeps each task's
+// single latest entry) since the JSON export wants full history per task.
+wireExportJsonButton('exportGtJsonBtn', function(){
+  return fetchJSON('/api/logs').then(function(allLogs){
+    return buildDeliveryPlanExport(applyGtFilters(_gtLastTasks || []), _gtLastSprints || [], 'Timeline nhóm', allLogs);
+  });
+}, 'ttt-timeline-nhom');
+wireExportExcelButton('exportGtExcelBtn', function(){
+  return fetchJSON('/api/logs').then(function(allLogs){
+    return buildSprintExcelRows(applyGtFilters(_gtLastTasks || []), _gtLastSprints || [], allLogs);
+  });
+}, 'ttt-timeline-nhom', 'Timeline nhom');
+
+// ---- Bảng danh sách: every task, every column, on/off per column (which
+// columns are visible persists in localStorage — see save/loadTableColumnPrefs),
+// filterable, and groupable — the "spreadsheet" view this app never had
+// after replacing the original Excel sheet. A row click opens the same
+// edit drawer every other view uses instead of a second, parallel
+// inline-editing UI. Reuses gtGroupsForMode/gtTaskGroupKey (defined above
+// for Timeline nhóm) for the category/sprint/phase/platform grouping —
+// only 'status' and the ungrouped default are specific to this view. ----
+var TABLE_COLUMNS = [
+  { key: 'stt', label: 'STT' },
+  { key: 'category', label: 'Category' },
+  { key: 'name', label: 'Nghiệp vụ' },
+  { key: 'why', label: 'Tại sao cần làm' },
+  { key: 'platform', label: 'Platform' },
+  { key: 'phase', label: 'Phase' },
+  { key: 'sprint', label: 'Sprint' },
+  { key: 'status', label: 'Status' },
+  { key: 'start', label: 'Start' },
+  { key: 'due', label: 'Due' },
+  { key: 'resource_roles', label: 'Resource cần' },
+  { key: 'done_analyst', label: 'Done Analyst' },
+  { key: 'done_dev', label: 'Done Dev' },
+  { key: 'done_uat', label: 'Done UAT' },
+  { key: 'done_staging', label: 'Done Staging' },
+  { key: 'latest_note', label: 'Cập nhật mới nhất' }
+];
+var TABLE_DEFAULT_VISIBLE = ['stt', 'category', 'name', 'platform', 'phase', 'sprint', 'status', 'start', 'due'];
+
+function loadTableColumnPrefs(){
+  try {
+    var saved = JSON.parse(localStorage.getItem('ttt_table_columns') || 'null');
+    if (Array.isArray(saved) && saved.length){
+      return saved.filter(function(k){ return TABLE_COLUMNS.some(function(c){ return c.key === k; }); });
+    }
+  } catch (e) { /* corrupt/blocked storage — fall through to the default */ }
+  return TABLE_DEFAULT_VISIBLE.slice();
+}
+function saveTableColumnPrefs(){
+  try { localStorage.setItem('ttt_table_columns', JSON.stringify(_tableVisibleColumns)); } catch (e) {}
+}
+
+var _tableVisibleColumns = loadTableColumnPrefs();
+var _tableFilterCategory = [], _tableFilterPlatform = [], _tableFilterStatus = [], _tableFilterPhase = [], _tableFilterSprint = [];
+var _tableGroupBy = 'sprint';
+// which TABLE_COLUMNS key each group-by mode duplicates — hidden while
+// grouped by it (every row in a group already shares that value, shown
+// once in the group header instead), layered on top of the user's own
+// saved column picks rather than mutating them.
+var TABLE_GROUPBY_COLUMN_KEY = { category: 'category', sprint: 'sprint', phase: 'phase', platform: 'platform', status: 'status' };
+var _lastTableTasks = null, _lastTableSprints = null, _lastTablePhases = null;
+var _tableLatestLogByTaskId = {};
+
+function applyTableFilters(tasks){
+  return tasks.filter(function(t){
+    if (_tableFilterCategory.length && _tableFilterCategory.indexOf(t.category) === -1) return false;
+    if (_tableFilterPlatform.length && _tableFilterPlatform.indexOf(t.platform) === -1) return false;
+    if (_tableFilterStatus.length && _tableFilterStatus.indexOf(t.status) === -1) return false;
+    if (_tableFilterPhase.length && _tableFilterPhase.indexOf(String(t.phase_id)) === -1) return false;
+    if (_tableFilterSprint.length && _tableFilterSprint.indexOf(String(t.sprint_id)) === -1) return false;
+    return true;
+  });
+}
+function tableFilterOnChange(){
+  if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
+}
+
+// filters live IN the column headers now (a small dropdown trigger next to
+// each filterable column's label), not a separate "Lọc theo" row — these
+// two lookups are what renderTableView's header-building code needs per
+// column: which array holds that column's current selection, and what
+// options to offer for it.
+function tableColumnFilterArray(colKey){
+  switch (colKey){
+    case 'category': return _tableFilterCategory;
+    case 'platform': return _tableFilterPlatform;
+    case 'status': return _tableFilterStatus;
+    case 'phase': return _tableFilterPhase;
+    case 'sprint': return _tableFilterSprint;
+    default: return null;
+  }
+}
+function tableColumnFilterOptions(colKey){
+  switch (colKey){
+    case 'category': return bucketsForGroupBy(_lastTableTasks || [], 'category');
+    case 'platform': return bucketsForGroupBy(_lastTableTasks || [], 'platform');
+    case 'status': return bucketsForGroupBy(_lastTableTasks || [], 'status');
+    case 'phase': return (_lastTablePhases || []).map(function(p){ return { key: String(p.id), label: p.code + ': ' + p.name }; });
+    case 'sprint': return (_lastTableSprints || []).map(function(s){ return { key: String(s.id), label: s.code }; });
+    default: return [];
+  }
+}
+
+// 'status' plus sprint/phase (both with their own date range, unlike
+// Timeline nhóm's plain-code labels — this view's whole point is a quick
+// data scan, and "S16" alone doesn't say when that is) are specific to
+// this view; category/platform still delegate to the shared
+// gtGroupsForMode (Timeline nhóm) since a bare name is enough for those.
+// 'none' never reaches this, renderTableView handles it directly.
+function tableGroupsForMode(tasks, sprints, phases, groupBy){
+  if (groupBy === 'status'){
+    return STATUS_ORDER.map(function(s, idx){ return { key: s, label: statusLabel[idx].replace(/^\d+\.\s*/, '') }; });
+  }
+  if (groupBy === 'sprint'){
+    var sprintGroups = sprints.map(function(s){ return { key: 's' + s.id, label: s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')' }; });
+    sprintGroups.push({ key: 'none', label: 'Chưa gán sprint' });
+    return sprintGroups;
+  }
+  if (groupBy === 'phase'){
+    var phaseGroups = phases.map(function(p){ return { key: 'p' + p.id, label: p.code + ' — mốc ' + fmtDMY(p.target_date) }; });
+    phaseGroups.push({ key: 'none', label: 'Chưa gán phase' });
+    return phaseGroups;
+  }
+  return gtGroupsForMode(tasks, sprints, phases, groupBy);
+}
+function tableTaskGroupKey(t, groupBy){
+  return groupBy === 'status' ? t.status : gtTaskGroupKey(t, groupBy);
+}
+
+// rows within each group sort A-Z by whichever column is currently 2nd
+// among the VISIBLE ones — always skipping STT (a sequence number, not
+// something to alphabetize), and computed fresh each render since which
+// column ends up 2nd shifts as columns are hidden/shown or by the active
+// group-by (that column itself drops out of visibleCols while grouped by it).
+function tableRowSortColumn(visibleCols){
+  return visibleCols.filter(function(c){ return c.key !== 'stt'; })[0] || visibleCols[0];
+}
+function tableSortByColumn(col){
+  return function(a, b){
+    var av = String(tableCellPlainText(col, a) || '');
+    var bv = String(tableCellPlainText(col, b) || '');
+    return av.localeCompare(bv, 'vi');
+  };
+}
+
+function tableCellHtml(col, t){
+  switch (col.key){
+    case 'stt': return t.stt != null ? String(t.stt) : '';
+    case 'category': return escapeHtml(t.category || '');
+    case 'name': return escapeHtml(t.name || '');
+    case 'why': return escapeHtml(t.why || '');
+    case 'platform': return escapeHtml(t.platform || '');
+    case 'phase': return escapeHtml(t.phase_code || '');
+    case 'sprint': return escapeHtml(t.sprint_code || '');
+    case 'status': {
+      var idx = statusDotToNum(t.status);
+      return '<span class="pill st-' + idx + '">' + escapeHtml(statusLabel[idx].replace(/^\d+\.\s*/, '')) + '</span>';
+    }
+    case 'start': {
+      var r1 = effectiveRange(t);
+      return r1 ? fmtDMY(toIsoDate(r1.start)) : (t.start_date ? fmtDMY(t.start_date) : '');
+    }
+    case 'due': {
+      var r2 = effectiveRange(t);
+      return r2 ? fmtDMY(toIsoDate(r2.end)) : (t.due_date ? fmtDMY(t.due_date) : '');
+    }
+    case 'resource_roles': return escapeHtml((t.resource_roles || []).join(', '));
+    case 'done_analyst': return t.done_analyst ? '✓' : '';
+    case 'done_dev': return t.done_dev ? '✓' : '';
+    case 'done_uat': return t.done_uat ? '✓' : '';
+    case 'done_staging': return t.done_staging ? '✓' : '';
+    case 'latest_note': {
+      var log = _tableLatestLogByTaskId[t.id];
+      return log ? escapeHtml(stripActorSuffix(log.note)) : '<span class="sprint-report-empty">Chưa có log</span>';
+    }
+    default: return '';
+  }
+}
+
+// ---- inline cell editing (editor role only) — stt/name/why/start/due as
+// plain inputs, category/platform/phase/sprint/status as <select>. Saving
+// happens on the native 'change' event (fires on blur-with-a-real-change
+// for text/date inputs, and immediately on pick for selects — exactly
+// "sửa xong rời khỏi cell là lưu" for both widget kinds with one listener).
+// resource_roles/done_*/latest_note stay read-only here — click the row to
+// open the full drawer for those. ----
+var TABLE_EDITABLE_FIELDS = ['stt', 'name', 'why', 'category', 'platform', 'phase', 'sprint', 'status', 'start', 'due'];
+
+function appendEditableInput(td, type, field, task, value){
+  var input = document.createElement('input');
+  input.type = type; input.className = 'table-cell-input';
+  input.dataset.field = field; input.dataset.taskId = task.id;
+  input.value = value != null ? value : '';
+  input.dataset.original = input.value;
+  td.appendChild(input);
+}
+// a plain <input> can never wrap — for the one field long enough that
+// clipping it defeats the point of a "see the full name" table (the task
+// name), a <textarea> that grows with its content instead. Height is set
+// once here from scrollHeight (only accurate once the row is actually in
+// the live DOM, so renderTableView does a pass over every one of these
+// right after inserting the table) and again live on 'input' below.
+function appendEditableTextarea(td, field, task, value){
+  var ta = document.createElement('textarea');
+  ta.className = 'table-cell-input table-cell-textarea'; ta.rows = 1;
+  ta.dataset.field = field; ta.dataset.taskId = task.id;
+  ta.value = value != null ? value : '';
+  ta.dataset.original = ta.value;
+  td.appendChild(ta);
+}
+function autoGrowTableTextarea(ta){
+  ta.style.height = 'auto';
+  ta.style.height = ta.scrollHeight + 'px';
+}
+// scrollHeight reads as 0 for every element inside a hidden ancestor (an
+// unavoidable browser fact, not a bug to fix here) — so a pass run while
+// the Bảng danh sách view itself isn't the active/visible one bakes in a
+// permanent 0px for every row. renderTableView (which may run before the
+// view is ever switched to, e.g. on initial page load) can't avoid that by
+// itself, so nav-switching into this view re-runs the same pass — cheap
+// (a couple hundred rows at most) and a no-op if heights are already right.
+function autoGrowAllTableTextareas(){
+  var wrap = document.getElementById('tableViewWrap');
+  if (!wrap) return;
+  wrap.querySelectorAll('.table-cell-textarea').forEach(autoGrowTableTextarea);
+}
+function appendEditableSelect(td, field, task, options, selectedValue, emptyLabel){
+  var select = document.createElement('select');
+  select.className = 'table-cell-input';
+  select.dataset.field = field; select.dataset.taskId = task.id;
+  if (emptyLabel){
+    var emptyOpt = document.createElement('option'); emptyOpt.value = ''; emptyOpt.textContent = emptyLabel;
+    select.appendChild(emptyOpt);
+  }
+  options.forEach(function(opt){
+    var o = document.createElement('option'); o.value = opt.key; o.textContent = opt.label;
+    if (opt.key === selectedValue) o.selected = true;
+    select.appendChild(o);
+  });
+  select.dataset.original = selectedValue;
+  td.appendChild(select);
+}
+function appendEditableCell(td, col, t){
+  switch (col.key){
+    case 'stt': appendEditableInput(td, 'number', 'stt', t, t.stt != null ? t.stt : ''); return;
+    case 'name': appendEditableTextarea(td, 'name', t, t.name || ''); return;
+    case 'why': appendEditableInput(td, 'text', 'why', t, t.why || ''); return;
+    case 'start': appendEditableInput(td, 'date', 'start', t, t.start_date || ''); return;
+    case 'due': appendEditableInput(td, 'date', 'due', t, t.due_date || ''); return;
+    case 'category':
+      appendEditableSelect(td, 'category', t, bucketsForGroupBy(_lastTableTasks || [], 'category'), t.category || '');
+      return;
+    case 'platform':
+      appendEditableSelect(td, 'platform', t, PLATFORM_OPTIONS.map(function(p){ return { key: p, label: p }; }), t.platform || '');
+      return;
+    case 'phase':
+      appendEditableSelect(
+        td, 'phase', t,
+        (_lastTablePhases || []).map(function(p){ return { key: String(p.id), label: p.code + ': ' + p.name }; }),
+        t.phase_id != null ? String(t.phase_id) : '', '— không có —'
+      );
+      return;
+    case 'sprint':
+      appendEditableSelect(
+        td, 'sprint', t,
+        (_lastTableSprints || []).map(function(s){ return { key: String(s.id), label: s.code }; }),
+        t.sprint_id != null ? String(t.sprint_id) : '', '— không có —'
+      );
+      return;
+    case 'status':
+      appendEditableSelect(
+        td, 'status', t,
+        STATUS_ORDER.map(function(s, idx){ return { key: s, label: statusLabel[idx].replace(/^\d+\.\s*/, '') }; }),
+        t.status
+      );
+      return;
+  }
+}
+// appendEditableSelect's `options` take {key,label} — same shape
+// bucketsForGroupBy/renderMultiSelectDropdown already use elsewhere — so
+// every call above (bucketsForGroupBy's own output, or a hand-built list)
+// passes straight through without reshaping.
+
+function renderTableRow(t, visibleCols, canEdit){
+  var tr = document.createElement('tr');
+  tr.className = 'data-table-row';
+  tr.dataset.taskId = t.id;
+  visibleCols.forEach(function(col){
+    var td = document.createElement('td');
+    if (col.key === 'latest_note') td.className = 'data-table-cell-wrap data-table-cell-notes';
+    else if (col.key === 'why' || col.key === 'name') td.className = 'data-table-cell-wrap';
+    if (canEdit && TABLE_EDITABLE_FIELDS.indexOf(col.key) !== -1){
+      appendEditableCell(td, col, t);
+    } else {
+      td.innerHTML = tableCellHtml(col, t);
+    }
+    tr.appendChild(td);
+  });
+  return tr;
+}
+
+// full PUT body for a task, same field set the drawer's own save handler
+// sends — this endpoint full-replaces every field, so every caller (this
+// one included) must carry forward whatever it isn't changing, or that
+// field gets silently cleared.
+function buildTaskPutBody(task, overrides){
+  var body = {
+    category: task.category, name: task.name, platform: task.platform, status: task.status,
+    phase_id: task.phase_id, sprint_id: task.sprint_id, stt: task.stt, why: task.why,
+    resource_roles: task.resource_roles,
+    done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
+    start_date: task.start_date, due_date: task.due_date, date_overridden: !!task.date_overridden
+  };
+  Object.keys(overrides).forEach(function(k){ body[k] = overrides[k]; });
+  return body;
+}
+function saveTaskInlineField(task, overrides){
+  return authFetch('/api/tasks/' + task.id, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(buildTaskPutBody(task, overrides))
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(body){
+        throw new Error(body.error || ('HTTP ' + res.status));
+      });
+    }
+  });
+}
+
+// due date changes go through the same mandatory-reason gate as every
+// other date change made outside the drawer (Timeline/Sprint Overview drag)
+// once the task's CURRENT due date is already due or overdue.
+function handleInlineDueChange(task, newDue, input){
+  function commit(reason){
+    input.disabled = true;
+    saveTaskInlineField(task, { due_date: newDue, date_overridden: true })
+      .then(function(){ if (reason) return postDateChangeReasonLog(task.id, reason); })
+      .then(function(){ toastSuccess('Đã lưu.'); refreshAllViews(); })
+      .catch(function(err){
+        toastError('Không lưu được: ' + err.message);
+        input.value = input.dataset.original;
+        input.disabled = false;
+      });
+  }
+  if (dueDateIsDueOrOverdue(task.due_date)){
+    promptDateChangeReason(task.name, commit, function(){ input.value = input.dataset.original; });
+  } else {
+    commit(null);
+  }
+}
+// same gate + the exact updateTaskSprint helper the Sprint Overview drag-
+// to-regroup already uses, so an inline sprint change re-derives start/due
+// from the new sprint (and clears date_overridden) identically either way.
+function handleInlineSprintChange(task, newSprintIdStr, input){
+  var newSprintId = newSprintIdStr === '' ? null : Number(newSprintIdStr);
+  function commit(reason){
+    input.disabled = true;
+    updateTaskSprint(task, newSprintId, _lastTableSprints || [])
+      .then(function(){ if (reason) return postDateChangeReasonLog(task.id, reason); })
+      .then(function(){ toastSuccess('Đã đổi sprint cho "' + task.name + '"'); refreshAllViews(); })
+      .catch(function(err){
+        toastError('Không đổi được sprint: ' + err.message);
+        input.value = input.dataset.original;
+        input.disabled = false;
+      });
+  }
+  if (dueDateIsDueOrOverdue(task.due_date)){
+    promptDateChangeReason(task.name, commit, function(){ input.value = input.dataset.original; });
+  } else {
+    commit(null);
+  }
+}
+
+document.getElementById('tableViewWrap').addEventListener('input', function(e){
+  if (e.target.classList.contains('table-cell-textarea')) autoGrowTableTextarea(e.target);
+});
+
+document.getElementById('tableViewWrap').addEventListener('change', function(e){
+  var input = e.target.closest('.table-cell-input');
+  if (!input) return;
+  var task = _lastTableTasks && _lastTableTasks.find(function(t){ return String(t.id) === input.dataset.taskId; });
+  if (!task) return;
+  var field = input.dataset.field;
+  var newValue = input.value;
+  if (newValue === input.dataset.original) return; // left the cell without really changing it
+
+  if (field === 'sprint'){ handleInlineSprintChange(task, newValue, input); return; }
+  if (field === 'due'){ handleInlineDueChange(task, newValue, input); return; }
+
+  var overrides;
+  switch (field){
+    case 'stt': overrides = { stt: newValue === '' ? null : Number(newValue) }; break;
+    case 'phase': overrides = { phase_id: newValue === '' ? null : Number(newValue) }; break;
+    case 'start': overrides = { start_date: newValue, date_overridden: true }; break;
+    default: overrides = {}; overrides[field] = newValue; break; // name, why, category, platform, status
+  }
+  input.disabled = true;
+  saveTaskInlineField(task, overrides).then(function(){
+    toastSuccess('Đã lưu.');
+    refreshAllViews();
+  }).catch(function(err){
+    toastError('Không lưu được: ' + err.message);
+    input.value = input.dataset.original;
+    input.disabled = false;
+  });
+});
+
+// each filterable column's <th> gets its own small dropdown trigger —
+// built the same way the old standalone "Lọc theo" row's dropdowns were,
+// just rendered into a holder inside the header cell instead. Column
+// order still comes entirely from TABLE_COLUMNS/visibleCols; this only
+// decides whether a given <th> also carries a filter trigger.
+function appendColumnHeaderFilter(th, colKey){
+  var arr = tableColumnFilterArray(colKey);
+  if (!arr) return;
+  var holder = document.createElement('span');
+  holder.className = 'data-table-th-filter';
+  th.appendChild(holder);
+  renderMultiSelectDropdown(holder, '', tableColumnFilterOptions(colKey), arr, tableFilterOnChange);
+}
+
+function renderTableView(tasks){
+  var wrap = document.getElementById('tableViewWrap');
+  if (!wrap) return;
+  var hiddenByGroup = TABLE_GROUPBY_COLUMN_KEY[_tableGroupBy];
+  var visibleCols = TABLE_COLUMNS.filter(function(c){ return _tableVisibleColumns.indexOf(c.key) !== -1 && c.key !== hiddenByGroup; });
+  if (visibleCols.length === 0){
+    wrap.innerHTML = '<div class="view-sub" style="padding:16px;">Chưa chọn cột nào để hiển thị — bấm "Cột" ở trên.</div>';
+    return;
+  }
+
+  var table = document.createElement('table'); table.className = 'data-table';
+  var thead = document.createElement('thead');
+  var headRow = document.createElement('tr');
+  visibleCols.forEach(function(col){
+    var th = document.createElement('th');
+    var labelSpan = document.createElement('span'); labelSpan.textContent = col.label;
+    th.appendChild(labelSpan);
+    appendColumnHeaderFilter(th, col.key);
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  var canEdit = hasRole('editor');
+  var rowSortFn = tableSortByColumn(tableRowSortColumn(visibleCols));
+  var tbody = document.createElement('tbody');
+  if (tasks.length === 0){
+    var emptyTr = document.createElement('tr');
+    var emptyTd = document.createElement('td'); emptyTd.colSpan = visibleCols.length;
+    emptyTd.className = 'view-sub'; emptyTd.style.padding = '16px'; emptyTd.textContent = 'Không có nghiệp vụ nào khớp filter.';
+    emptyTr.appendChild(emptyTd);
+    tbody.appendChild(emptyTr);
+  } else if (_tableGroupBy === 'none'){
+    tasks.slice().sort(rowSortFn).forEach(function(t){ tbody.appendChild(renderTableRow(t, visibleCols, canEdit)); });
+  } else {
+    tableGroupsForMode(tasks, _lastTableSprints || [], _lastTablePhases || [], _tableGroupBy).forEach(function(g){
+      var groupTasks = tasks.filter(function(t){ return tableTaskGroupKey(t, _tableGroupBy) === g.key; }).sort(rowSortFn);
+      if (groupTasks.length === 0) return;
+      var headTr = document.createElement('tr'); headTr.className = 'data-table-group-row';
+      var th = document.createElement('td'); th.colSpan = visibleCols.length;
+      th.textContent = g.label + ' (' + groupTasks.length + ')';
+      headTr.appendChild(th);
+      tbody.appendChild(headTr);
+      groupTasks.forEach(function(t){ tbody.appendChild(renderTableRow(t, visibleCols, canEdit)); });
+    });
+  }
+  table.appendChild(tbody);
+  wrap.innerHTML = '';
+  wrap.appendChild(table);
+  // scrollHeight is only reliably accurate once the browser has actually
+  // laid the table out — for a big rebuild (100+ rows at once) reading it
+  // synchronously right after appendChild measured stale (pre-layout)
+  // heights for some rows. requestAnimationFrame would be the usual fix,
+  // but rAF callbacks are suspended entirely on a backgrounded tab (a
+  // real scenario: switching tabs mid-load), so a textarea could be left
+  // permanently un-grown. setTimeout still fires on a hidden tab (only
+  // throttled, never suspended), so it defers past the same layout race
+  // without that risk. (If this view itself isn't the visible one right
+  // now, scrollHeight is 0 regardless of timing — see the nav-switch call
+  // to autoGrowAllTableTextareas() that covers that case.)
+  setTimeout(autoGrowAllTableTextareas, 0);
+}
+
+document.getElementById('tableViewWrap').addEventListener('click', function(e){
+  if (e.target.closest('.table-cell-input')) return; // let the input/select handle its own interaction
+  var row = e.target.closest('.data-table-row');
+  if (!row || !_lastTableTasks) return;
+  var task = _lastTableTasks.find(function(t){ return String(t.id) === row.dataset.taskId; });
+  if (task) openDrawer('edit', task);
+});
+
+// scoped to [data-groupby] specifically — the export JSON/Excel buttons
+// now sit inside this same chip row (to share the line, see
+// .table-export-actions) and are plain .chip too, but aren't group-by chips.
+document.querySelectorAll('#tableGroupByChips .chip[data-groupby]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#tableGroupByChips .chip[data-groupby]').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    _tableGroupBy = btn.dataset.groupby;
+    if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
+  });
+});
+
+// column-visibility picker: static list (TABLE_COLUMNS never changes), so
+// wired once here rather than re-rendered on every loadTableView() — a
+// re-render would also risk closing the panel mid-click.
+renderMultiSelectDropdown(
+  document.getElementById('tableColumnsMs'), 'Cột', TABLE_COLUMNS, _tableVisibleColumns,
+  function(){
+    saveTableColumnPrefs();
+    if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
+  },
+  false, { alignRight: true }
+);
+
+function loadTableView(){
+  return Promise.all([loadTasks(), loadSprints(), loadPhasesList(), fetchJSON('/api/logs')])
+    .then(function(results){
+      _lastTableTasks = results[0]; _lastTableSprints = results[1]; _lastTablePhases = results[2];
+      // /api/logs is already sorted newest-first, so the first entry seen
+      // per task_id is that task's most recent log — same reduction used
+      // by the Sprint page and Timeline nhóm.
+      _tableLatestLogByTaskId = {};
+      results[3].forEach(function(l){
+        if (!(l.task_id in _tableLatestLogByTaskId)) _tableLatestLogByTaskId[l.task_id] = l;
+      });
+      renderTableView(applyTableFilters(_lastTableTasks));
+      // only pick the default phase to show ONCE — a data refresh (task
+      // save, filter elsewhere, refreshAllViews) must not yank the user
+      // back to "today's phase" while they're looking at another one.
+      if (!_tableSummaryInitialized && _lastTablePhases.length){
+        _tableSummaryInitialized = true;
+        var idx = _lastTablePhases.findIndex(function(p){ return p.pct_complete !== null && p.pct_complete < 100; });
+        _tableSummaryPhaseIdx = idx === -1 ? _lastTablePhases.length - 1 : idx;
+      }
+      renderPhaseSummary();
+    })
+    .catch(function(err){
+      console.error('Failed to load Bảng danh sách', err);
+      var wrap = document.getElementById('tableViewWrap');
+      if (wrap) wrap.innerHTML = '<div class="view-sub" style="padding:16px;">Không tải được dữ liệu. Thử tải lại trang.</div>';
+    });
+}
+
+// ---- phase summary: category x status pivot for one phase at a time
+// (the one "current" today by default — same isCurrentPhase definition
+// the Roadmap cards use: the first phase whose pct_complete hasn't hit
+// 100 yet), with prev/next arrows to page through every other phase.
+// Reuses the phases' own server-computed pct_complete (already on
+// _lastTablePhases from /api/phases) rather than recomputing it. ----
+var _tableSummaryPhaseIdx = 0;
+var _tableSummaryInitialized = false;
+
+function buildPhaseSummaryRows(phaseTasks){
+  return bucketsForGroupBy(phaseTasks, 'category').map(function(cat){
+    var catTasks = phaseTasks.filter(function(t){ return t.category === cat.key; });
+    return {
+      key: cat.key,
+      label: cat.label,
+      total: catTasks.length,
+      byStatus: STATUS_ORDER.map(function(s){ return catTasks.filter(function(t){ return t.status === s; }).length; }),
+      doneCount: catTasks.filter(isEffectivelyDone).length
+    };
+  }).filter(function(row){ return row.total > 0; });
+}
+
+// shows BOTH numbers, not just the ratio — "6/9 · 66.7%" instead of a bare
+// "66.7%" that leaves you guessing what the two counts behind it were.
+function phaseSummaryPctText(doneCount, total){
+  if (total === 0) return '';
+  return doneCount + '/' + total + ' · ' + (Math.round((doneCount / total) * 1000) / 10) + '%';
+}
+
+// statuses "Hoàn thành" counts as done — same >= Done UAT threshold
+// isEffectivelyDone itself uses, so a click on that column filters to
+// exactly the same set of tasks the percentage was computed from.
+var PHASE_SUMMARY_DONE_STATUSES = STATUS_ORDER.filter(function(s){ return statusDotToNum(s) >= 4; });
+
+// every count cell doubles as a filter shortcut into the table below —
+// data-cat/data-status ("" means "every category"/"every status") plus
+// data-done for the Hoàn thành column, read back in the click handler.
+function phaseSummaryCellAttrs(catKey, status, isDone){
+  return 'data-clickable="1" data-cat="' + escapeHtml(catKey || '') + '"' +
+    (isDone ? ' data-done="1"' : ' data-status="' + escapeHtml(status || '') + '"');
+}
+
+function renderPhaseSummary(){
+  var titleEl = document.getElementById('phaseSummaryTitle');
+  var wrap = document.getElementById('phaseSummaryTableWrap');
+  var prevBtn = document.getElementById('phaseSummaryPrev');
+  var nextBtn = document.getElementById('phaseSummaryNext');
+  var phases = _lastTablePhases || [];
+  if (phases.length === 0){
+    titleEl.textContent = 'Chưa có phase nào.';
+    wrap.innerHTML = '';
+    prevBtn.disabled = nextBtn.disabled = true;
+    return;
+  }
+  var phase = phases[_tableSummaryPhaseIdx];
+  titleEl.textContent = phase.code + ': ' + phase.name + ' — mốc ' + fmtDMY(phase.target_date);
+  prevBtn.disabled = _tableSummaryPhaseIdx === 0;
+  nextBtn.disabled = _tableSummaryPhaseIdx === phases.length - 1;
+
+  var phaseTasks = (_lastTableTasks || []).filter(function(t){ return t.phase_id === phase.id; });
+  var rows = buildPhaseSummaryRows(phaseTasks);
+  if (rows.length === 0){
+    wrap.innerHTML = '<div class="view-sub" style="padding:6px 0;">Phase này chưa có nghiệp vụ.</div>';
+    return;
+  }
+
+  var statusLabels = STATUS_ORDER.map(function(s, idx){ return statusLabel[idx].replace(/^\d+\.\s*/, ''); });
+  var headHtml = '<tr><th>Category</th>' + statusLabels.map(function(l){ return '<th>' + escapeHtml(l) + '</th>'; }).join('') +
+    '<th>Tổng</th><th>Hoàn thành</th></tr>';
+
+  var bodyHtml = rows.map(function(r){
+    var statusCells = r.byStatus.map(function(c, idx){
+      return '<td class="phase-summary-value" ' + phaseSummaryCellAttrs(r.key, STATUS_ORDER[idx]) + '>' + (c || '') + '</td>';
+    }).join('');
+    return '<tr><td class="phase-summary-cat">' + escapeHtml(r.label) + '</td>' + statusCells +
+      '<td class="phase-summary-value" ' + phaseSummaryCellAttrs(r.key, '') + '>' + r.total + '</td>' +
+      '<td class="phase-summary-value" ' + phaseSummaryCellAttrs(r.key, null, true) + '>' + phaseSummaryPctText(r.doneCount, r.total) + '</td></tr>';
+  }).join('');
+
+  var totalByStatus = STATUS_ORDER.map(function(s){ return phaseTasks.filter(function(t){ return t.status === s; }).length; });
+  var totalDone = phaseTasks.filter(isEffectivelyDone).length;
+  var totalStatusCells = totalByStatus.map(function(c, idx){
+    return '<td class="phase-summary-value" ' + phaseSummaryCellAttrs('', STATUS_ORDER[idx]) + '>' + (c || '') + '</td>';
+  }).join('');
+  var totalRow = '<tr class="phase-summary-total-row"><td class="phase-summary-cat">Tổng</td>' + totalStatusCells +
+    '<td class="phase-summary-value" ' + phaseSummaryCellAttrs('', '') + '>' + phaseTasks.length + '</td>' +
+    '<td class="phase-summary-value" ' + phaseSummaryCellAttrs('', null, true) + '>' + phaseSummaryPctText(totalDone, phaseTasks.length) + '</td></tr>';
+
+  wrap.innerHTML = '<table class="phase-summary-table"><thead>' + headHtml + '</thead><tbody>' + bodyHtml + totalRow + '</tbody></table>';
+}
+
+document.getElementById('phaseSummaryPrev').addEventListener('click', function(){
+  if (_tableSummaryPhaseIdx > 0){ _tableSummaryPhaseIdx--; renderPhaseSummary(); }
+});
+document.getElementById('phaseSummaryNext').addEventListener('click', function(){
+  if (_lastTablePhases && _tableSummaryPhaseIdx < _lastTablePhases.length - 1){ _tableSummaryPhaseIdx++; renderPhaseSummary(); }
+});
+
+// clicking a count in the pivot jumps the table below straight to that
+// slice (phase + category + status, or the Done UAT/Done pair for "Hoàn
+// thành") — resets Platform/Sprint since they're unrelated to what this
+// widget is slicing by, same as clearAllTableFilters below.
+document.getElementById('phaseSummaryTableWrap').addEventListener('click', function(e){
+  var cell = e.target.closest('td[data-clickable]');
+  if (!cell || !_lastTablePhases || !_lastTablePhases.length) return;
+  var phase = _lastTablePhases[_tableSummaryPhaseIdx];
+  _tableFilterPhase.length = 0; _tableFilterPhase.push(String(phase.id));
+  _tableFilterCategory.length = 0;
+  if (cell.dataset.cat) _tableFilterCategory.push(cell.dataset.cat);
+  _tableFilterStatus.length = 0;
+  if (cell.dataset.done === '1') PHASE_SUMMARY_DONE_STATUSES.forEach(function(s){ _tableFilterStatus.push(s); });
+  else if (cell.dataset.status) _tableFilterStatus.push(cell.dataset.status);
+  _tableFilterPlatform.length = 0;
+  _tableFilterSprint.length = 0;
+  renderTableView(applyTableFilters(_lastTableTasks));
+  document.getElementById('tableViewWrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+function clearAllTableFilters(){
+  _tableFilterCategory.length = 0; _tableFilterPlatform.length = 0; _tableFilterStatus.length = 0;
+  _tableFilterPhase.length = 0; _tableFilterSprint.length = 0;
+  if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
+}
+document.getElementById('tableClearFiltersBtn').addEventListener('click', clearAllTableFilters);
+
+// ---- export (Bảng danh sách): plain-text mirror of tableCellHtml — same
+// per-column values, just as bare strings instead of <span>/<select> HTML,
+// and reusing the CURRENT visible-columns/order/filters/group-hide state
+// exactly as buildTaskExportColumns computes it for on-screen rendering —
+// so "what you export" always matches "what you're looking at". ----
+function tableCellPlainText(col, t){
+  switch (col.key){
+    case 'stt': return t.stt != null ? t.stt : '';
+    case 'category': return t.category || '';
+    case 'name': return t.name || '';
+    case 'why': return t.why || '';
+    case 'platform': return t.platform || '';
+    case 'phase': return t.phase_code || '';
+    case 'sprint': return t.sprint_code || '';
+    case 'status': return statusLabel[statusDotToNum(t.status)].replace(/^\d+\.\s*/, '');
+    case 'start': { var r1 = effectiveRange(t); return r1 ? fmtDMY(toIsoDate(r1.start)) : (t.start_date ? fmtDMY(t.start_date) : ''); }
+    case 'due': { var r2 = effectiveRange(t); return r2 ? fmtDMY(toIsoDate(r2.end)) : (t.due_date ? fmtDMY(t.due_date) : ''); }
+    case 'resource_roles': return (t.resource_roles || []).join(', ');
+    case 'done_analyst': return t.done_analyst ? 'Có' : '';
+    case 'done_dev': return t.done_dev ? 'Có' : '';
+    case 'done_uat': return t.done_uat ? 'Có' : '';
+    case 'done_staging': return t.done_staging ? 'Có' : '';
+    case 'latest_note': { var log = _tableLatestLogByTaskId[t.id]; return log ? stripActorSuffix(log.note) : ''; }
+    default: return '';
+  }
+}
+// same visible-columns computation renderTableView uses (saved column
+// picks minus whichever one the active group-by already shows in the row
+// header), and the same filtered+STT-sorted task list — one shared
+// source so the JSON/Excel export can never drift from the on-screen table.
+function buildTableExportData(){
+  var hiddenByGroup = TABLE_GROUPBY_COLUMN_KEY[_tableGroupBy];
+  var visibleCols = TABLE_COLUMNS.filter(function(c){ return _tableVisibleColumns.indexOf(c.key) !== -1 && c.key !== hiddenByGroup; });
+  var tasks = applyTableFilters(_lastTableTasks || []).slice().sort(tableSortByColumn(tableRowSortColumn(visibleCols)));
+  return { visibleCols: visibleCols, tasks: tasks };
+}
+function buildTableExportJson(){
+  var data = buildTableExportData();
+  return data.tasks.map(function(t){
+    var obj = {};
+    data.visibleCols.forEach(function(col){ obj[col.label] = tableCellPlainText(col, t); });
+    return obj;
+  });
+}
+function buildTableExportAoa(){
+  var data = buildTableExportData();
+  var header = data.visibleCols.map(function(c){ return c.label; });
+  var rows = data.tasks.map(function(t){ return data.visibleCols.map(function(col){ return tableCellPlainText(col, t); }); });
+  return [header].concat(rows);
+}
+wireExportJsonButton('exportTableJsonBtn', function(){ return Promise.resolve(buildTableExportJson()); }, 'ttt-bang-danh-sach');
+wireExportExcelButton('exportTableExcelBtn', function(){ return Promise.resolve(buildTableExportAoa()); }, 'ttt-bang-danh-sach', 'Bang danh sach');
 
 // hidden scratchpad for measuring how tall a card's real content (with
 // wrapping enabled) actually renders at a given width — position:fixed +
@@ -4423,6 +5199,7 @@ loadGroupedTimelineView();
 loadBoardView();
 loadLogView();
 loadResourceView();
+loadTableView();
 
 // keep the drawer's Category <select> in sync with whatever custom category
 // names have actually been used before, not just the 4 known defaults —
@@ -4483,6 +5260,7 @@ function refreshAllViews(){
   loadLogView();
   loadAiAssessmentHistory();
   loadResourceView();
+  loadTableView();
 }
 
 // guards saveBtn/deleteBtn against double-submit (double-click, or clicking
@@ -4552,7 +5330,7 @@ document.getElementById('saveBtn').addEventListener('click', function(){
     status: status,
     phase_id: phaseVal ? Number(phaseVal) : null,
     sprint_id: sprintVal ? Number(sprintVal) : null,
-    stt: editingTaskId ? editingTaskStt : null,
+    stt: editingTaskStt,
     date_overridden: dateOverridden,
     start_date: startVal,
     due_date: dueVal

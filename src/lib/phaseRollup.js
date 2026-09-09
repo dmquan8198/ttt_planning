@@ -13,9 +13,9 @@ function statusAtLeast(status, minCode) {
 // set, regardless of the task's later Kanban status).
 function computePhaseRollup(phase, tasks, todayISO) {
   const total = tasks.length;
-  const doneAnalyst = tasks.filter((t) => statusAtLeast(t.status, '1.ready_for_dev')).length;
-  const doneDevQc = tasks.filter((t) => statusAtLeast(t.status, '3.ready_for_staging')).length;
-  const golive = tasks.filter((t) => statusAtLeast(t.status, '4.done')).length;
+  const doneAnalyst = tasks.filter((t) => statusAtLeast(t.status, '2.ready_for_dev')).length;
+  const doneDevQc = tasks.filter((t) => statusAtLeast(t.status, '4.ready_for_staging')).length;
+  const golive = tasks.filter((t) => statusAtLeast(t.status, '5.done')).length;
   // headline %: how far the phase is toward Done UAT — the default group-by
   // on the Roadmap. round to 1 decimal place.
   const pctComplete = total === 0 ? null : Math.round((doneDevQc / total) * 1000) / 10;
