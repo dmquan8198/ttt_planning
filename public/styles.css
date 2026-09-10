@@ -1039,6 +1039,8 @@ body{
    scanned — force-wrapping it (instead of the table's default nowrap)
    keeps a long note readable without pushing the whole table absurdly wide. */
 .data-table td.data-table-cell-wrap{white-space:normal; word-break:break-word; min-width:220px;}
+/* STT is a plain 1..N row counter now — muted, aligned digits, no edit UI. */
+.data-table td.data-table-stt{color:var(--ink-muted); font-variant-numeric:tabular-nums; white-space:nowrap;}
 /* "Cập nhật mới nhất" carries actual "\n" line breaks the user typed into
    the log note (bullet-style updates) — plain white-space:normal above
    still wraps by width, but collapses those literal newlines into one
@@ -1081,7 +1083,26 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
    looking at" is answered before you even scroll to the grid. ---- */
 .phase-summary{
   margin-bottom:16px; padding:14px 16px; border:1px solid var(--border); border-radius:8px; background:var(--surface);
+  display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap;
 }
+/* phase pivot (left, the wider ~2 share) + project-wide sprint buckets
+   (right, the compact ~1 share); both min-width:0 so the pivot's own
+   table can scroll inside its column instead of forcing the row wider. */
+.phase-summary-main{flex:2 1 440px; min-width:0;}
+#phaseSummaryTableWrap{overflow-x:auto;}
+.sprint-summary{flex:1 1 240px; min-width:0; display:flex; flex-direction:column; gap:10px;}
+.sprint-summary-box{border:1px solid var(--border); border-radius:8px; padding:9px 12px; background:var(--surface-2);}
+.sprint-summary-box-label{font-size:10px; letter-spacing:0.04em; text-transform:uppercase; color:var(--ink-muted); font-weight:700;}
+.sprint-summary-box-range{display:block; margin-top:1px; font-size:10px; font-weight:400; letter-spacing:0; text-transform:none; color:var(--ink-muted);}
+.sprint-summary-box-total{font-family:var(--serif); font-size:23px; font-weight:700; line-height:1.15; margin:3px 0 5px;}
+.sprint-summary-box-breakdown{display:flex; flex-wrap:wrap; gap:3px 12px; font-size:11px; color:var(--ink-muted);}
+.sprint-summary-box-ratio{margin-top:6px; font-size:11px; font-weight:600; color:var(--ink);}
+.sprint-summary-box-comp{margin-top:5px; font-size:10.5px; color:var(--ink-muted); line-height:1.6;}
+.sprint-summary-box-comp .sprint-summary-stat b{color:var(--ink);}
+.sprint-summary-box-empty{margin-top:4px; font-size:11.5px; color:var(--ink-muted);}
+.sprint-summary-stat{cursor:pointer; border-radius:4px;}
+.sprint-summary-stat:hover{background:var(--surface); color:var(--accent-ink);}
+.sprint-summary-box-total.sprint-summary-stat:hover{background:var(--surface); padding:0 3px; margin-left:-3px;}
 .phase-summary-head{display:flex; align-items:center; justify-content:center; gap:14px; margin-bottom:10px;}
 .phase-summary-nav{
   flex:none; width:28px; height:28px; border-radius:6px; border:1px solid var(--border);

@@ -3319,6 +3319,11 @@ function saveTableColumnPrefs(){
 
 var _tableVisibleColumns = loadTableColumnPrefs();
 var _tableFilterCategory = [], _tableFilterPlatform = [], _tableFilterStatus = [], _tableFilterPhase = [], _tableFilterSprint = [];
+// an optional extra predicate the column-header filters can't express —
+// e.g. "Sprint này"'s composed total (this sprint's tasks OR an earlier
+// sprint's In-Dev carry-over). Set only by the summary widgets; any
+// column-header filter change or "Bỏ lọc" drops it back to null.
+var _tableFilterFn = null;
 var _tableGroupBy = 'sprint';
 // which TABLE_COLUMNS key each group-by mode duplicates — hidden while
 // grouped by it (every row in a group already shares that value, shown
@@ -3330,6 +3335,7 @@ var _tableLatestLogByTaskId = {};
 
 function applyTableFilters(tasks){
   return tasks.filter(function(t){
+    if (_tableFilterFn && !_tableFilterFn(t)) return false;
     if (_tableFilterCategory.length && _tableFilterCategory.indexOf(t.category) === -1) return false;
     if (_tableFilterPlatform.length && _tableFilterPlatform.indexOf(t.platform) === -1) return false;
     if (_tableFilterStatus.length && _tableFilterStatus.indexOf(t.status) === -1) return false;
@@ -3339,6 +3345,10 @@ function applyTableFilters(tasks){
   });
 }
 function tableFilterOnChange(){
+  // touching any column-header filter means the user's back in the plain
+  // dimension-by-dimension model — the composed predicate can't coexist
+  // with it legibly.
+  _tableFilterFn = null;
   if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
 }
 
@@ -3410,6 +3420,23 @@ function tableSortByColumn(col){
   };
 }
 
+// the flat task list in the exact top-to-bottom order the rows render —
+// grouped-then-sorted when a group-by is active, plain-sorted when not.
+// Shared by renderTableView and the export builders so the STT running
+// number (just a 1..N row counter now, not t.stt) and the row order stay
+// identical between what's on screen and what gets exported.
+function tableOrderedTasks(tasks, visibleCols){
+  var rowSortFn = tableSortByColumn(tableRowSortColumn(visibleCols));
+  if (_tableGroupBy === 'none') return tasks.slice().sort(rowSortFn);
+  var ordered = [];
+  tableGroupsForMode(tasks, _lastTableSprints || [], _lastTablePhases || [], _tableGroupBy).forEach(function(g){
+    tasks.filter(function(t){ return tableTaskGroupKey(t, _tableGroupBy) === g.key; })
+      .sort(rowSortFn)
+      .forEach(function(t){ ordered.push(t); });
+  });
+  return ordered;
+}
+
 function tableCellHtml(col, t){
   switch (col.key){
     case 'stt': return t.stt != null ? String(t.stt) : '';
@@ -3444,14 +3471,15 @@ function tableCellHtml(col, t){
   }
 }
 
-// ---- inline cell editing (editor role only) — stt/name/why/start/due as
+// ---- inline cell editing (editor role only) — name/why/start/due as
 // plain inputs, category/platform/phase/sprint/status as <select>. Saving
 // happens on the native 'change' event (fires on blur-with-a-real-change
 // for text/date inputs, and immediately on pick for selects — exactly
 // "sửa xong rời khỏi cell là lưu" for both widget kinds with one listener).
-// resource_roles/done_*/latest_note stay read-only here — click the row to
-// open the full drawer for those. ----
-var TABLE_EDITABLE_FIELDS = ['stt', 'name', 'why', 'category', 'platform', 'phase', 'sprint', 'status', 'start', 'due'];
+// STT is a plain 1..N row counter (see renderTableRow) — not editable and
+// not tied to any task. resource_roles/done_*/latest_note stay read-only
+// here too — click the row to open the full drawer for those. ----
+var TABLE_EDITABLE_FIELDS = ['name', 'why', 'category', 'platform', 'phase', 'sprint', 'status', 'start', 'due'];
 
 function appendEditableInput(td, type, field, task, value){
   var input = document.createElement('input');
@@ -3509,7 +3537,6 @@ function appendEditableSelect(td, field, task, options, selectedValue, emptyLabe
 }
 function appendEditableCell(td, col, t){
   switch (col.key){
-    case 'stt': appendEditableInput(td, 'number', 'stt', t, t.stt != null ? t.stt : ''); return;
     case 'name': appendEditableTextarea(td, 'name', t, t.name || ''); return;
     case 'why': appendEditableInput(td, 'text', 'why', t, t.why || ''); return;
     case 'start': appendEditableInput(td, 'date', 'start', t, t.start_date || ''); return;
@@ -3548,18 +3575,24 @@ function appendEditableCell(td, col, t){
 // every call above (bucketsForGroupBy's own output, or a hand-built list)
 // passes straight through without reshaping.
 
-function renderTableRow(t, visibleCols, canEdit){
+function renderTableRow(t, visibleCols, canEdit, rowNum){
   var tr = document.createElement('tr');
   tr.className = 'data-table-row';
   tr.dataset.taskId = t.id;
   visibleCols.forEach(function(col){
     var td = document.createElement('td');
-    if (col.key === 'latest_note') td.className = 'data-table-cell-wrap data-table-cell-notes';
-    else if (col.key === 'why' || col.key === 'name') td.className = 'data-table-cell-wrap';
-    if (canEdit && TABLE_EDITABLE_FIELDS.indexOf(col.key) !== -1){
-      appendEditableCell(td, col, t);
-    } else {
+    if (col.key === 'stt'){
+      // just the row's position top-to-bottom in the current sort/grouping
+      // — not t.stt, not editable.
+      td.className = 'data-table-stt';
+      td.textContent = rowNum;
+    } else if (col.key === 'latest_note'){
+      td.className = 'data-table-cell-wrap data-table-cell-notes';
       td.innerHTML = tableCellHtml(col, t);
+    } else {
+      if (col.key === 'why' || col.key === 'name') td.className = 'data-table-cell-wrap';
+      if (canEdit && TABLE_EDITABLE_FIELDS.indexOf(col.key) !== -1) appendEditableCell(td, col, t);
+      else td.innerHTML = tableCellHtml(col, t);
     }
     tr.appendChild(td);
   });
@@ -3657,7 +3690,6 @@ document.getElementById('tableViewWrap').addEventListener('change', function(e){
 
   var overrides;
   switch (field){
-    case 'stt': overrides = { stt: newValue === '' ? null : Number(newValue) }; break;
     case 'phase': overrides = { phase_id: newValue === '' ? null : Number(newValue) }; break;
     case 'start': overrides = { start_date: newValue, date_overridden: true }; break;
     default: overrides = {}; overrides[field] = newValue; break; // name, why, category, platform, status
@@ -3713,6 +3745,7 @@ function renderTableView(tasks){
   var canEdit = hasRole('editor');
   var rowSortFn = tableSortByColumn(tableRowSortColumn(visibleCols));
   var tbody = document.createElement('tbody');
+  var rowNum = 0; // STT: a running 1..N counter down the whole table
   if (tasks.length === 0){
     var emptyTr = document.createElement('tr');
     var emptyTd = document.createElement('td'); emptyTd.colSpan = visibleCols.length;
@@ -3720,7 +3753,7 @@ function renderTableView(tasks){
     emptyTr.appendChild(emptyTd);
     tbody.appendChild(emptyTr);
   } else if (_tableGroupBy === 'none'){
-    tasks.slice().sort(rowSortFn).forEach(function(t){ tbody.appendChild(renderTableRow(t, visibleCols, canEdit)); });
+    tasks.slice().sort(rowSortFn).forEach(function(t){ tbody.appendChild(renderTableRow(t, visibleCols, canEdit, ++rowNum)); });
   } else {
     tableGroupsForMode(tasks, _lastTableSprints || [], _lastTablePhases || [], _tableGroupBy).forEach(function(g){
       var groupTasks = tasks.filter(function(t){ return tableTaskGroupKey(t, _tableGroupBy) === g.key; }).sort(rowSortFn);
@@ -3730,7 +3763,7 @@ function renderTableView(tasks){
       th.textContent = g.label + ' (' + groupTasks.length + ')';
       headTr.appendChild(th);
       tbody.appendChild(headTr);
-      groupTasks.forEach(function(t){ tbody.appendChild(renderTableRow(t, visibleCols, canEdit)); });
+      groupTasks.forEach(function(t){ tbody.appendChild(renderTableRow(t, visibleCols, canEdit, ++rowNum)); });
     });
   }
   table.appendChild(tbody);
@@ -3793,7 +3826,6 @@ function loadTableView(){
       results[3].forEach(function(l){
         if (!(l.task_id in _tableLatestLogByTaskId)) _tableLatestLogByTaskId[l.task_id] = l;
       });
-      renderTableView(applyTableFilters(_lastTableTasks));
       // only pick the default phase to show ONCE — a data refresh (task
       // save, filter elsewhere, refreshAllViews) must not yank the user
       // back to "today's phase" while they're looking at another one.
@@ -3801,8 +3833,15 @@ function loadTableView(){
         _tableSummaryInitialized = true;
         var idx = _lastTablePhases.findIndex(function(p){ return p.pct_complete !== null && p.pct_complete < 100; });
         _tableSummaryPhaseIdx = idx === -1 ? _lastTablePhases.length - 1 : idx;
+        // the table below starts scoped to that same phase (the pivot's
+        // ‹ › then moves both together); don't override a filter the user
+        // somehow already set before this first load finished.
+        var initPhase = _lastTablePhases[_tableSummaryPhaseIdx];
+        if (initPhase && !_tableFilterPhase.length) _tableFilterPhase.push(String(initPhase.id));
       }
+      renderTableView(applyTableFilters(_lastTableTasks));
       renderPhaseSummary();
+      renderSprintSummary();
     })
     .catch(function(err){
       console.error('Failed to load Bảng danh sách', err);
@@ -3902,11 +3941,23 @@ function renderPhaseSummary(){
   wrap.innerHTML = '<table class="phase-summary-table"><thead>' + headHtml + '</thead><tbody>' + bodyHtml + totalRow + '</tbody></table>';
 }
 
+// the table below is scoped to whichever phase this pivot is on by
+// default — so paging the pivot re-scopes the table to match. The user
+// widens it again by changing the Phase column filter (or "Bỏ lọc").
+function syncTablePhaseFilterToSummary(){
+  var phases = _lastTablePhases || [];
+  var phase = phases[_tableSummaryPhaseIdx];
+  if (!phase) return;
+  _tableFilterFn = null;
+  _tableFilterPhase.length = 0;
+  _tableFilterPhase.push(String(phase.id));
+  if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
+}
 document.getElementById('phaseSummaryPrev').addEventListener('click', function(){
-  if (_tableSummaryPhaseIdx > 0){ _tableSummaryPhaseIdx--; renderPhaseSummary(); }
+  if (_tableSummaryPhaseIdx > 0){ _tableSummaryPhaseIdx--; renderPhaseSummary(); syncTablePhaseFilterToSummary(); }
 });
 document.getElementById('phaseSummaryNext').addEventListener('click', function(){
-  if (_lastTablePhases && _tableSummaryPhaseIdx < _lastTablePhases.length - 1){ _tableSummaryPhaseIdx++; renderPhaseSummary(); }
+  if (_lastTablePhases && _tableSummaryPhaseIdx < _lastTablePhases.length - 1){ _tableSummaryPhaseIdx++; renderPhaseSummary(); syncTablePhaseFilterToSummary(); }
 });
 
 // clicking a count in the pivot jumps the table below straight to that
@@ -3917,6 +3968,7 @@ document.getElementById('phaseSummaryTableWrap').addEventListener('click', funct
   var cell = e.target.closest('td[data-clickable]');
   if (!cell || !_lastTablePhases || !_lastTablePhases.length) return;
   var phase = _lastTablePhases[_tableSummaryPhaseIdx];
+  _tableFilterFn = null;
   _tableFilterPhase.length = 0; _tableFilterPhase.push(String(phase.id));
   _tableFilterCategory.length = 0;
   if (cell.dataset.cat) _tableFilterCategory.push(cell.dataset.cat);
@@ -3930,11 +3982,146 @@ document.getElementById('phaseSummaryTableWrap').addEventListener('click', funct
 });
 
 function clearAllTableFilters(){
+  _tableFilterFn = null;
   _tableFilterCategory.length = 0; _tableFilterPlatform.length = 0; _tableFilterStatus.length = 0;
   _tableFilterPhase.length = 0; _tableFilterSprint.length = 0;
   if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
 }
 document.getElementById('tableClearFiltersBtn').addEventListener('click', clearAllTableFilters);
+
+// ---- sprint summary: the sprint that contains today ("Sprint này") and
+// the one right after it ("Sprint sau"), picked by date exactly like the
+// Sprint tab's /current-next endpoint. "Sprint này" also pulls in tasks
+// still parked in an EARLIER sprint but sitting in "In Dev" — dev
+// carry-over that's really part of this sprint's load. "Sprint sau" is
+// just its own tasks. Each box shows the sprint code + range, a total, a
+// per-status split (dev-side statuses for the running sprint, prep-side
+// for the upcoming one), and a ratio — Done+Done UAT over total for
+// "này", Ready for Dev over total for "sau". Numbers click-filter the
+// table below. ----
+var SPRINT_SUMMARY_DEFS = [
+  {
+    label: 'Sprint này', pick: 'current',
+    statuses: ['3.in_test', '4.ready_for_staging', '5.done'],
+    ratioStatuses: ['4.ready_for_staging', '5.done'], ratioLabel: 'Hoàn thành',
+    carryOverStatus: '3.in_test'
+  },
+  {
+    label: 'Sprint sau', pick: 'next',
+    statuses: ['0.backlog', '1.in_analyst', '2.ready_for_dev'],
+    ratioStatuses: ['2.ready_for_dev'], ratioLabel: 'Sẵn sàng'
+  }
+];
+// same rule as src/lib/pickCurrentAndNextSprint.js: the sprint whose range
+// covers today is "current" and the next one by start_date is "next"; if
+// today sits in a gap between cycles, current is null and next is the
+// first upcoming sprint.
+function pickTableCurrentNextSprint(){
+  var sorted = (_lastTableSprints || []).slice().sort(function(a, b){ return a.start_date.localeCompare(b.start_date); });
+  var today = todayIsoLocal();
+  var ci = sorted.findIndex(function(s){ return s.start_date <= today && today <= s.end_date; });
+  if (ci === -1) return { current: null, next: sorted.find(function(s){ return s.start_date > today; }) || null };
+  return { current: sorted[ci], next: sorted[ci + 1] || null };
+}
+function renderSprintSummary(){
+  var wrap = document.getElementById('sprintSummaryWrap');
+  if (!wrap) return;
+  var picks = pickTableCurrentNextSprint();
+  var tasks = _lastTableTasks || [];
+  wrap.innerHTML = SPRINT_SUMMARY_DEFS.map(function(def){
+    var sprint = picks[def.pick];
+    var labelHtml = escapeHtml(def.label) + (sprint ? ' · ' + escapeHtml(sprint.code) +
+      '<span class="sprint-summary-box-range">' + escapeHtml(fmtRange(sprint.start_date, sprint.end_date)) + '</span>' : '');
+    if (!sprint){
+      return '<div class="sprint-summary-box"><div class="sprint-summary-box-label">' + labelHtml + '</div>' +
+        '<div class="sprint-summary-box-empty">Chưa xác định sprint theo ngày hôm nay.</div></div>';
+    }
+    var sprintById = {};
+    (_lastTableSprints || []).forEach(function(s){ sprintById[s.id] = s; });
+    var ownTasks = tasks.filter(function(t){ return t.sprint_id === sprint.id; });
+    // dev carry-over: tasks still in `carryOverStatus` but assigned to a
+    // sprint that already ended before this one started.
+    var carrySprintIds = [], carryTasks = [];
+    if (def.carryOverStatus){
+      carrySprintIds = (_lastTableSprints || [])
+        .filter(function(s){ return s.end_date < sprint.start_date; })
+        .map(function(s){ return s.id; });
+      carryTasks = tasks.filter(function(t){
+        return t.status === def.carryOverStatus && t.sprint_id != null && carrySprintIds.indexOf(t.sprint_id) !== -1;
+      });
+    }
+    var sprintTasks = ownTasks.concat(carryTasks);
+    if (sprintTasks.length === 0){
+      return '<div class="sprint-summary-box"><div class="sprint-summary-box-label">' + labelHtml + '</div>' +
+        '<div class="sprint-summary-box-empty">Chưa có nghiệp vụ.</div></div>';
+    }
+    // the carry-over status's split spans this sprint + the earlier ones it
+    // pulled from, so its click filters back to exactly the number shown;
+    // every other split (and the ratio) is this sprint only.
+    var breakdown = def.statuses.map(function(s){
+      var n = sprintTasks.filter(function(t){ return t.status === s; }).length;
+      var lbl = statusLabel[statusDotToNum(s)].replace(/^\d+\.\s*/, '');
+      var ids = s === def.carryOverStatus ? [sprint.id].concat(carrySprintIds) : [sprint.id];
+      return '<span class="sprint-summary-stat" data-sprints="' + ids.join(',') + '" data-statuses="' + s + '">' + escapeHtml(lbl) + ' <b>' + n + '</b></span>';
+    }).join('');
+    var ratioCount = sprintTasks.filter(function(t){ return def.ratioStatuses.indexOf(t.status) !== -1; }).length;
+
+    // spell out how the total is built: this sprint (any status) + each
+    // earlier sprint's carry-over, most recent first. Each piece is its
+    // own click-filter; the big total goes through _tableFilterFn so it
+    // lands on exactly this set (which the plain column filters can't
+    // express — "all of X plus only In-Dev of Y").
+    var carryBySprint = {};
+    carryTasks.forEach(function(t){ carryBySprint[t.sprint_id] = (carryBySprint[t.sprint_id] || 0) + 1; });
+    var compHtml = '';
+    var totalAttrs = 'data-sprints="' + sprint.id + '"';
+    if (carryTasks.length){
+      var parts = ['<span class="sprint-summary-stat" data-sprints="' + sprint.id + '">' + escapeHtml(sprint.code) + ' <b>' + ownTasks.length + '</b></span>'];
+      carrySprintIds.slice().reverse().forEach(function(id){
+        if (!carryBySprint[id]) return;
+        var code = sprintById[id] ? sprintById[id].code : ('#' + id);
+        parts.push('<span class="sprint-summary-stat" data-sprints="' + id + '" data-statuses="' + def.carryOverStatus + '">' + escapeHtml(code) + ' <b>' + carryBySprint[id] + '</b></span>');
+      });
+      compHtml = '<div class="sprint-summary-box-comp">Gồm: ' + parts.join(' + ') + '</div>';
+      totalAttrs += ' data-composed-current="' + sprint.id + '"' +
+        ' data-composed-carry="' + Object.keys(carryBySprint).join(',') + '"' +
+        ' data-composed-status="' + def.carryOverStatus + '"';
+    }
+
+    return '<div class="sprint-summary-box">' +
+      '<div class="sprint-summary-box-label">' + labelHtml + '</div>' +
+      '<div class="sprint-summary-box-total sprint-summary-stat" ' + totalAttrs + '>' + sprintTasks.length + '</div>' +
+      '<div class="sprint-summary-box-breakdown">' + breakdown + '</div>' +
+      compHtml +
+      '<div class="sprint-summary-box-ratio sprint-summary-stat" data-sprints="' + sprint.id + '" data-statuses="' + def.ratioStatuses.join(',') + '">' +
+        escapeHtml(def.ratioLabel) + ': ' + phaseSummaryPctText(ratioCount, sprintTasks.length) + '</div>' +
+    '</div>';
+  }).join('');
+}
+document.getElementById('sprintSummaryWrap').addEventListener('click', function(e){
+  var el = e.target.closest('[data-sprints]');
+  if (!el || !_lastTableTasks) return;
+  // every sprint-summary click owns the whole filter state — reset all
+  // axes, then set just what this element represents.
+  _tableFilterSprint.length = 0; _tableFilterStatus.length = 0;
+  _tableFilterPhase.length = 0; _tableFilterCategory.length = 0; _tableFilterPlatform.length = 0;
+  if (el.dataset.composedCurrent){
+    // "all of this sprint, plus only the carry-over status from the
+    // earlier ones" — needs the predicate slot, not the column filters.
+    var cur = Number(el.dataset.composedCurrent);
+    var carry = el.dataset.composedCarry ? el.dataset.composedCarry.split(',').map(Number) : [];
+    var st = el.dataset.composedStatus;
+    _tableFilterFn = function(t){
+      return t.sprint_id === cur || (t.status === st && t.sprint_id != null && carry.indexOf(t.sprint_id) !== -1);
+    };
+  } else {
+    _tableFilterFn = null;
+    el.dataset.sprints.split(',').forEach(function(s){ _tableFilterSprint.push(s); });
+    if (el.dataset.statuses) el.dataset.statuses.split(',').forEach(function(s){ _tableFilterStatus.push(s); });
+  }
+  renderTableView(applyTableFilters(_lastTableTasks));
+  document.getElementById('tableViewWrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
 
 // ---- export (Bảng danh sách): plain-text mirror of tableCellHtml — same
 // per-column values, just as bare strings instead of <span>/<select> HTML,
@@ -3964,26 +4151,31 @@ function tableCellPlainText(col, t){
 }
 // same visible-columns computation renderTableView uses (saved column
 // picks minus whichever one the active group-by already shows in the row
-// header), and the same filtered+STT-sorted task list — one shared
-// source so the JSON/Excel export can never drift from the on-screen table.
+// header), and the same grouped+sorted row order (tableOrderedTasks) — one
+// shared source so the JSON/Excel export can never drift from the
+// on-screen table, STT included.
 function buildTableExportData(){
   var hiddenByGroup = TABLE_GROUPBY_COLUMN_KEY[_tableGroupBy];
   var visibleCols = TABLE_COLUMNS.filter(function(c){ return _tableVisibleColumns.indexOf(c.key) !== -1 && c.key !== hiddenByGroup; });
-  var tasks = applyTableFilters(_lastTableTasks || []).slice().sort(tableSortByColumn(tableRowSortColumn(visibleCols)));
+  var tasks = tableOrderedTasks(applyTableFilters(_lastTableTasks || []), visibleCols);
   return { visibleCols: visibleCols, tasks: tasks };
+}
+// STT mirrors the on-screen counter: 1..N in export row order, not t.stt.
+function tableExportCell(col, t, i){
+  return col.key === 'stt' ? i + 1 : tableCellPlainText(col, t);
 }
 function buildTableExportJson(){
   var data = buildTableExportData();
-  return data.tasks.map(function(t){
+  return data.tasks.map(function(t, i){
     var obj = {};
-    data.visibleCols.forEach(function(col){ obj[col.label] = tableCellPlainText(col, t); });
+    data.visibleCols.forEach(function(col){ obj[col.label] = tableExportCell(col, t, i); });
     return obj;
   });
 }
 function buildTableExportAoa(){
   var data = buildTableExportData();
   var header = data.visibleCols.map(function(c){ return c.label; });
-  var rows = data.tasks.map(function(t){ return data.visibleCols.map(function(col){ return tableCellPlainText(col, t); }); });
+  var rows = data.tasks.map(function(t, i){ return data.visibleCols.map(function(col){ return tableExportCell(col, t, i); }); });
   return [header].concat(rows);
 }
 wireExportJsonButton('exportTableJsonBtn', function(){ return Promise.resolve(buildTableExportJson()); }, 'ttt-bang-danh-sach');
