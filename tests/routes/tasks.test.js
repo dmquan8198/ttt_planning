@@ -363,3 +363,76 @@ test('PUT that leaves dates unchanged does not record an activity log entry', as
   const logs = await request(app).get(`/api/tasks/${id}/logs`);
   assert.equal(logs.body.length, 0);
 });
+
+async function getTask(app, id) {
+  const res = await request(app).get('/api/tasks');
+  return res.body.find((t) => t.id === id);
+}
+
+test('creating a task straight into a non-Backlog status stamps that status', async () => {
+  const app = createApp(makeTestPool());
+  const created = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '3.in_test',
+      start_date: '2026-07-06', due_date: '2026-07-17'
+    });
+  const t = await getTask(app, created.body.id);
+  assert.ok(t.in_test_at, 'in_test_at should be set');
+  assert.equal(t.in_analyst_at, null);
+  assert.equal(t.done_at, null);
+});
+
+test('creating a Backlog task stamps nothing', async () => {
+  const app = createApp(makeTestPool());
+  const created = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '0.backlog',
+      start_date: '2026-07-06', due_date: '2026-07-17'
+    });
+  const t = await getTask(app, created.body.id);
+  assert.equal(t.in_analyst_at, null);
+  assert.equal(t.in_test_at, null);
+  assert.equal(t.ready_for_staging_at, null);
+  assert.equal(t.done_at, null);
+});
+
+test('PUT stamps the new status on a change and leaves other status stamps alone', async () => {
+  const app = createApp(makeTestPool());
+  const created = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '3.in_test',
+      start_date: '2026-07-06', due_date: '2026-07-17'
+    });
+  const id = created.body.id;
+  const inTestAt = (await getTask(app, id)).in_test_at;
+  assert.ok(inTestAt);
+
+  await asAdmin(request(app).put(`/api/tasks/${id}`))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '5.done',
+      start_date: '2026-07-06', due_date: '2026-07-17'
+    });
+
+  const after = await getTask(app, id);
+  assert.ok(after.done_at, 'done_at should be set after moving to Done');
+  assert.equal(after.in_test_at, inTestAt, 'earlier in_test_at stays as it was');
+});
+
+test('PUT that keeps the same status does not re-stamp it', async () => {
+  const app = createApp(makeTestPool());
+  const created = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '3.in_test',
+      start_date: '2026-07-06', due_date: '2026-07-17'
+    });
+  const id = created.body.id;
+  const inTestAt = (await getTask(app, id)).in_test_at;
+
+  await asAdmin(request(app).put(`/api/tasks/${id}`))
+    .send({
+      name: 'Task A renamed', category: 'Product Foundation', platform: 'Web', status: '3.in_test',
+      start_date: '2026-07-06', due_date: '2026-07-17'
+    });
+
+  assert.equal((await getTask(app, id)).in_test_at, inTestAt);
+});

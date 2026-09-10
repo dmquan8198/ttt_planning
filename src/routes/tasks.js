@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { STATUS_CODES } = require('../lib/statusCodes');
+const { STATUS_CODES, STATUS_TIMESTAMP_COLUMN } = require('../lib/statusCodes');
 const { normalizeDate } = require('../lib/normalizeDate');
 const { asyncHandler } = require('../lib/asyncHandler');
 const { isForeignKeyViolation } = require('../lib/dbErrors');
@@ -75,6 +75,13 @@ function tasksRouter(pool) {
           b.start_date, b.due_date, !!b.date_overridden, (b.why || '').trim() || null
         ]
       );
+      // a task created straight into a non-Backlog status counts as having
+      // entered it now (same rule as the status-changing PUT).
+      const stampCol = STATUS_TIMESTAMP_COLUMN[rows[0].status];
+      if (stampCol) {
+        const stamped = await pool.query(`UPDATE tasks SET ${stampCol}=now() WHERE id=$1 RETURNING *`, [rows[0].id]);
+        rows[0] = stamped.rows[0];
+      }
       const resource_roles = await replaceTaskResourceRoles(pool, rows[0].id, b.resource_roles);
       res.status(201).json({ ...normalizeTaskDates(rows[0]), resource_roles });
     } catch (err) {
@@ -102,7 +109,7 @@ function tasksRouter(pool) {
       // against what the row actually had, regardless of which caller (the
       // edit drawer or a Timeline drag/resize) triggered this PUT.
       const { rows: beforeRows } = await pool.query(
-        'SELECT start_date, due_date FROM tasks WHERE id=$1', [id]
+        'SELECT start_date, due_date, status FROM tasks WHERE id=$1', [id]
       );
       if (beforeRows.length === 0) {
         return res.status(404).json({ error: 'không tìm thấy nghiệp vụ' });
@@ -112,11 +119,18 @@ function tasksRouter(pool) {
         due_date: normalizeDate(beforeRows[0].due_date)
       };
 
+      // stamp "entered this status at" when the status actually changes
+      // (re-entering overwrites with the latest time). The column name
+      // comes from a fixed whitelist keyed by the new status — a miss
+      // (Backlog, or no change) means no stamp.
+      const stampCol = beforeRows[0].status !== b.status ? STATUS_TIMESTAMP_COLUMN[b.status] : null;
+      const stampSet = stampCol ? `, ${stampCol}=now()` : '';
+
       const { rows } = await pool.query(
         `UPDATE tasks SET
            category=$1, name=$2, platform=$3, phase_id=$4, sprint_id=$5, status=$6,
            done_analyst=$7, done_dev=$8, done_uat=$9, done_staging=$10,
-           start_date=$11, due_date=$12, date_overridden=$13, stt=$14, why=$15, updated_at=now()
+           start_date=$11, due_date=$12, date_overridden=$13, stt=$14, why=$15, updated_at=now()${stampSet}
          WHERE id=$16
          RETURNING *`,
         [

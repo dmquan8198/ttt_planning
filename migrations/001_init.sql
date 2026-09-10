@@ -45,6 +45,15 @@ CREATE TABLE IF NOT EXISTS tasks (
   due_date DATE NOT NULL,
   date_overridden BOOLEAN NOT NULL DEFAULT FALSE,
   why TEXT,
+  -- when the task most recently ENTERED each status (Backlog excluded — it
+  -- has no "reached it" moment worth tracking). Re-entering a status
+  -- overwrites its stamp with the latest time. Set server-side on the
+  -- status-changing PUT/POST, never sent by the client.
+  in_analyst_at TIMESTAMPTZ,
+  ready_for_dev_at TIMESTAMPTZ,
+  in_test_at TIMESTAMPTZ,
+  ready_for_staging_at TIMESTAMPTZ,
+  done_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -171,3 +180,21 @@ WHERE status IN ('4.done', '3.ready_for_staging', '2.in_test', '1.ready_for_dev'
 ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
 ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
   CHECK (status IN ('0.backlog','1.in_analyst','2.ready_for_dev','3.in_test','4.ready_for_staging','5.done'));
+
+-- per-status "entered at" stamps for the already-created prod table (the
+-- CREATE TABLE above is a no-op there). Backfill only the stamp matching
+-- each row's CURRENT status — there's no history to reconstruct the
+-- earlier ones — using updated_at as the best available proxy for "when
+-- it last moved". The IS NULL guard makes every backfill a no-op on
+-- re-run and never clobbers a real stamp the app has since written.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS in_analyst_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS ready_for_dev_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS in_test_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS ready_for_staging_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS done_at TIMESTAMPTZ;
+
+UPDATE tasks SET in_analyst_at        = updated_at WHERE status = '1.in_analyst'        AND in_analyst_at IS NULL;
+UPDATE tasks SET ready_for_dev_at     = updated_at WHERE status = '2.ready_for_dev'     AND ready_for_dev_at IS NULL;
+UPDATE tasks SET in_test_at           = updated_at WHERE status = '3.in_test'           AND in_test_at IS NULL;
+UPDATE tasks SET ready_for_staging_at = updated_at WHERE status = '4.ready_for_staging' AND ready_for_staging_at IS NULL;
+UPDATE tasks SET done_at              = updated_at WHERE status = '5.done'              AND done_at IS NULL;

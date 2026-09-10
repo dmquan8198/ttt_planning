@@ -13,6 +13,16 @@ const STATUS_LABELS = {
   '5.done': 'Done'
 };
 
+// which tasks column stamps "task entered this status at" — Backlog has no
+// entry worth recording, so it's deliberately absent (a lookup miss = skip).
+const STATUS_TIMESTAMP_COLUMN = {
+  '1.in_analyst': 'in_analyst_at',
+  '2.ready_for_dev': 'ready_for_dev_at',
+  '3.in_test': 'in_test_at',
+  '4.ready_for_staging': 'ready_for_staging_at',
+  '5.done': 'done_at'
+};
+
 const EXCEL_STATUS_MAP = {
   '0. backlog': '0.backlog',
   '1. Ready for Dev': '2.ready_for_dev',
@@ -25,4 +35,4 @@ function mapExcelStatus(raw) {
   return EXCEL_STATUS_MAP[raw] || '0.backlog';
 }
 
-module.exports = { STATUS_CODES, STATUS_LABELS, mapExcelStatus, EXCEL_STATUS_MAP };
+module.exports = { STATUS_CODES, STATUS_LABELS, STATUS_TIMESTAMP_COLUMN, mapExcelStatus, EXCEL_STATUS_MAP };

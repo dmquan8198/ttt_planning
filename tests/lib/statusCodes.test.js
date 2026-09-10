@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { STATUS_CODES, STATUS_LABELS, mapExcelStatus } = require('../../src/lib/statusCodes');
+const { STATUS_CODES, STATUS_LABELS, STATUS_TIMESTAMP_COLUMN, mapExcelStatus } = require('../../src/lib/statusCodes');
 
 test('STATUS_CODES has the 6 workflow stages in order', () => {
   assert.deepEqual(STATUS_CODES, [
@@ -12,6 +12,17 @@ test('STATUS_LABELS has a human label for every code', () => {
   for (const code of STATUS_CODES) {
     assert.equal(typeof STATUS_LABELS[code], 'string');
   }
+});
+
+test('STATUS_TIMESTAMP_COLUMN maps every non-Backlog status to an *_at column', () => {
+  assert.equal(STATUS_TIMESTAMP_COLUMN['0.backlog'], undefined);
+  assert.deepEqual(STATUS_TIMESTAMP_COLUMN, {
+    '1.in_analyst': 'in_analyst_at',
+    '2.ready_for_dev': 'ready_for_dev_at',
+    '3.in_test': 'in_test_at',
+    '4.ready_for_staging': 'ready_for_staging_at',
+    '5.done': 'done_at'
+  });
 });
 
 test('mapExcelStatus maps the exact strings used in the sheet', () => {

@@ -898,6 +898,14 @@ document.getElementById('logoutBtn').addEventListener('click', logout);
 function ddmm(iso){ var p = iso.split('-'); return p[2] + '/' + p[1]; }
 function fmtDMY(iso){ var p = iso.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
 function fmtRange(startIso, endIso){ return ddmm(startIso) + '–' + ddmm(endIso); }
+// a full timestamp (status-transition stamp) → "dd/mm/yyyy HH:mm" local; '' for null.
+function fmtStamp(iso){
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  var p = function(n){ return String(n).padStart(2, '0'); };
+  return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
 
 // ---- roadmap: phase cards + master axis (fetched from /api/phases) ----
 var _roadmapPctMode = 'done_dev_qc'; // 'done_dev_qc' (Done UAT) or 'golive'
@@ -3293,6 +3301,11 @@ var TABLE_COLUMNS = [
   { key: 'phase', label: 'Phase' },
   { key: 'sprint', label: 'Sprint' },
   { key: 'status', label: 'Status' },
+  { key: 'in_analyst_at', label: 'Mốc In Analyst' },
+  { key: 'ready_for_dev_at', label: 'Mốc Ready Dev' },
+  { key: 'in_test_at', label: 'Mốc In Dev' },
+  { key: 'ready_for_staging_at', label: 'Mốc Done UAT' },
+  { key: 'done_at', label: 'Mốc Done' },
   { key: 'start', label: 'Start' },
   { key: 'due', label: 'Due' },
   { key: 'resource_roles', label: 'Resource cần' },
@@ -3463,6 +3476,9 @@ function tableCellHtml(col, t){
     case 'done_dev': return t.done_dev ? '✓' : '';
     case 'done_uat': return t.done_uat ? '✓' : '';
     case 'done_staging': return t.done_staging ? '✓' : '';
+    case 'in_analyst_at': case 'ready_for_dev_at': case 'in_test_at':
+    case 'ready_for_staging_at': case 'done_at':
+      return escapeHtml(fmtStamp(t[col.key]));
     case 'latest_note': {
       var log = _tableLatestLogByTaskId[t.id];
       return log ? escapeHtml(stripActorSuffix(log.note)) : '<span class="sprint-report-empty">Chưa có log</span>';
@@ -3991,20 +4007,21 @@ document.getElementById('tableClearFiltersBtn').addEventListener('click', clearA
 
 // ---- sprint summary: the sprint that contains today ("Sprint này") and
 // the one right after it ("Sprint sau"), picked by date exactly like the
-// Sprint tab's /current-next endpoint. "Sprint này" also pulls in tasks
-// still parked in an EARLIER sprint but sitting in "In Dev" — dev
-// carry-over that's really part of this sprint's load. "Sprint sau" is
-// just its own tasks. Each box shows the sprint code + range, a total, a
-// per-status split (dev-side statuses for the running sprint, prep-side
-// for the upcoming one), and a ratio — Done+Done UAT over total for
-// "này", Ready for Dev over total for "sau". Numbers click-filter the
-// table below. ----
+// Sprint tab's /current-next endpoint. "Sprint này" also folds in
+// carry-over from earlier sprints (a sprint that ended before this one
+// started): tasks still In Dev, plus tasks that reached Done UAT/Done but
+// were last touched during THIS sprint (updated_at is the only "when did
+// it move" signal — status changes aren't logged — so it stands in for
+// "finished as carry-over, not on time"). "Sprint sau" is just its own
+// tasks. Each box shows the sprint code + range, a total, a per-status
+// split, a ratio, and (for "này") how the total breaks down. Every number
+// click-filters the table below via _tableFilterFn. ----
 var SPRINT_SUMMARY_DEFS = [
   {
     label: 'Sprint này', pick: 'current',
     statuses: ['3.in_test', '4.ready_for_staging', '5.done'],
     ratioStatuses: ['4.ready_for_staging', '5.done'], ratioLabel: 'Hoàn thành',
-    carryOverStatus: '3.in_test'
+    carryOver: true
   },
   {
     label: 'Sprint sau', pick: 'next',
@@ -4012,6 +4029,7 @@ var SPRINT_SUMMARY_DEFS = [
     ratioStatuses: ['2.ready_for_dev'], ratioLabel: 'Sẵn sàng'
   }
 ];
+var SPRINT_CARRY_DONE_STATUSES = ['4.ready_for_staging', '5.done'];
 // same rule as src/lib/pickCurrentAndNextSprint.js: the sprint whose range
 // covers today is "current" and the next one by start_date is "next"; if
 // today sits in a gap between cycles, current is null and next is the
@@ -4022,6 +4040,27 @@ function pickTableCurrentNextSprint(){
   var ci = sorted.findIndex(function(s){ return s.start_date <= today && today <= s.end_date; });
   if (ci === -1) return { current: null, next: sorted.find(function(s){ return s.start_date > today; }) || null };
   return { current: sorted[ci], next: sorted[ci + 1] || null };
+}
+// is `t` carry-over into the sprint that started on `startIso`, given the
+// ids of every sprint that ended before then? Still In Dev (dev work that
+// slipped), OR reached Done UAT/Done but only entered that status during
+// this sprint (the *_at stamp, set server-side on the status change, is
+// the precise "when it moved" — updated_at would also catch unrelated
+// edits).
+function isSprintCarryOver(t, carrySprintIds, startIso){
+  if (t.sprint_id == null || carrySprintIds.indexOf(t.sprint_id) === -1) return false;
+  if (t.status === '3.in_test') return true;
+  if (t.status === '4.ready_for_staging') return !!t.ready_for_staging_at && t.ready_for_staging_at >= startIso;
+  if (t.status === '5.done') return !!t.done_at && t.done_at >= startIso;
+  return false;
+}
+// data-* an element needs for the click handler to rebuild its exact task
+// set: which sprint is "own", which are carry sources, this sprint's start
+// (for the updated_at cutoff), the scope (own / carry / both) and an
+// optional status whitelist.
+function sprintScopeAttrs(ownId, carrySprintIds, startIso, scope, statuses){
+  return 'data-cur="' + ownId + '" data-carry="' + carrySprintIds.join(',') + '" data-start="' + startIso +
+    '" data-scope="' + scope + '"' + (statuses && statuses.length ? ' data-statuses="' + statuses.join(',') + '"' : '');
 }
 function renderSprintSummary(){
   var wrap = document.getElementById('sprintSummaryWrap');
@@ -4036,89 +4075,75 @@ function renderSprintSummary(){
       return '<div class="sprint-summary-box"><div class="sprint-summary-box-label">' + labelHtml + '</div>' +
         '<div class="sprint-summary-box-empty">Chưa xác định sprint theo ngày hôm nay.</div></div>';
     }
-    var sprintById = {};
-    (_lastTableSprints || []).forEach(function(s){ sprintById[s.id] = s; });
+    var start = sprint.start_date;
     var ownTasks = tasks.filter(function(t){ return t.sprint_id === sprint.id; });
-    // dev carry-over: tasks still in `carryOverStatus` but assigned to a
-    // sprint that already ended before this one started.
     var carrySprintIds = [], carryTasks = [];
-    if (def.carryOverStatus){
+    if (def.carryOver){
       carrySprintIds = (_lastTableSprints || [])
-        .filter(function(s){ return s.end_date < sprint.start_date; })
+        .filter(function(s){ return s.end_date < start; })
         .map(function(s){ return s.id; });
-      carryTasks = tasks.filter(function(t){
-        return t.status === def.carryOverStatus && t.sprint_id != null && carrySprintIds.indexOf(t.sprint_id) !== -1;
-      });
+      carryTasks = tasks.filter(function(t){ return isSprintCarryOver(t, carrySprintIds, start); });
     }
     var sprintTasks = ownTasks.concat(carryTasks);
     if (sprintTasks.length === 0){
       return '<div class="sprint-summary-box"><div class="sprint-summary-box-label">' + labelHtml + '</div>' +
         '<div class="sprint-summary-box-empty">Chưa có nghiệp vụ.</div></div>';
     }
-    // the carry-over status's split spans this sprint + the earlier ones it
-    // pulled from, so its click filters back to exactly the number shown;
-    // every other split (and the ratio) is this sprint only.
+    var attrs = function(scope, statuses){ return sprintScopeAttrs(sprint.id, carrySprintIds, start, scope, statuses); };
+
     var breakdown = def.statuses.map(function(s){
       var n = sprintTasks.filter(function(t){ return t.status === s; }).length;
       var lbl = statusLabel[statusDotToNum(s)].replace(/^\d+\.\s*/, '');
-      var ids = s === def.carryOverStatus ? [sprint.id].concat(carrySprintIds) : [sprint.id];
-      return '<span class="sprint-summary-stat" data-sprints="' + ids.join(',') + '" data-statuses="' + s + '">' + escapeHtml(lbl) + ' <b>' + n + '</b></span>';
+      return '<span class="sprint-summary-stat" ' + attrs('both', [s]) + '>' + escapeHtml(lbl) + ' <b>' + n + '</b></span>';
     }).join('');
     var ratioCount = sprintTasks.filter(function(t){ return def.ratioStatuses.indexOf(t.status) !== -1; }).length;
 
-    // spell out how the total is built: this sprint (any status) + each
-    // earlier sprint's carry-over, most recent first. Each piece is its
-    // own click-filter; the big total goes through _tableFilterFn so it
-    // lands on exactly this set (which the plain column filters can't
-    // express — "all of X plus only In-Dev of Y").
-    var carryBySprint = {};
-    carryTasks.forEach(function(t){ carryBySprint[t.sprint_id] = (carryBySprint[t.sprint_id] || 0) + 1; });
+    // "Sprint này": spell out total = own + carry-over, and split the
+    // carry-over into still-in-dev vs finished-this-sprint.
     var compHtml = '';
-    var totalAttrs = 'data-sprints="' + sprint.id + '"';
     if (carryTasks.length){
-      var parts = ['<span class="sprint-summary-stat" data-sprints="' + sprint.id + '">' + escapeHtml(sprint.code) + ' <b>' + ownTasks.length + '</b></span>'];
-      carrySprintIds.slice().reverse().forEach(function(id){
-        if (!carryBySprint[id]) return;
-        var code = sprintById[id] ? sprintById[id].code : ('#' + id);
-        parts.push('<span class="sprint-summary-stat" data-sprints="' + id + '" data-statuses="' + def.carryOverStatus + '">' + escapeHtml(code) + ' <b>' + carryBySprint[id] + '</b></span>');
-      });
-      compHtml = '<div class="sprint-summary-box-comp">Gồm: ' + parts.join(' + ') + '</div>';
-      totalAttrs += ' data-composed-current="' + sprint.id + '"' +
-        ' data-composed-carry="' + Object.keys(carryBySprint).join(',') + '"' +
-        ' data-composed-status="' + def.carryOverStatus + '"';
+      var carryInDev = carryTasks.filter(function(t){ return t.status === '3.in_test'; }).length;
+      var carryDone = carryTasks.length - carryInDev;
+      compHtml = '<div class="sprint-summary-box-comp">Gồm: ' +
+        '<span class="sprint-summary-stat" ' + attrs('own', null) + '>sprint này <b>' + ownTasks.length + '</b></span> + ' +
+        '<span class="sprint-summary-stat" ' + attrs('carry', null) + '>trôi từ trước <b>' + carryTasks.length + '</b></span>' +
+        '<span class="sprint-summary-box-comp-sub">(' +
+          '<span class="sprint-summary-stat" ' + attrs('carry', ['3.in_test']) + '>đang dev <b>' + carryInDev + '</b></span> · ' +
+          '<span class="sprint-summary-stat" ' + attrs('carry', SPRINT_CARRY_DONE_STATUSES) + '>đã xong <b>' + carryDone + '</b></span>' +
+        ')</span></div>';
     }
 
     return '<div class="sprint-summary-box">' +
       '<div class="sprint-summary-box-label">' + labelHtml + '</div>' +
-      '<div class="sprint-summary-box-total sprint-summary-stat" ' + totalAttrs + '>' + sprintTasks.length + '</div>' +
+      '<div class="sprint-summary-box-total sprint-summary-stat" ' + attrs('both', null) + '>' + sprintTasks.length + '</div>' +
       '<div class="sprint-summary-box-breakdown">' + breakdown + '</div>' +
       compHtml +
-      '<div class="sprint-summary-box-ratio sprint-summary-stat" data-sprints="' + sprint.id + '" data-statuses="' + def.ratioStatuses.join(',') + '">' +
+      '<div class="sprint-summary-box-ratio sprint-summary-stat" ' + attrs('both', def.ratioStatuses) + '>' +
         escapeHtml(def.ratioLabel) + ': ' + phaseSummaryPctText(ratioCount, sprintTasks.length) + '</div>' +
     '</div>';
   }).join('');
 }
 document.getElementById('sprintSummaryWrap').addEventListener('click', function(e){
-  var el = e.target.closest('[data-sprints]');
+  var el = e.target.closest('[data-scope]');
   if (!el || !_lastTableTasks) return;
-  // every sprint-summary click owns the whole filter state — reset all
-  // axes, then set just what this element represents.
+  var cur = Number(el.dataset.cur);
+  var carry = el.dataset.carry ? el.dataset.carry.split(',').map(Number) : [];
+  var start = el.dataset.start || '';
+  var scope = el.dataset.scope;
+  var statuses = el.dataset.statuses ? el.dataset.statuses.split(',') : null;
+  // one predicate covers every element: own sprint and/or carry-over
+  // (In Dev, or Done UAT/Done finished during this sprint), narrowed to a
+  // status whitelist when the element represents one. The plain column
+  // filters can't express the updated_at cutoff, so it goes through the
+  // _tableFilterFn slot; a column-filter change or "Bỏ lọc" clears it.
+  _tableFilterFn = function(t){
+    if (statuses && statuses.indexOf(t.status) === -1) return false;
+    var own = t.sprint_id === cur;
+    var carried = isSprintCarryOver(t, carry, start);
+    return scope === 'own' ? own : scope === 'carry' ? carried : (own || carried);
+  };
   _tableFilterSprint.length = 0; _tableFilterStatus.length = 0;
   _tableFilterPhase.length = 0; _tableFilterCategory.length = 0; _tableFilterPlatform.length = 0;
-  if (el.dataset.composedCurrent){
-    // "all of this sprint, plus only the carry-over status from the
-    // earlier ones" — needs the predicate slot, not the column filters.
-    var cur = Number(el.dataset.composedCurrent);
-    var carry = el.dataset.composedCarry ? el.dataset.composedCarry.split(',').map(Number) : [];
-    var st = el.dataset.composedStatus;
-    _tableFilterFn = function(t){
-      return t.sprint_id === cur || (t.status === st && t.sprint_id != null && carry.indexOf(t.sprint_id) !== -1);
-    };
-  } else {
-    _tableFilterFn = null;
-    el.dataset.sprints.split(',').forEach(function(s){ _tableFilterSprint.push(s); });
-    if (el.dataset.statuses) el.dataset.statuses.split(',').forEach(function(s){ _tableFilterStatus.push(s); });
-  }
   renderTableView(applyTableFilters(_lastTableTasks));
   document.getElementById('tableViewWrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
@@ -4145,6 +4170,9 @@ function tableCellPlainText(col, t){
     case 'done_dev': return t.done_dev ? 'Có' : '';
     case 'done_uat': return t.done_uat ? 'Có' : '';
     case 'done_staging': return t.done_staging ? 'Có' : '';
+    case 'in_analyst_at': case 'ready_for_dev_at': case 'in_test_at':
+    case 'ready_for_staging_at': case 'done_at':
+      return fmtStamp(t[col.key]);
     case 'latest_note': { var log = _tableLatestLogByTaskId[t.id]; return log ? stripActorSuffix(log.note) : ''; }
     default: return '';
   }

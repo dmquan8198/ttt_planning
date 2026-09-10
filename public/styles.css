@@ -1099,6 +1099,7 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
 .sprint-summary-box-ratio{margin-top:6px; font-size:11px; font-weight:600; color:var(--ink);}
 .sprint-summary-box-comp{margin-top:5px; font-size:10.5px; color:var(--ink-muted); line-height:1.6;}
 .sprint-summary-box-comp .sprint-summary-stat b{color:var(--ink);}
+.sprint-summary-box-comp-sub{display:block; margin-top:1px; padding-left:9px;}
 .sprint-summary-box-empty{margin-top:4px; font-size:11.5px; color:var(--ink-muted);}
 .sprint-summary-stat{cursor:pointer; border-radius:4px;}
 .sprint-summary-stat:hover{background:var(--surface); color:var(--accent-ink);}
