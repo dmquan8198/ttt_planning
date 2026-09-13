@@ -403,7 +403,7 @@ function fetchAndRenderLogs(taskId){
 // BE Dev, App Dev, Web Dev, Core, by default, but fully managed via
 // /api/resource-roles — see the Resource view's team add/rename/delete
 // controls). Deliberately named apart from the existing `platform` field
-// (Web/App/BE) — platform is which team OWNS a task (single-select), this
+// (Web/App) — platform is which team OWNS a task (single-select), this
 // is which teams' effort it NEEDS (multi-select, e.g. a task can need both
 // BE Dev and App Dev).
 var _resourceRolesPromise = null;
@@ -483,6 +483,24 @@ function renderResourceRoleCheckboxes(containerEl, options, selected, canEdit){
   containerEl.appendChild(group);
 }
 var _drawerResourceRoles = [];
+// every task the drawer's last load saw — stashed here (not just used
+// inline) so both the clone name-suggester and the Save handler's
+// duplicate-name check can use it without an extra fetch.
+var _drawerAllTasks = [];
+// "<name>" -> "<name> (Copy)", or " (Copy 2)", " (Copy 3)"... the first one
+// that doesn't collide with an existing task name (case/whitespace
+// insensitive) — so a clone opens already save-able instead of immediately
+// tripping the duplicate-name check below.
+function suggestCloneName(baseName, allTasks){
+  var taken = {};
+  (allTasks || []).forEach(function(t){ taken[(t.name || '').trim().toLowerCase()] = true; });
+  var n = 1, candidate;
+  do {
+    candidate = baseName + (n === 1 ? ' (Copy)' : ' (Copy ' + n + ')');
+    n++;
+  } while (taken[candidate.trim().toLowerCase()]);
+  return candidate;
+}
 
 // Platform: same single-value field as before (still one platform per
 // task — every group-by/report/export downstream still assumes a scalar),
@@ -491,7 +509,9 @@ var _drawerResourceRoles = [];
 // carries "resource-checkbox-group"), with radio inputs sharing one `name`
 // so the browser enforces single-select natively — no manual exclusivity
 // bookkeeping needed like the real multi-select checkboxes above.
-var PLATFORM_OPTIONS = ['Web', 'App', 'BE', 'App/Auto'];
+// BE and App/Auto folded into App (see migrations/001_init.sql) — Platform
+// is just these 2 now.
+var PLATFORM_OPTIONS = ['Web', 'App'];
 function renderPlatformChips(containerEl, selectedValue, canEdit){
   containerEl.innerHTML = '';
   PLATFORM_OPTIONS.forEach(function(opt){
@@ -513,6 +533,12 @@ function getSelectedPlatform(){
 function openDrawer(mode, t){
   t = t || {};
   var isEdit = mode === 'edit';
+  // clone: opens as a not-yet-saved create, pre-filled from an existing
+  // task (`t`/its id below) instead of blank defaults — editingTaskId stays
+  // null the whole time (Save hits POST, same as a plain create) so there's
+  // no way for it to accidentally overwrite the task it was cloned from.
+  var isClone = mode === 'clone';
+  var cloneSourceId = isClone ? (t && typeof t === 'object' ? t.id : t) : null;
   var loadToken = ++_drawerLoadToken;
 
   // Bind editingTaskId synchronously, to the id we're actually opening for,
@@ -534,13 +560,17 @@ function openDrawer(mode, t){
   var canEdit = hasRole('editor');
   var canDelete = hasRole('admin');
 
-  document.getElementById('drawerTitle').textContent = isEdit ? 'Sửa nghiệp vụ' : 'Nghiệp vụ mới';
+  document.getElementById('drawerTitle').textContent = isEdit ? 'Sửa nghiệp vụ' : (isClone ? 'Nhân bản nghiệp vụ' : 'Nghiệp vụ mới');
   document.getElementById('drawerSub').textContent = isEdit
     ? 'Cập nhật thông tin cho nghiệp vụ này'
+    : isClone ? 'Bản sao — chỉnh sửa rồi lưu để tạo thành nghiệp vụ mới'
     : 'Các trường giữ nguyên như sheet Nghiệp vụ hiện tại';
   document.getElementById('saveBtn').style.display = canEdit ? '' : 'none';
   document.getElementById('saveBtn').textContent = isEdit ? 'Lưu thay đổi' : 'Lưu nghiệp vụ';
   document.getElementById('saveBtn').disabled = false;
+  // clone is only offered from an already-saved task, so only in edit mode.
+  document.getElementById('cloneBtn').style.display = (isEdit && canEdit) ? 'flex' : 'none';
+  document.getElementById('cloneBtn').disabled = false;
   document.getElementById('deleteBtn').style.display = (isEdit && canDelete) ? 'flex' : 'none';
   document.getElementById('deleteBtn').disabled = false;
   // always visible (not just isEdit) — "Ghi chú" was removed as a separate
@@ -571,6 +601,12 @@ function openDrawer(mode, t){
       if (loadToken !== _drawerLoadToken) return; // superseded by a newer openDrawer call
       var phases = results[0], sprints = results[1], allTasks = results[2], currentNext = results[3], roles = results[4];
       var currentSprintId = currentNext.current ? currentNext.current.id : null;
+      var nextSprint = currentNext.next || null;
+      // same "current phase" rule as the phase pivot in Bảng danh sách
+      // (renderPhaseSummary/_tableSummaryPhaseIdx) and the Roadmap's
+      // isCurrentPhase: the first phase, in order, that isn't 100% done yet.
+      var currentPhase = phases.find(function(p){ return p.pct_complete !== null && p.pct_complete < 100; }) || null;
+      _drawerAllTasks = allTasks || [];
 
       var roleOptions = roles.map(function(r){ return { key: r.name, label: r.name }; });
 
@@ -580,6 +616,20 @@ function openDrawer(mode, t){
       populateSelectOptions(document.getElementById('f-sprint'), sprints, function(s){
         return s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')' + (s.id === currentSprintId ? ' — sprint hiện tại' : '');
       }, '— không có —');
+
+      // create/clone both default to "phase hiện tại + sprint tiếp theo" —
+      // a task being newly added (or a clone of one) is future work, not
+      // something that belongs in a sprint already running. Dates follow
+      // the sprint, same as picking it by hand would (see f-sprint's own
+      // 'change' listener) — falls back to blank/unset if either is
+      // unavailable (no phase in progress, or no sprint planned after
+      // the current one), same as before this default existed.
+      function applyDefaultPhaseSprint(){
+        document.getElementById('f-phase').value = currentPhase ? String(currentPhase.id) : '';
+        document.getElementById('f-sprint').value = nextSprint ? String(nextSprint.id) : '';
+        document.getElementById('f-start').value = nextSprint ? nextSprint.start_date : '';
+        document.getElementById('f-due').value = nextSprint ? nextSprint.end_date : '';
+      }
 
       if (isEdit){
         var full = (allTasks || []).filter(function(x){ return x.id === editingTaskId; })[0] || t;
@@ -605,6 +655,26 @@ function openDrawer(mode, t){
         document.getElementById('f-due').value = full.due_date || '';
         fetchAndRenderLogs(full.id);
         _drawerResourceRoles = (full.resource_roles || []).slice();
+      } else if (isClone){
+        // same "next STT" auto-assign as a plain create — this becomes a
+        // brand new task on Save, not a copy of the source's STT/position.
+        var source = (allTasks || []).filter(function(x){ return x.id === cloneSourceId; })[0] || t;
+        editingTaskStt = allTasks.reduce(function(max, x){ return x.stt != null && x.stt > max ? x.stt : max; }, 0) + 1;
+        document.getElementById('f-name').value = suggestCloneName(source.name || '', allTasks);
+        document.getElementById('f-why').value = source.why || '';
+        addCategoryOptionIfMissing(source.category);
+        document.getElementById('f-cat').value = source.category || '';
+        document.getElementById('f-cat-new').style.display = 'none';
+        renderPlatformChips(document.getElementById('f-platform-chips'), source.platform || PLATFORM_OPTIONS[0], canEdit);
+        document.getElementById('f-status').value = source.status || STATUS_ORDER[0];
+        // phase/sprint/dates default forward (current phase, next sprint) —
+        // NOT copied from the source, which is very likely sitting in a
+        // phase/sprint already past.
+        applyDefaultPhaseSprint();
+        // a clone is a new task with its own story — it doesn't inherit the
+        // source's activity log (fetchAndRenderLogs is only for isEdit).
+        document.getElementById('logPreview').innerHTML = '';
+        _drawerResourceRoles = (source.resource_roles || []).slice();
       } else {
         // auto-assign the next STT rather than leaving it null — every task
         // created through this drawer used to have no sequence number at
@@ -617,10 +687,7 @@ function openDrawer(mode, t){
         document.getElementById('f-cat-new').style.display = 'none';
         renderPlatformChips(document.getElementById('f-platform-chips'), PLATFORM_OPTIONS[0], canEdit);
         document.getElementById('f-status').value = STATUS_ORDER[0];
-        document.getElementById('f-phase').value = '';
-        document.getElementById('f-sprint').value = '';
-        document.getElementById('f-start').value = '';
-        document.getElementById('f-due').value = '';
+        applyDefaultPhaseSprint();
         document.getElementById('logPreview').innerHTML = '';
         _drawerResourceRoles = [];
       }
@@ -645,6 +712,13 @@ function openDrawer(mode, t){
 }
 
 document.getElementById('openDrawer').addEventListener('click', function(){ openDrawer('create'); });
+// re-opens the SAME drawer already showing this task, now pre-filled as a
+// not-yet-saved clone — reuses openDrawer's normal load/populate path
+// rather than a bespoke copy routine.
+document.getElementById('cloneBtn').addEventListener('click', function(){
+  if (_drawerActionBusy || !editingTaskId) return;
+  openDrawer('clone', editingTaskId);
+});
 // closeDrawer/overlay only close on a DIRECT user click while nothing is
 // saving — a save/delete request in flight keeps going in the background
 // regardless of what the UI shows, so letting the user escape mid-request
@@ -1567,7 +1641,7 @@ function renderSprintReport(reportSprints, tasksBySprintId, carryOverTasks, late
 // staffing — also selectable as Category or Status) and colored by status —
 // so a PM can scan all sprints in one screen and still see what each task
 // actually is, not just a count.
-var SPRINT_OVERVIEW_PLATFORMS = ['Web', 'App', 'BE', 'App/Auto'];
+var SPRINT_OVERVIEW_PLATFORMS = ['Web', 'App'];
 var SPRINT_OVERVIEW_CATEGORIES = [
   'TTT New - Product Foundation', 'TTT New - Cross Service Integration',
   'TTT New - Internal Features', 'TTT New - Convert & Scale'
@@ -5517,6 +5591,19 @@ document.getElementById('saveBtn').addEventListener('click', function(){
 
   if (!name || !category || !platform || !status || !startVal || !dueVal){
     toastError('Vui lòng nhập đầy đủ Tên nghiệp vụ, Category, Platform, Status, Start và Due.');
+    return;
+  }
+
+  // duplicate-name guard (case/whitespace insensitive) — excludes this
+  // task itself on edit, so saving without renaming isn't flagged against
+  // its own old name. Catches an un-renamed clone (see cloneBtn) as much
+  // as any accidental name collision on a plain create/edit.
+  var dupTask = _drawerAllTasks.find(function(x){
+    return x.id !== editingTaskId && (x.name || '').trim().toLowerCase() === name.toLowerCase();
+  });
+  if (dupTask){
+    toastError('Đã có nghiệp vụ trùng tên: "' + dupTask.name + '" (#' + dupTask.id + '). Vui lòng đổi tên khác trước khi lưu.');
+    document.getElementById('f-name').focus();
     return;
   }
 

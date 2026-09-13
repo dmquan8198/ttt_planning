@@ -198,3 +198,10 @@ UPDATE tasks SET ready_for_dev_at     = updated_at WHERE status = '2.ready_for_d
 UPDATE tasks SET in_test_at           = updated_at WHERE status = '3.in_test'           AND in_test_at IS NULL;
 UPDATE tasks SET ready_for_staging_at = updated_at WHERE status = '4.ready_for_staging' AND ready_for_staging_at IS NULL;
 UPDATE tasks SET done_at              = updated_at WHERE status = '5.done'              AND done_at IS NULL;
+
+-- Platform simplified down to just Web/App — 'BE' and 'App/Auto' (legacy
+-- values; distinct from the 'BE Dev' resource_roles team, untouched here)
+-- both fold into 'App'. No CHECK constraint on this column, so nothing
+-- else needs migrating; the WHERE matches nothing once already applied,
+-- safe to re-run.
+UPDATE tasks SET platform = 'App' WHERE platform IN ('BE', 'App/Auto');
