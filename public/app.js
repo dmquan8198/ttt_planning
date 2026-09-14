@@ -851,7 +851,7 @@ function authFetch(url, options){
 }
 
 // show/hide the controls a role can't use — hides "+ Nghiệp vụ mới" and the
-// Users nav item (admin only). Board/Timeline/Sprint render at page load,
+// Users nav item (admin only). Timeline/Sprint render at page load,
 // BEFORE login finishes (the overlay just covers them visually,
 // it doesn't block that background rendering) — at that point the role is
 // still the pre-login default ('viewer'), so their drag handles/buttons
@@ -1254,12 +1254,6 @@ document.getElementById('introGoSprintOverview').addEventListener('click', funct
   }, 350);
 });
 
-document.getElementById('introGoSprintReport').addEventListener('click', function(){
-  goToViewFromIntro('sprint');
-  var reportChip = document.querySelector('#sprintTabChips [data-tab="report"]');
-  if (reportChip) reportChip.click();
-});
-
 document.getElementById('introGoTimeline').addEventListener('click', function(){
   goToViewFromIntro('timeline');
 });
@@ -1281,10 +1275,10 @@ function waitForDrawerReady(callback, attemptsLeft){
 
 document.getElementById('introUpdateTaskProgress').addEventListener('click', function(){
   goToViewFromIntro('sprint');
-  var reportChip = document.querySelector('#sprintTabChips [data-tab="report"]');
-  if (reportChip) reportChip.click();
+  var currentNextChip = document.querySelector('#sprintTabChips [data-tab="current-next"]');
+  if (currentNextChip) currentNextChip.click();
   setTimeout(function(){
-    var firstTask = document.querySelector('.sprint-report-block .sprint-report-task');
+    var firstTask = document.querySelector('#sprintColumns .sprint-task');
     if (!firstTask) return;
     firstTask.click(); // opens the edit drawer for this task
     waitForDrawerReady(function(){
@@ -1436,204 +1430,21 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks, latestLogByTaskId)
   return panel;
 }
 
-// compact status report covering the current sprint + the next 1: one row
-// per task with exactly the 3 things a reader needs — what it is, why it
-// matters, and what happened most recently — instead of the card layout
-// above, which is built for scanning/dragging rather than reading straight
-// through. Only the note text is shown for "latest activity" (no date/actor
-// meta) and it preserves line breaks the author actually typed, so a
-// manually-written multi-line update doesn't read as one run-on line.
-function formatLatestActivityCell(log){
-  if (!log) return '<span class="sprint-report-empty">Chưa có log</span>';
-  return escapeHtml(stripActorSuffix(log.note));
-}
-
-// a task briefly flashes when it was updated moments ago (any way — drawer
-// save, drag-and-drop, direct API) so a refresh reads as visibly "this just
-// changed" instead of a silent, easy-to-miss DOM swap.
-function isRecentlyUpdated(t){
-  return !!t.updated_at && (Date.now() - new Date(t.updated_at).getTime()) < 10000;
-}
-
-// same st-N pill used everywhere else (Board, Timeline legend) — status is
-// the single most important "how far along is this" signal when reading
-// the report out loud, so it leads each task line rather than being left
-// out or buried in the activity-note text.
-function sprintReportStatusPill(t){
-  var idx = statusDotToNum(t.status);
-  return '<span class="pill st-' + idx + '">' + escapeHtml(statusLabel[idx].replace(/^\d+\.\s*/, '')) + '</span>';
-}
-
-// one task, presentation-ready: status at a glance, then name, then why
-// (the "what/why" a reader needs), then the latest activity note as
-// supporting detail — everything wraps instead of truncating, so nothing
-// is ever hidden behind an ellipsis while presenting live.
-// no per-task sprint/category tag here on purpose — which sprint or
-// category a task belongs to is already conveyed once by the group it sits
-// under (renderSprintReportGroup), so repeating it as a little pill on
-// every single line would just be visual noise for no new information.
-// two balanced columns: status + name + why on the left (what/why), latest
-// activity on the right (what happened) — read left-to-right instead of
-// top-to-bottom, so the two kinds of information stay visually distinct.
-function renderSprintReportTask(t, latestLogByTaskId){
-  var el = document.createElement('div'); el.className = 'sprint-report-task';
-  if (isRecentlyUpdated(t)) el.classList.add('sprint-report-row-flash');
-  el.innerHTML =
-    '<div class="sprint-report-task-left">' +
-      '<div class="sprint-report-task-top">' +
-        sprintReportStatusPill(t) +
-        '<span class="sprint-report-task-name">' + escapeHtml(t.name) + '</span>' +
-      '</div>' +
-      (t.why ? '<div class="sprint-report-why">Lý do: ' + escapeHtml(t.why) + '</div>' : '') +
-    '</div>' +
-    '<div class="sprint-report-activity">' + formatLatestActivityCell(latestLogByTaskId[t.id]) + '</div>';
-  el.addEventListener('click', function(){ openDrawer('edit', t); });
-  return el;
-}
-
-// "effectively complete" threshold for progress headlines — same call the
-// Roadmap's own default % uses (see _riskThreshold): literal '5.done' lags
-// behind a formal golive event and stays near-zero for most of a sprint's
-// life, which would make an in-progress sprint look falsely empty in front
-// of an audience. Done UAT is the point work is realistically finished.
+// "effectively complete" threshold for progress headlines — same threshold
+// the Roadmap's own default % uses: literal '5.done' lags behind a formal
+// golive event and stays near-zero for most of a sprint's life, which would
+// make an in-progress sprint look falsely empty in front of an audience.
+// Done UAT is the point work is realistically finished. Shared by the
+// Table view's phase-summary "Hoàn thành" column.
 function isEffectivelyDone(t){ return statusDotToNum(t.status) >= 4; }
-
-// one group (category, or — for carry-over — origin sprint) within a
-// sprint column, with its own mini progress count — lets a presenter say
-// "nhóm Product Foundation, 3/5 xong" without having to eyeball-count
-// pills, and is also what carries the "which sprint/category" context so
-// individual task rows don't need to repeat it.
-function renderSprintReportGroup(groupLabel, tasksInGroup, latestLogByTaskId){
-  var group = document.createElement('div'); group.className = 'sprint-report-group';
-  var doneCount = tasksInGroup.filter(isEffectivelyDone).length;
-  var head = document.createElement('div'); head.className = 'sprint-report-group-head';
-  head.innerHTML =
-    '<span class="sprint-report-group-name">' + escapeHtml(groupLabel) + '</span>' +
-    '<span class="sprint-report-group-count">' + doneCount + '/' + tasksInGroup.length + '</span>';
-  group.appendChild(head);
-  tasksInGroup.forEach(function(t){ group.appendChild(renderSprintReportTask(t, latestLogByTaskId)); });
-  return group;
-}
 
 // canonical category order first (matches the Sprint Overview's own
 // grouping), any other value sorted alphabetically after — same fallback
-// bucketsForGroupBy uses. Status desc within a category is a tie-breaker,
-// so near-done work still surfaces first within its own group.
+// bucketsForGroupBy uses. Shared by the Sprint "hiện tại & sau" Excel
+// export's row order (sprint, then category, then STT).
 function categorySortIndex(category){
   var idx = SPRINT_OVERVIEW_CATEGORIES.indexOf(category);
   return idx === -1 ? SPRINT_OVERVIEW_CATEGORIES.length : idx;
-}
-
-// presentation-ready sprint column: a headline progress bar first (the
-// "tiến độ tới đâu" a boss asks for before anything else), then tasks
-// grouped by category ("nhóm công việc") instead of one flat list, so a
-// presenter can walk through it group by group ("nhóm Product Foundation
-// đang làm 3 việc, 2 xong rồi...") rather than reading a raw table.
-function renderSprintReportSection(sprint, tasksForSprint, carryOverTasks, latestLogByTaskId){
-  var section = document.createElement('div'); section.className = 'sprint-report-block';
-
-  var totalCount = tasksForSprint.length;
-  var doneCount = tasksForSprint.filter(isEffectivelyDone).length;
-  var pct = totalCount === 0 ? 0 : Math.round((doneCount / totalCount) * 100);
-
-  var head = document.createElement('div'); head.className = 'sprint-report-head';
-  head.innerHTML =
-    '<div class="sprint-report-title">' + escapeHtml(sprint.code) + ' (' + fmtRange(sprint.start_date, sprint.end_date) + ')</div>' +
-    '<div class="sprint-report-progress-row">' +
-      '<div class="stack"><i style="width:' + pct + '%; background:var(--green-ink);"></i></div>' +
-      '<div class="sprint-report-progress-label">' + doneCount + '/' + totalCount + ' Done UAT · ' + pct + '%' +
-        (carryOverTasks && carryOverTasks.length ? ' · ' + carryOverTasks.length + ' việc tồn' : '') +
-      '</div>' +
-    '</div>';
-  section.appendChild(head);
-
-  var list = document.createElement('div'); list.className = 'sprint-report-list';
-  if (totalCount === 0 && (!carryOverTasks || carryOverTasks.length === 0)){
-    list.innerHTML = '<div class="sprint-report-empty-state">Không có nghiệp vụ nào.</div>';
-  } else {
-    var byCategory = {};
-    tasksForSprint.forEach(function(t){
-      if (!byCategory[t.category]) byCategory[t.category] = [];
-      byCategory[t.category].push(t);
-    });
-    Object.keys(byCategory).sort(function(a, b){
-      var catDelta = categorySortIndex(a) - categorySortIndex(b);
-      return catDelta !== 0 ? catDelta : (a < b ? -1 : a > b ? 1 : 0);
-    }).forEach(function(cat){
-      var tasksInCat = byCategory[cat].slice().sort(function(a, b){
-        return statusDotToNum(b.status) - statusDotToNum(a.status);
-      });
-      list.appendChild(renderSprintReportGroup(cat, tasksInCat, latestLogByTaskId));
-    });
-    if (carryOverTasks && carryOverTasks.length > 0){
-      var carryHead = document.createElement('div'); carryHead.className = 'sprint-report-carryover-head';
-      carryHead.textContent = 'Việc tồn từ sprint trước';
-      list.appendChild(carryHead);
-      // grouped by origin sprint (carryOverTasks is already sorted oldest
-      // sprint first) instead of tagging each task's own line — same
-      // "context lives on the group, not repeated per row" rule as category.
-      var byOriginSprint = {}; var originOrder = [];
-      carryOverTasks.forEach(function(t){
-        var code = t.sprint_code || '?';
-        if (!byOriginSprint[code]){ byOriginSprint[code] = []; originOrder.push(code); }
-        byOriginSprint[code].push(t);
-      });
-      originOrder.forEach(function(code){
-        list.appendChild(renderSprintReportGroup('Từ ' + code, byOriginSprint[code], latestLogByTaskId));
-      });
-    }
-  }
-  section.appendChild(list);
-  return section;
-}
-
-// empty selection = no filter (show every category) — same convention as
-// the rest of this app's chip filters.
-var _sprintReportCategoryFilter = [];
-// cached inputs from the last renderSprintReport call, so toggling a
-// category chip can just re-render instantly instead of refetching.
-var _lastSprintReportArgs = null;
-
-function categoryFilterMatches(t){
-  return _sprintReportCategoryFilter.length === 0 || _sprintReportCategoryFilter.indexOf(t.category) !== -1;
-}
-
-// built from whatever categories actually appear across the reported
-// sprints (canonical order first, then any others alphabetically — same
-// fallback bucketsForGroupBy uses), not a hardcoded list, so an unusual
-// category value is still filterable instead of silently unreachable.
-function renderSprintReportCategoryFilter(allReportTasks){
-  renderMultiSelectDropdown(
-    document.getElementById('sprintReportCategoryFilter'), 'Category',
-    bucketsForGroupBy(allReportTasks, 'category'),
-    _sprintReportCategoryFilter,
-    function(){ if (_lastSprintReportArgs) renderSprintReport.apply(null, _lastSprintReportArgs); },
-    true
-  );
-}
-
-// reportSprints: current sprint + the next 1, in order. tasksBySprintId:
-// every task grouped by sprint_id (built from the full task list, not the
-// current-next endpoint's own hand-picked columns — see the comment on
-// sprints.js's query for why that was missing fields before). carryOver
-// only ever applies to reportSprints[0] (the current sprint).
-function renderSprintReport(reportSprints, tasksBySprintId, carryOverTasks, latestLogByTaskId){
-  _lastSprintReportArgs = [reportSprints, tasksBySprintId, carryOverTasks, latestLogByTaskId];
-  var wrap = document.getElementById('sprintReportWrap');
-  wrap.innerHTML = '';
-  if (!reportSprints || reportSprints.length === 0){
-    wrap.innerHTML = '<div class="view-sub">Không có sprint hiện tại.</div>';
-    return;
-  }
-  // stacked (current on top, next below), not side-by-side — full page
-  // width per sprint reads better than splitting it into narrow columns.
-  var columns = document.createElement('div'); columns.className = 'sprint-report-columns';
-  reportSprints.forEach(function(sprint, idx){
-    var tasksForSprint = (tasksBySprintId[sprint.id] || []).filter(categoryFilterMatches);
-    var carry = idx === 0 && carryOverTasks ? carryOverTasks.filter(categoryFilterMatches) : null;
-    columns.appendChild(renderSprintReportSection(sprint, tasksForSprint, carry, latestLogByTaskId));
-  });
-  wrap.appendChild(columns);
 }
 
 // cross-sprint view: EVERY task in EVERY sprint, one row per sprint, tasks
@@ -1726,8 +1537,8 @@ function renderSprintOverviewTable(sprints, tasks, currentSprintId, nextSprintId
 
     // drop anywhere in this sprint's row (empty or not) moves the dragged
     // task here — derives new start/due from this sprint, same as Timeline's
-    // drag-to-regroup, then refreshes every view so Board/Timeline/Log stay
-    // in sync with the change.
+    // drag-to-regroup, then refreshes every view so Timeline/Log/Bảng danh
+    // sách stay in sync with the change.
     row.addEventListener('dragover', function(e){
       var draggedId = _draggingSprintOverviewTaskId;
       var draggedTask = draggedId != null ? tasks.filter(function(t){ return t.id === draggedId; })[0] : null;
@@ -1808,12 +1619,8 @@ function renderSprintOverviewTable(sprints, tasks, currentSprintId, nextSprintId
 
 function loadSprintView(){
   var col = document.getElementById('sprintColumns');
-  var reportWrap = document.getElementById('sprintReportWrap');
   // col isn't touched here (it FLIP-animates from its current contents once
-  // data arrives — wiping it early would leave nothing to animate from);
-  // the report has no such animation, so it gets an explicit loading state
-  // for slow loads (e.g. a Neon cold start) instead of sitting there stale.
-  reportWrap.innerHTML = '<div class="view-sub">Đang tải...</div>';
+  // data arrives — wiping it early would leave nothing to animate from).
   return Promise.all([fetchJSON('/api/sprints/current-next'), loadTasks(), loadSprints(), fetchJSON('/api/logs')])
     .then(function(results){
       var data = results[0], tasks = results[1], sprints = results[2], allLogs = results[3];
@@ -1851,35 +1658,11 @@ function loadSprintView(){
       col.appendChild(renderSprintPanel(data.current, true, carryOver, latestLogByTaskId));
       col.appendChild(renderSprintPanel(data.next, false, null, latestLogByTaskId));
 
-      // report covers current + next 1 sprint, derived from the full task
-      // list (grouped by sprint_id) rather than current-next's own task
-      // list, so it always has every column (why, etc.) without needing
-      // that endpoint's SELECT kept in sync.
-      var tasksBySprintId = {};
-      tasks.forEach(function(t){
-        if (t.sprint_id == null) return;
-        if (!tasksBySprintId[t.sprint_id]) tasksBySprintId[t.sprint_id] = [];
-        tasksBySprintId[t.sprint_id].push(t);
-      });
-      // today can fall in the gap between two sprint cycles (see
-      // pickCurrentAndNextSprint), in which case data.current is null —
-      // fall back to data.next so the report still shows something useful
-      // instead of a dead "Không có sprint hiện tại" during those few days.
-      var reportAnchor = data.current || data.next;
-      var currentIdx = reportAnchor ? sprints.findIndex(function(s){ return s.id === reportAnchor.id; }) : -1;
-      var reportSprints = currentIdx === -1 ? [] : sprints.slice(currentIdx, currentIdx + 2);
-      var allReportTasks = [];
-      reportSprints.forEach(function(s){ allReportTasks = allReportTasks.concat(tasksBySprintId[s.id] || []); });
-      allReportTasks = allReportTasks.concat(carryOver);
-      renderSprintReportCategoryFilter(allReportTasks);
-      renderSprintReport(reportSprints, tasksBySprintId, carryOver, latestLogByTaskId);
-
       playFlip();
     })
     .catch(function(err){
       console.error('Failed to load /api/sprints/current-next', err);
       col.innerHTML = '<div class="view-sub">Không tải được dữ liệu Sprint. Thử tải lại trang.</div>';
-      reportWrap.innerHTML = '<div class="view-sub">Không tải được dữ liệu Sprint. Thử tải lại trang.</div>';
     });
 }
 
@@ -2075,8 +1858,7 @@ var GROUP_BY_LABEL = { platform: 'Platform', category: 'Category', status: 'Stat
 var _sprintActiveTab = 'overview';
 var SPRINT_TAB_SUB = {
   overview: function(){ return 'Toàn bộ nghiệp vụ mỗi sprint, nhóm theo ' + GROUP_BY_LABEL[_sprintOverviewGroupBy] + ' — bấm vào 1 nghiệp vụ để sửa'; },
-  'current-next': function(){ return 'Biết ngay tuần này đang làm gì, tuần sau sắp tới gì — bấm vào 1 nghiệp vụ để sửa'; },
-  report: function(){ return 'Mỗi nghiệp vụ: tên, tại sao cần làm, hoạt động gần nhất — bấm vào 1 dòng để sửa'; }
+  'current-next': function(){ return 'Biết ngay tuần này đang làm gì, tuần sau sắp tới gì — bấm vào 1 nghiệp vụ để sửa'; }
 };
 function updateSprintTabSub(){
   document.getElementById('sprintTabSub').textContent = SPRINT_TAB_SUB[_sprintActiveTab]();
@@ -2088,7 +1870,6 @@ document.querySelectorAll('#sprintTabChips .chip').forEach(function(btn){
     _sprintActiveTab = btn.dataset.tab;
     document.getElementById('sprintTabOverview').style.display = _sprintActiveTab === 'overview' ? '' : 'none';
     document.getElementById('sprintTabCurrentNext').style.display = _sprintActiveTab === 'current-next' ? '' : 'none';
-    document.getElementById('sprintTabReport').style.display = _sprintActiveTab === 'report' ? '' : 'none';
     document.getElementById('sprintOverviewGroupChips').style.display = _sprintActiveTab === 'overview' ? '' : 'none';
     updateSprintTabSub();
   });
@@ -2107,113 +1888,6 @@ document.querySelectorAll('#sprintOverviewGroupChips .chip').forEach(function(bt
   });
 });
 
-// ---- risk report: tasks whose due date has already passed but aren't Done
-// yet, grouped by Sprint and by Phase (chronological order, groups with zero
-// at-risk tasks are skipped entirely). Also reused for the "due soon"
-// (upcoming, not-yet-overdue) report via opts — same layout, different
-// wording/color and day-count direction. ----
-function renderRiskGroups(containerId, riskTasks, groupList, groupKeyFn, today, opts){
-  opts = opts || {};
-  var countLabel = opts.countLabel || function(n){ return n + ' trễ hạn'; };
-  var daysLabel = opts.daysLabel || function(t){
-    var days = Math.round((today - new Date(t.due_date)) / (24 * 60 * 60 * 1000));
-    return 'Trễ ' + days + ' ngày';
-  };
-  var badgeClass = opts.badgeClass || '';
-  var emptyText = opts.emptyText || 'Không có nghiệp vụ nào trễ hạn — tốt!';
-
-  var container = document.getElementById(containerId);
-  container.innerHTML = '';
-
-  groupList.forEach(function(g){
-    var groupRisk = riskTasks.filter(function(t){ return groupKeyFn(t) === g.key; });
-    if (groupRisk.length === 0) return;
-    groupRisk.sort(function(a, b){ return a.due_date < b.due_date ? -1 : (a.due_date > b.due_date ? 1 : 0); });
-
-    var card = document.createElement('div'); card.className = 'risk-group';
-    var head = document.createElement('div'); head.className = 'risk-group-head';
-    head.innerHTML = '<span>' + escapeHtml(g.label) + '</span><span class="risk-count ' + badgeClass + '">' + countLabel(groupRisk.length) + '</span>';
-    card.appendChild(head);
-
-    groupRisk.forEach(function(t){
-      var row = document.createElement('div'); row.className = 'risk-task';
-      row.innerHTML =
-        '<div class="risk-task-name">' + escapeHtml(t.name) + '</div>' +
-        '<div class="risk-task-meta">' +
-          '<span class="risk-due">Due ' + fmtDMY(t.due_date) + '</span>' +
-          '<span class="risk-days ' + badgeClass + '">' + daysLabel(t) + '</span>' +
-        '</div>';
-      row.addEventListener('click', function(){ openDrawer('edit', t); });
-      card.appendChild(row);
-    });
-    container.appendChild(card);
-  });
-
-  if (container.children.length === 0){
-    container.innerHTML = '<div class="view-sub">' + emptyText + '</div>';
-  }
-}
-
-// which status a task must have reached to no longer count as "at risk"
-// for due-soon filtering below; STATUS_ORDER index, so 4 = Done UAT.
-// Default per product call: Done UAT counts as "basically shipped", so
-// only Backlog/In Analyst/Ready for Dev/In Dev tasks are flagged once overdue.
-var _riskThreshold = 4;
-
-// how many days ahead counts as "sắp đến hạn" (due soon) — a forward-looking
-// companion to the overdue risk report above, so a PM can act before a task
-// slips rather than only finding out after.
-var _dueSoonWindow = 3;
-
-document.querySelectorAll('#dueSoonWindowChips .chip').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    document.querySelectorAll('#dueSoonWindowChips .chip').forEach(function(b){ b.classList.remove('active'); });
-    btn.classList.add('active');
-    _dueSoonWindow = Number(btn.dataset.window);
-    loadRiskReports();
-  });
-});
-
-function loadRiskReports(){
-  var dueSoonSprintEl = document.getElementById('dueSoonBySprint');
-  var dueSoonPhaseEl = document.getElementById('dueSoonByPhase');
-  var thresholdLabel = _riskThreshold === 5 ? 'Done' : 'Done UAT';
-  var dueSoonSubText = 'Nghiệp vụ due trong ' + _dueSoonWindow + ' ngày tới nhưng chưa tới ' + thresholdLabel;
-  document.getElementById('dueSoonSubSprint').textContent = dueSoonSubText;
-  document.getElementById('dueSoonSubPhase').textContent = dueSoonSubText;
-
-  return Promise.all([loadTasks(), loadSprints(), loadPhasesList()])
-    .then(function(results){
-      var tasks = results[0], sprints = results[1], phases = results[2];
-      var today = new Date(); today.setHours(0, 0, 0, 0);
-      var todayIso = toIsoDate(today);
-      var dueSoonEndIso = toIsoDate(new Date(today.getTime() + _dueSoonWindow * 24 * 60 * 60 * 1000));
-      var dueSoonTasks = tasks.filter(function(t){
-        return statusDotToNum(t.status) < _riskThreshold && t.due_date >= todayIso && t.due_date <= dueSoonEndIso;
-      });
-
-      var sprintGroups = sprints.map(function(s){ return { key: s.id, label: s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')' }; });
-      sprintGroups.push({ key: null, label: 'Chưa gán sprint' });
-      var phaseGroups = phases.map(function(p){ return { key: p.id, label: p.code + ': ' + p.name }; });
-      phaseGroups.push({ key: null, label: 'Chưa gán phase' });
-
-      var dueSoonOpts = {
-        countLabel: function(n){ return n + ' sắp đến hạn'; },
-        daysLabel: function(t){
-          var days = Math.round((new Date(t.due_date) - today) / (24 * 60 * 60 * 1000));
-          return days === 0 ? 'Due hôm nay' : 'Còn ' + days + ' ngày';
-        },
-        badgeClass: 'is-soon',
-        emptyText: 'Không có nghiệp vụ nào sắp đến hạn trong ' + _dueSoonWindow + ' ngày tới — tốt!'
-      };
-      renderRiskGroups('dueSoonBySprint', dueSoonTasks, sprintGroups, function(t){ return t.sprint_id; }, today, dueSoonOpts);
-      renderRiskGroups('dueSoonByPhase', dueSoonTasks, phaseGroups, function(t){ return t.phase_id; }, today, dueSoonOpts);
-    })
-    .catch(function(err){
-      console.error('Failed to load risk reports', err);
-      dueSoonSprintEl.innerHTML = dueSoonPhaseEl.innerHTML = '<div class="view-sub">Không tải được report.</div>';
-    });
-}
 
 // ---- AI-generated project assessment (Roadmap page) — a manual "Đánh giá"
 // click sends current phase/sprint/task data to an LLM and shows the result;
@@ -2517,10 +2191,9 @@ loadUsersView();
 
 loadPhases();
 loadSprintView();
-loadRiskReports();
 loadAiAssessmentHistory();
 
-// ---- shared data cache: both Timeline and Board read /api/tasks; fetch it once ----
+// ---- shared data cache: every view reads /api/tasks; fetch it once ----
 var _tasksPromise = null;
 function loadTasks(){
   if (!_tasksPromise) _tasksPromise = fetchJSON('/api/tasks');
@@ -3930,6 +3603,16 @@ function loadTableView(){
         if (initPhase && !_tableFilterPhase.length) _tableFilterPhase.push(String(initPhase.id));
       }
       renderTableView(applyTableFilters(_lastTableTasks));
+      // rebuilt on every load (categories are live data, not a static
+      // list) — same "genuine data reload" rule renderMultiSelectDropdown
+      // itself calls out; its onChange only re-renders the 2 summary
+      // widgets below, never this dropdown, so an open panel never gets
+      // torn out from under a mid-click user.
+      renderMultiSelectDropdown(
+        document.getElementById('tableSummaryCategoryMs'), 'Category',
+        bucketsForGroupBy(_lastTableTasks, 'category'), _tableSummaryCategoryFilter,
+        function(){ renderPhaseSummary(); renderSprintSummary(); }
+      );
       renderPhaseSummary();
       renderSprintSummary();
     })
@@ -3948,6 +3631,11 @@ function loadTableView(){
 // _lastTablePhases from /api/phases) rather than recomputing it. ----
 var _tableSummaryPhaseIdx = 0;
 var _tableSummaryInitialized = false;
+// one Category filter shared by the phase pivot AND both sprint boxes
+// (rendered via #tableSummaryCategoryMs, see loadTableView) — separate
+// from the detail table's own per-column Category filter. Empty = every
+// category, same "no filter" convention as every other filter array here.
+var _tableSummaryCategoryFilter = [];
 
 function buildPhaseSummaryRows(phaseTasks){
   return bucketsForGroupBy(phaseTasks, 'category').map(function(cat){
@@ -3999,10 +3687,13 @@ function renderPhaseSummary(){
   prevBtn.disabled = _tableSummaryPhaseIdx === 0;
   nextBtn.disabled = _tableSummaryPhaseIdx === phases.length - 1;
 
-  var phaseTasks = (_lastTableTasks || []).filter(function(t){ return t.phase_id === phase.id; });
+  var phaseTasks = (_lastTableTasks || []).filter(function(t){
+    return t.phase_id === phase.id &&
+      (!_tableSummaryCategoryFilter.length || _tableSummaryCategoryFilter.indexOf(t.category) !== -1);
+  });
   var rows = buildPhaseSummaryRows(phaseTasks);
   if (rows.length === 0){
-    wrap.innerHTML = '<div class="view-sub" style="padding:6px 0;">Phase này chưa có nghiệp vụ.</div>';
+    wrap.innerHTML = '<div class="view-sub" style="padding:6px 0;">Phase này chưa có nghiệp vụ khớp filter.</div>';
     return;
   }
 
@@ -4062,6 +3753,10 @@ document.getElementById('phaseSummaryTableWrap').addEventListener('click', funct
   _tableFilterPhase.length = 0; _tableFilterPhase.push(String(phase.id));
   _tableFilterCategory.length = 0;
   if (cell.dataset.cat) _tableFilterCategory.push(cell.dataset.cat);
+  // Tổng row (no single category of its own) — carry the shared summary
+  // Category filter through, so the table lands on exactly what "Tổng"
+  // just counted instead of silently widening back to every category.
+  else _tableSummaryCategoryFilter.forEach(function(c){ _tableFilterCategory.push(c); });
   _tableFilterStatus.length = 0;
   if (cell.dataset.done === '1') PHASE_SUMMARY_DONE_STATUSES.forEach(function(s){ _tableFilterStatus.push(s); });
   else if (cell.dataset.status) _tableFilterStatus.push(cell.dataset.status);
@@ -4140,7 +3835,9 @@ function renderSprintSummary(){
   var wrap = document.getElementById('sprintSummaryWrap');
   if (!wrap) return;
   var picks = pickTableCurrentNextSprint();
-  var tasks = _lastTableTasks || [];
+  var tasks = (_lastTableTasks || []).filter(function(t){
+    return !_tableSummaryCategoryFilter.length || _tableSummaryCategoryFilter.indexOf(t.category) !== -1;
+  });
   wrap.innerHTML = SPRINT_SUMMARY_DEFS.map(function(def){
     var sprint = picks[def.pick];
     var labelHtml = escapeHtml(def.label) + (sprint ? ' · ' + escapeHtml(sprint.code) +
@@ -4207,11 +3904,14 @@ document.getElementById('sprintSummaryWrap').addEventListener('click', function(
   var statuses = el.dataset.statuses ? el.dataset.statuses.split(',') : null;
   // one predicate covers every element: own sprint and/or carry-over
   // (In Dev, or Done UAT/Done finished during this sprint), narrowed to a
-  // status whitelist when the element represents one. The plain column
-  // filters can't express the updated_at cutoff, so it goes through the
-  // _tableFilterFn slot; a column-filter change or "Bỏ lọc" clears it.
+  // status whitelist when the element represents one, AND to the shared
+  // summary Category filter (these numbers were computed under it, so the
+  // click has to match). The plain column filters can't express the
+  // updated_at cutoff, so it goes through the _tableFilterFn slot; a
+  // column-filter change or "Bỏ lọc" clears it.
   _tableFilterFn = function(t){
     if (statuses && statuses.indexOf(t.status) === -1) return false;
+    if (_tableSummaryCategoryFilter.length && _tableSummaryCategoryFilter.indexOf(t.category) === -1) return false;
     var own = t.sprint_id === cur;
     var carried = isSprintCarryOver(t, carry, start);
     return scope === 'own' ? own : scope === 'carry' ? carried : (own || carried);
@@ -4813,158 +4513,6 @@ function loadTimelineView(){
     });
 }
 
-// ---- board ----
-// dragged task id, held between dragstart and drop (dataTransfer.getData is
-// unreliable to read during dragover in some browsers, so we keep our own ref)
-var _draggingTaskId = null;
-
-function updateTaskStatus(task, newStatus){
-  var body = {
-    category: task.category, name: task.name, platform: task.platform, status: newStatus,
-    phase_id: task.phase_id, sprint_id: task.sprint_id, stt: task.stt,
-    why: task.why, resource_roles: task.resource_roles,
-    done_analyst: task.done_analyst, done_dev: task.done_dev, done_uat: task.done_uat, done_staging: task.done_staging,
-    start_date: task.start_date, due_date: task.due_date, date_overridden: task.date_overridden
-  };
-  return authFetch('/api/tasks/' + task.id, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  }).then(function(res){
-    if (!res.ok){
-      return res.json().catch(function(){ return {}; }).then(function(errBody){
-        throw new Error(errBody.error || ('HTTP ' + res.status));
-      });
-    }
-  });
-}
-
-function renderBoard(tasks){
-  var boardEl = document.getElementById('board');
-  var playFlip = captureFlipPositions(boardEl, 'data-task-id');
-  boardEl.innerHTML = '';
-  STATUS_ORDER.forEach(function(status, idx){
-    var col = document.createElement('div'); col.className = 'col';
-    col.dataset.status = status;
-    var head = document.createElement('div'); head.className = 'col-head';
-    var label = statusLabel[idx].replace(/^\d+\.\s*/, '');
-    var tasksInCol = tasks.filter(function(t){ return t.status === status; });
-    head.innerHTML = '<span class="pill st-' + idx + '">' + escapeHtml(label) + '</span><span class="col-count">' + tasksInCol.length + '</span>';
-    col.appendChild(head);
-    tasksInCol.forEach(function(t){
-      var card = document.createElement('div'); card.className = 'card'; card.draggable = hasRole('editor');
-      card.setAttribute('data-task-id', t.id);
-      var sprintTag = t.sprint_code ? '<span class="tag tag-sprint">' + escapeHtml(t.sprint_code) + '</span>' : '';
-      card.innerHTML = escapeHtml(t.name) +
-        '<div class="card-tags">' + sprintTag + '<span class="tag">' + escapeHtml(t.category) + '</span><span class="tag">' + escapeHtml(t.platform) + '</span></div>';
-      card.addEventListener('click', function(){ openDrawer('edit', t); });
-      card.addEventListener('dragstart', function(e){
-        _draggingTaskId = t.id;
-        card.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', String(t.id));
-      });
-      card.addEventListener('dragend', function(){
-        card.classList.remove('dragging');
-        _draggingTaskId = null;
-      });
-      col.appendChild(card);
-    });
-
-    col.addEventListener('dragover', function(e){
-      e.preventDefault();
-      col.classList.add('drag-over');
-    });
-    col.addEventListener('dragleave', function(){
-      col.classList.remove('drag-over');
-    });
-    col.addEventListener('drop', function(e){
-      e.preventDefault();
-      col.classList.remove('drag-over');
-      var taskId = _draggingTaskId;
-      var task = tasks.filter(function(t){ return t.id === taskId; })[0];
-      if (!task || task.status === status) return;
-      updateTaskStatus(task, status)
-        .then(function(){
-          refreshAllViews();
-          toastSuccess('Đã đổi trạng thái cho "' + task.name + '"');
-        })
-        .catch(function(err){
-          console.error('Drag-and-drop status update failed', err);
-          toastError('Không đổi được trạng thái: ' + err.message);
-        });
-    });
-
-    boardEl.appendChild(col);
-  });
-  playFlip();
-}
-
-// populate the Board's Sprint filter once (options never change during a
-// session — new sprints only ever come from a fresh Excel import)
-loadSprints().then(function(sprints){
-  var sel = document.getElementById('board-filter-sprint');
-  sprints.forEach(function(s){
-    var opt = document.createElement('option');
-    opt.value = s.id;
-    opt.textContent = s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')';
-    sel.appendChild(opt);
-  });
-}).catch(function(err){ console.error('Failed to load sprints for Board filter', err); });
-
-document.getElementById('board-filter-sprint').addEventListener('change', function(){
-  loadBoardView();
-  syncBoardQuickChips();
-});
-
-// quick chips for the two sprints people actually care about day-to-day —
-// jump straight to them instead of hunting through the full Sprint dropdown
-var _boardCurrentSprintId = null, _boardNextSprintId = null;
-
-function syncBoardQuickChips(){
-  var sel = document.getElementById('board-filter-sprint');
-  document.querySelectorAll('#boardSprintQuick .chip').forEach(function(btn){
-    var targetId = btn.dataset.quick === 'current' ? _boardCurrentSprintId : _boardNextSprintId;
-    btn.disabled = targetId == null;
-    btn.classList.toggle('active', targetId != null && String(targetId) === String(sel.value));
-  });
-}
-
-fetchJSON('/api/sprints/current-next').then(function(data){
-  _boardCurrentSprintId = data.current ? data.current.id : null;
-  _boardNextSprintId = data.next ? data.next.id : null;
-  syncBoardQuickChips();
-}).catch(function(err){ console.error('Failed to load current/next sprint for Board quick chips', err); });
-
-document.querySelectorAll('#boardSprintQuick .chip').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    var targetId = btn.dataset.quick === 'current' ? _boardCurrentSprintId : _boardNextSprintId;
-    if (targetId == null) return;
-    document.getElementById('board-filter-sprint').value = String(targetId);
-    loadBoardView();
-    syncBoardQuickChips();
-  });
-});
-
-function loadBoardView(){
-  var boardEl = document.getElementById('board');
-  return loadTasks()
-    .then(function(tasks){
-      var sprintFilter = document.getElementById('board-filter-sprint').value;
-      var filtered = sprintFilter
-        ? tasks.filter(function(t){ return String(t.sprint_id) === String(sprintFilter); })
-        : tasks;
-      var sel = document.getElementById('board-filter-sprint');
-      var scopeLabel = sprintFilter ? sel.options[sel.selectedIndex].textContent : 'toàn bộ dự án';
-      document.getElementById('boardSub').textContent = filtered.length + ' nghiệp vụ · ' + scopeLabel;
-      renderBoard(filtered);
-    })
-    .catch(function(err){
-      console.error('Failed to load Board data', err);
-      boardEl.innerHTML = '<div class="view-sub">Không tải được dữ liệu Board. Thử tải lại trang.</div>';
-    });
-}
-
 // ---- log: cross-task history of every start/end date change (drawer edits
 // and Timeline drag/resize both funnel through the same auto-logging PUT) ----
 function fmtDateTime(iso){
@@ -5490,7 +5038,6 @@ document.querySelector('.gantt').addEventListener('scroll', function(){
 
 loadTimelineView();
 loadGroupedTimelineView();
-loadBoardView();
 loadLogView();
 loadResourceView();
 loadTableView();
@@ -5542,15 +5089,13 @@ document.getElementById('f-cat-new').addEventListener('blur', commitNewCategory)
 
 // ---- drawer: create / update / delete / activity log wiring ----
 // after any task mutation, invalidate the shared tasks cache and re-run every
-// loader that could be affected by it (phase rollups, sprint panel, timeline, board)
+// loader that could be affected by it (phase rollups, sprint panel, timeline, table)
 function refreshAllViews(){
   _tasksPromise = null;
   loadPhases();
   loadSprintView();
   loadTimelineView();
   loadGroupedTimelineView();
-  loadBoardView();
-  loadRiskReports();
   loadLogView();
   loadAiAssessmentHistory();
   loadResourceView();

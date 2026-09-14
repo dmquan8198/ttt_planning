@@ -57,10 +57,6 @@
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 6h15M2.5 14h15"/><rect x="5" y="4.2" width="6" height="3.6" rx="1"/><rect x="10.5" y="12.2" width="7" height="3.6" rx="1"/></svg>
           <span class="nav-label">Timeline nhóm</span>
         </div>
-        <div class="nav-item" data-view="board" title="Board">
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M7.5 3v14M12.5 3v14"/></svg>
-          <span class="nav-label">Board</span>
-        </div>
         <div class="nav-item" data-view="table" title="Bảng danh sách">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3.5" width="15" height="13" rx="1.5"/><path d="M2.5 8h15M2.5 12.5h15M8 3.5v13M13 3.5v13"/></svg>
           <span class="nav-label">Bảng danh sách</span>
@@ -111,18 +107,11 @@
                 <div class="feature-intro-item-cta">Đi tới Sprint · Overview tất cả Sprint →</div>
               </div>
             </button>
-            <button type="button" class="feature-intro-item" id="introGoSprintReport">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M6 7.5h8M6 10.5h8M6 13.5h5"/></svg>
-              <div>
-                <div class="feature-intro-item-title">Xem weekly report</div>
-                <div class="feature-intro-item-cta">Đi tới Sprint · Báo cáo Sprint hiện tại →</div>
-              </div>
-            </button>
             <button type="button" class="feature-intro-item" id="introUpdateTaskProgress">
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.5 15.3V17h1.7l8.9-8.9-1.7-1.7-8.9 8.9z"/><path d="M12 5.4l2.6 2.6"/><path d="M12.5 3.9a1.4 1.4 0 0 1 2 0l.6.6a1.4 1.4 0 0 1 0 2l-1 1-2.6-2.6z"/></svg>
               <div>
                 <div class="feature-intro-item-title">Update tiến độ task</div>
-                <div class="feature-intro-item-cta">Đi tới Báo cáo Sprint · chọn task đầu tiên →</div>
+                <div class="feature-intro-item-cta">Đi tới Sprint hiện tại & sau · chọn task đầu tiên →</div>
               </div>
             </button>
             <button type="button" class="feature-intro-item" id="introGoTimeline">
@@ -159,24 +148,6 @@
 
         <div class="phase-row" id="phaseRow"></div>
 
-        <div class="risk-threshold-chips" id="dueSoonWindowChips">
-          <span class="chip-label">Sắp đến hạn trong</span>
-          <button type="button" class="chip active" data-window="3">3 ngày</button>
-          <button type="button" class="chip" data-window="7">7 ngày</button>
-        </div>
-        <div class="risk-wrap">
-          <div class="risk-col">
-            <div class="risk-col-title">Sắp đến hạn theo Sprint</div>
-            <div class="view-sub" style="margin-bottom:12px;" id="dueSoonSubSprint"></div>
-            <div id="dueSoonBySprint"></div>
-          </div>
-          <div class="risk-col">
-            <div class="risk-col-title">Sắp đến hạn theo Phase</div>
-            <div class="view-sub" style="margin-bottom:12px;" id="dueSoonSubPhase"></div>
-            <div id="dueSoonByPhase"></div>
-          </div>
-        </div>
-
         <div class="risk-threshold-chips" id="aiAssessmentControls">
           <span class="ai-assessment-section-title">Đánh giá tổng quan bằng AI</span>
           <button type="button" class="chip snapshot-capture-btn" id="generateAssessmentBtn">✦ Đánh giá</button>
@@ -207,7 +178,6 @@
         <div class="groupby-chips" id="sprintTabChips">
           <button type="button" class="chip active" data-tab="overview">Overview tất cả Sprint</button>
           <button type="button" class="chip" data-tab="current-next">Sprint hiện tại &amp; sau</button>
-          <button type="button" class="chip" data-tab="report">Báo cáo Sprint hiện tại</button>
         </div>
 
         <div id="sprintTabOverview">
@@ -223,14 +193,6 @@
             <button type="button" class="chip" id="exportCurrentNextExcelBtn">⭳ Xuất Excel</button>
           </div>
           <div class="sprint-columns" id="sprintColumns"></div>
-        </div>
-
-        <div id="sprintTabReport" style="display:none;">
-          <div class="groupby-chips">
-            <span class="chip-label">Lọc theo</span>
-            <div id="sprintReportCategoryFilter"></div>
-          </div>
-          <div id="sprintReportWrap"></div>
         </div>
       </section>
 
@@ -307,24 +269,6 @@
         <div class="gt-chart" id="gtChart"></div>
       </section>
 
-      <!-- BOARD -->
-      <section class="view" id="view-board">
-        <div class="view-head">
-          <div>
-            <div class="view-title">Board theo trạng thái</div>
-            <div class="view-sub" id="boardSub"></div>
-          </div>
-        </div>
-        <div class="filters">
-          <select id="board-filter-sprint"><option value="">Tất cả Sprint</option></select>
-          <div class="groupby-chips" id="boardSprintQuick">
-            <button type="button" class="chip" data-quick="current">Sprint hiện tại</button>
-            <button type="button" class="chip" data-quick="next">Sprint sau</button>
-          </div>
-        </div>
-        <div class="board" id="board"></div>
-      </section>
-
       <!-- TABLE -->
       <section class="view" id="view-table">
         <div class="view-head">
@@ -338,6 +282,10 @@
           </div>
         </div>
 
+        <div class="table-summary-filter-row" id="tableSummaryFilterRow">
+          <span class="chip-label">Lọc tổng hợp theo</span>
+          <div id="tableSummaryCategoryMs"></div>
+        </div>
         <div class="phase-summary" id="phaseSummaryWrap">
           <div class="phase-summary-main">
             <div class="phase-summary-head">

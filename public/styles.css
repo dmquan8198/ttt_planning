@@ -307,23 +307,20 @@ body{
 }
 .phase-not-done-cta:hover{text-decoration:underline;}
 
-/* ===== RISK REPORT ===== */
+/* ===== RISK-STYLE LIST (shared card/row look — AI assessment history,
+   Log đổi ngày, and the Resource view's "not yet done" list all reuse it) ===== */
 .risk-threshold-chips{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:28px;}
 .risk-threshold-chips .chip-label{font-size:11px; color:var(--ink-muted); margin-right:2px;}
-.risk-wrap{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:14px;}
-.risk-col-title{font-family:var(--serif); font-size:16px; margin-bottom:2px;}
 .ai-assessment-section-title{font-family:var(--serif); font-size:16px; color:var(--ink); margin-right:4px;}
 .risk-group{border:1px solid var(--border); border-radius:8px; background:var(--surface); margin-bottom:12px; overflow:hidden;}
 .risk-group-head{display:flex; justify-content:space-between; align-items:baseline; padding:9px 12px; background:var(--surface-2); font-size:12px; font-weight:600; border-bottom:1px solid var(--border);}
 .risk-count{font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--red-ink); background:var(--red-bg); padding:2px 7px; border-radius:999px;}
-.risk-count.is-soon{color:var(--yellow-ink); background:var(--yellow-bg);}
 .risk-task{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 12px; border-top:1px solid var(--border); cursor:pointer; transition:background .12s ease;}
 .risk-task:first-of-type{border-top:none;}
 .risk-task:hover{background:var(--surface-2);}
 .risk-task-name{font-size:12.5px; flex:1; min-width:0;}
 .risk-task-meta{display:flex; align-items:center; gap:8px; flex:none;}
 .risk-days{font-family:var(--mono); font-size:10.5px; font-weight:700; color:var(--red-ink); background:var(--red-bg); padding:2px 7px; border-radius:999px; white-space:nowrap;}
-.risk-days.is-soon{color:var(--yellow-ink); background:var(--yellow-bg);}
 .snapshot-capture-btn{background:var(--ink); color:var(--canvas); border-color:var(--ink); font-weight:600;}
 .snapshot-capture-btn:hover{opacity:0.85;}
 .snapshot-capture-btn:disabled{opacity:0.4; cursor:not-allowed;}
@@ -356,8 +353,7 @@ body{
 .ai-assessment-history-content{padding:12px; border-top:1px solid var(--border);}
 
 /* ===== TIMELINE ===== */
-.filters{display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;}
-.filters select, .view-head-controls select{
+.view-head-controls select{
   font-family:var(--sans); font-size:12.5px; padding:7px 10px; border-radius:6px;
   border:1px solid var(--border); background:var(--surface); color:var(--ink);
 }
@@ -466,6 +462,11 @@ body{
   border:1px solid var(--accent-ink); border-radius:5px; background:var(--surface); color:var(--ink); text-align:center;
 }
 
+/* one Category filter shared by all 3 summary widgets below it (phase
+   pivot + both sprint boxes) — separate from the detail table's own
+   per-column Category filter, which stays independently controllable. */
+.table-summary-filter-row{display:flex; align-items:center; gap:8px; margin-bottom:10px;}
+.table-summary-filter-row .chip-label{font-size:11px; color:var(--ink-muted);}
 .groupby-chips{display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; align-items:center;}
 .view-head-controls .groupby-chips{margin-bottom:0;}
 .gantt-legend-row{display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px;}
@@ -706,24 +707,9 @@ body{
 .bar.st-4{background:var(--status-4-bg); color:var(--status-4-ink);}
 .bar.st-5{background:var(--status-5-bg); color:var(--status-5-ink);}
 
-/* ===== KANBAN ===== */
-.board{display:grid; grid-template-columns:repeat(5,1fr); gap:12px; align-items:start;}
-.col{background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:12px; min-height:120px; transition:background .12s ease, border-color .12s ease;}
-.col.drag-over{background:var(--accent-soft); border-color:var(--accent-ink);}
-.col-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; padding:0 2px;}
-.col-title{font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;}
-.col-count{font-family:var(--mono); font-size:11px; color:var(--ink-muted);}
-.card{
-  background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:11px 12px;
-  margin-bottom:8px; font-size:12.5px; transition:box-shadow .2s ease; cursor:grab;
-}
-.card:hover{box-shadow:0 2px 8px rgba(0,0,0,0.05);}
-.card.dragging{opacity:0.4;}
-.card-tags{display:flex; gap:5px; margin-top:8px; flex-wrap:wrap;}
 .tag{font-family:var(--mono); font-size:10px; color:var(--ink-muted); background:var(--surface-2); border:1px solid var(--border); border-radius:4px; padding:1.5px 5px;}
 .tag-sprint{color:var(--accent-ink); background:var(--accent-soft); border-color:var(--accent-ink); font-weight:600;}
 .tag-actor{color:var(--ink); background:var(--surface-2); border-color:var(--ink-faint); font-weight:600;}
-.col-more{font-size:11px; color:var(--ink-faint); text-align:center; padding:6px 0 2px; font-family:var(--mono);}
 
 /* ===== LOG ===== */
 .log-row{
@@ -779,53 +765,8 @@ body{
 }
 .sprint-task.carryover{border-color:var(--red-bg); background:var(--red-bg);}
 
-.sprint-report-columns{display:flex; flex-direction:column; gap:16px;}
-.sprint-report-block{min-width:0;}
-.sprint-report-head{margin-bottom:12px;}
-.sprint-report-title{font-family:var(--serif); font-size:15px; margin-bottom:8px;}
-.sprint-report-progress-row{display:flex; flex-direction:column; gap:4px;}
-.sprint-report-progress-row .stack{margin-bottom:0;}
-.sprint-report-progress-label{font-size:11px; color:var(--ink-muted); font-family:var(--mono);}
-/* multi-column flow instead of one long vertical stack — category groups
-   pack side by side across the sprint's full width, so a whole sprint
-   reads in far less scroll height without hiding or shortening anything.
-   break-inside:avoid on each group keeps its tasks from being split
-   across the column boundary. */
-.sprint-report-list{
-  border:1px solid var(--border); border-radius:8px;
-  columns:2 340px; column-gap:0; column-rule:1px solid var(--border);
-}
-.sprint-report-empty-state{padding:14px 12px; font-size:12px; color:var(--ink-faint); font-style:italic;}
-.sprint-report-group{border-bottom:1px solid var(--border); break-inside:avoid;}
-.sprint-report-group:last-child{border-bottom:none;}
-.sprint-report-group-head{
-  display:flex; justify-content:space-between; align-items:baseline; padding:7px 12px;
-  background:var(--surface-2); border-left:3px solid var(--accent-ink); border-bottom:1px solid var(--border);
-}
-.sprint-report-group-name{font-family:var(--serif); font-size:13.5px; font-weight:700; color:var(--ink);}
-.sprint-report-group-count{font-family:var(--mono); font-size:11px; color:var(--ink-muted); font-weight:400;}
-.sprint-report-task{
-  display:flex; gap:14px; padding:7px 12px; border-top:1px solid var(--border);
-  cursor:pointer; transition:background .12s ease;
-}
-.sprint-report-group-head + .sprint-report-task{border-top:none;}
-.sprint-report-task:hover{background:var(--surface-2);}
-.sprint-report-task-left{flex:1 1 0; min-width:0;}
-.sprint-report-task-top{display:flex; align-items:baseline; gap:7px; flex-wrap:wrap;}
-.sprint-report-task-name{font-size:12.5px; font-weight:600;}
-.sprint-report-why{color:var(--ink-muted); font-size:11px; margin-top:2px;}
-.sprint-report-activity{
-  flex:1 1 0; min-width:0; color:var(--ink-muted); font-size:11.5px;
-  white-space:pre-wrap; word-break:break-word;
-}
+/* still used by the Table view's "latest_note" empty state */
 .sprint-report-empty{color:var(--ink-faint); font-style:italic;}
-.sprint-report-carryover-head{
-  padding:7px 12px; font-size:10.5px; font-weight:700; text-transform:uppercase;
-  letter-spacing:0.04em; color:var(--red-ink); background:var(--red-bg); border-top:1px solid var(--border);
-  break-inside:avoid; break-after:avoid-column;
-}
-.sprint-report-row-flash{animation:sprint-report-flash 1.8s ease-out;}
-@keyframes sprint-report-flash{ from{background:var(--accent-soft);} to{background:transparent;} }
 
 /* ===== LOGIN ===== */
 .login-overlay{
