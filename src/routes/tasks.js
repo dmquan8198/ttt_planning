@@ -29,6 +29,19 @@ async function loadResourceRolesByTask(pool) {
   return map;
 }
 
+// same join-in-JS approach as resource roles above — Danh sách nghiệp vụ's
+// expand/collapse-per-row subtask preview and its JSON/Excel export both
+// need every task's subtasks without an N+1 request per row.
+async function loadSubtasksByTask(pool) {
+  const { rows } = await pool.query('SELECT * FROM subtasks ORDER BY task_id, id');
+  const map = {};
+  rows.forEach((r) => {
+    if (!map[r.task_id]) map[r.task_id] = [];
+    map[r.task_id].push({ ...r, start_date: normalizeDate(r.start_date), due_date: normalizeDate(r.due_date) });
+  });
+  return map;
+}
+
 async function replaceTaskResourceRoles(pool, taskId, roles) {
   await pool.query('DELETE FROM task_resource_roles WHERE task_id=$1', [taskId]);
   const clean = Array.from(new Set((roles || []).map((r) => String(r).trim()).filter(Boolean)));
@@ -51,7 +64,10 @@ function tasksRouter(pool) {
       ORDER BY t.stt NULLS LAST, t.id
     `);
     const rolesByTask = await loadResourceRolesByTask(pool);
-    res.json(rows.map((r) => ({ ...normalizeTaskDates(r), resource_roles: rolesByTask[r.id] || [] })));
+    const subtasksByTask = await loadSubtasksByTask(pool);
+    res.json(rows.map((r) => ({
+      ...normalizeTaskDates(r), resource_roles: rolesByTask[r.id] || [], subtasks: subtasksByTask[r.id] || []
+    })));
   }));
 
   router.post('/', requireRole(pool, 'editor'), asyncHandler(async (req, res) => {

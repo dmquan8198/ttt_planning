@@ -56,6 +56,36 @@ function subtasksRouter(pool) {
     }
   }));
 
+  // copies every subtask of THIS task (the :taskId in the URL) onto
+  // another, already-existing task — additive (appended after whatever
+  // subtasks the target already has), not a replace. One INSERT...SELECT
+  // so it's atomic — either every subtask copies or none does, no
+  // half-cloned state to clean up if something fails mid-way.
+  router.post('/clone', requireRole(pool, 'editor'), asyncHandler(async (req, res) => {
+    const sourceTaskId = Number(req.params.taskId);
+    const targetTaskId = Number(req.body.target_task_id);
+    if (!Number.isInteger(sourceTaskId) || !Number.isInteger(targetTaskId)) {
+      return res.status(400).json({ error: 'taskId không hợp lệ' });
+    }
+    if (sourceTaskId === targetTaskId) {
+      return res.status(400).json({ error: 'Nghiệp vụ đích phải khác nghiệp vụ hiện tại' });
+    }
+    const { rows: targetRows } = await pool.query('SELECT id FROM tasks WHERE id=$1', [targetTaskId]);
+    if (targetRows.length === 0) {
+      return res.status(400).json({ error: 'Nghiệp vụ đích không tồn tại' });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO subtasks (task_id, name, status, start_date, due_date, pic)
+       SELECT $1::integer, name, status, start_date, due_date, pic FROM subtasks WHERE task_id=$2 ORDER BY id
+       RETURNING *`,
+      [targetTaskId, sourceTaskId]
+    );
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Nghiệp vụ này chưa có subtask nào để nhân bản' });
+    }
+    res.status(201).json(rows.map(normalizeSubtask));
+  }));
+
   // partial update — only the fields actually present in the body get
   // touched (checked via hasOwnProperty, not just truthiness, so
   // "explicitly clear this date" and "didn't send this field" are

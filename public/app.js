@@ -483,6 +483,7 @@ function renderSubtaskList(taskId, subtasks, pics){
     subtasks.forEach(function(st){ wrap.appendChild(renderSubtaskItem(taskId, st, pics, canEdit)); });
   }
   document.getElementById('addSubtaskBtn').style.display = canEdit ? '' : 'none';
+  document.getElementById('cloneSubtasksBtn').style.display = canEdit ? '' : 'none';
 }
 
 // one <tr> per subtask, columns matching the table header exactly (Tên
@@ -511,15 +512,19 @@ function renderSubtaskItem(taskId, st, pics, canEdit){
 
   var startTd = document.createElement('td');
   var startInput = document.createElement('input');
-  startInput.type = 'date'; startInput.className = 'subtask-input'; startInput.disabled = !canEdit;
-  startInput.value = st.start_date || '';
+  startInput.type = 'text'; startInput.className = 'subtask-input'; startInput.disabled = !canEdit;
+  startInput.placeholder = 'dd/mm/yyyy';
+  startInput.value = st.start_date ? fmtDMY(st.start_date) : '';
+  startInput.dataset.original = st.start_date || '';
   startTd.appendChild(startInput);
   row.appendChild(startTd);
 
   var dueTd = document.createElement('td');
   var dueInput = document.createElement('input');
-  dueInput.type = 'date'; dueInput.className = 'subtask-input'; dueInput.disabled = !canEdit;
-  dueInput.value = st.due_date || '';
+  dueInput.type = 'text'; dueInput.className = 'subtask-input'; dueInput.disabled = !canEdit;
+  dueInput.placeholder = 'dd/mm/yyyy';
+  dueInput.value = st.due_date ? fmtDMY(st.due_date) : '';
+  dueInput.dataset.original = st.due_date || '';
   dueTd.appendChild(dueInput);
   row.appendChild(dueTd);
 
@@ -571,10 +576,24 @@ function renderSubtaskItem(taskId, st, pics, canEdit){
     saveSubtaskField(taskId, st.id, { status: statusSel.value }, statusSel);
   });
   startInput.addEventListener('change', function(){
-    saveSubtaskField(taskId, st.id, { start_date: startInput.value || null }, startInput);
+    var typed = startInput.value.trim();
+    var iso = typed ? parseDMY(typed) : null;
+    if (typed && !iso){
+      toastError('Ngày không hợp lệ. Nhập theo dạng dd/mm/yyyy.');
+      startInput.value = startInput.dataset.original ? fmtDMY(startInput.dataset.original) : '';
+      return;
+    }
+    saveSubtaskField(taskId, st.id, { start_date: iso }, startInput).then(function(){ startInput.dataset.original = iso || ''; });
   });
   dueInput.addEventListener('change', function(){
-    saveSubtaskField(taskId, st.id, { due_date: dueInput.value || null }, dueInput);
+    var typed = dueInput.value.trim();
+    var iso = typed ? parseDMY(typed) : null;
+    if (typed && !iso){
+      toastError('Ngày không hợp lệ. Nhập theo dạng dd/mm/yyyy.');
+      dueInput.value = dueInput.dataset.original ? fmtDMY(dueInput.dataset.original) : '';
+      return;
+    }
+    saveSubtaskField(taskId, st.id, { due_date: iso }, dueInput).then(function(){ dueInput.dataset.original = iso || ''; });
   });
   // "+ Thêm PIC mới..." reveals a text input in the select's place (same
   // reveal-then-Enter/blur-commits idiom as Category's own "+ Thêm category
@@ -663,6 +682,190 @@ document.getElementById('subtaskNameNew').addEventListener('keydown', function(e
   if (e.key === 'Enter'){ e.preventDefault(); commitNewSubtask(); }
 });
 document.getElementById('subtaskNameNew').addEventListener('blur', commitNewSubtask);
+
+// ---- clone subtasks to another task: copies every subtask of the
+// currently-open task onto a different, already-saved one (additive on
+// the target, doesn't touch this task's own list) — see POST
+// /api/tasks/:taskId/subtasks/clone.
+//
+// The target is picked through a small custom combobox (#subtaskCloneTarget
+// + #subtaskCloneComboboxPanel) instead of a native <input list=datalist>:
+// a datalist's suggestion popup is drawn entirely by the browser — it can't
+// be restyled to match the app's other dropdowns, can't bold the matched
+// text, and (with 150+ tasks) dumps the whole list into the DOM whether or
+// not anything's been typed. Filtering/highlighting is done here instead.
+var _cloneSelectedTargetId = null;
+
+// every typed word must appear somewhere in the name (order-independent,
+// case-insensitive) — "kho user" matches "Nạp tiền vào kho user mới" but
+// also just "Cập nhật user trong kho", not only a literal substring.
+function taskNameMatchesWords(name, words){
+  var lowerName = (name || '').toLowerCase();
+  return words.every(function(w){ return lowerName.indexOf(w) !== -1; });
+}
+
+// builds highlighted HTML for `name` with every matched word wrapped in
+// <strong> — walks a per-character mask (rather than wrapping each word's
+// first match individually) so overlapping/repeated matches across
+// multiple words never produce nested or malformed tags.
+function highlightTaskName(name, words){
+  name = name || '';
+  var lowerName = name.toLowerCase();
+  var mask = new Array(name.length);
+  words.forEach(function(w){
+    if (!w) return;
+    var start = 0, idx;
+    while ((idx = lowerName.indexOf(w, start)) !== -1){
+      for (var i = idx; i < idx + w.length; i++) mask[i] = true;
+      start = idx + w.length;
+    }
+  });
+  var html = '', i = 0;
+  while (i < name.length){
+    var j = i;
+    while (j < name.length && !!mask[j] === !!mask[i]) j++;
+    var chunk = escapeHtml(name.slice(i, j));
+    html += mask[i] ? ('<strong>' + chunk + '</strong>') : chunk;
+    i = j;
+  }
+  return html;
+}
+
+// caps how many rows ever render, regardless of how many tasks match —
+// "ko cần load hết data": the point of searching is to never have to
+// render/scroll through the full task list.
+var CLONE_COMBOBOX_MAX_RESULTS = 20;
+
+// the panel lives in the drawer's markup for readability, but is moved to
+// a direct child of <body> the first time it's shown — .drawer-scroll
+// (the drawer's own body, everything between the header and the sticky
+// footer) has overflow-y:auto, which clips any absolutely-positioned
+// descendant that falls outside whatever's currently scrolled into view,
+// which for a field near the bottom of a long form is most of the time.
+// Being a body-level element with position:fixed sidesteps that clipping
+// (and the drawer's own transform, which would otherwise make it the
+// containing block for a fixed descendant) entirely.
+function positionCloneComboboxPanel(){
+  var panel = document.getElementById('subtaskCloneComboboxPanel');
+  if (panel.parentNode !== document.body) document.body.appendChild(panel);
+  var rect = document.getElementById('subtaskCloneTarget').getBoundingClientRect();
+  panel.style.top = (rect.bottom + 4) + 'px';
+  panel.style.left = rect.left + 'px';
+  panel.style.width = rect.width + 'px';
+}
+
+function renderCloneComboboxOptions(query){
+  var panel = document.getElementById('subtaskCloneComboboxPanel');
+  panel.innerHTML = '';
+  var words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0){
+    panel.style.display = 'none';
+    return;
+  }
+  var matches = _drawerAllTasks
+    .filter(function(t){ return t.id !== editingTaskId && taskNameMatchesWords(t.name, words); })
+    .slice(0, CLONE_COMBOBOX_MAX_RESULTS);
+  if (matches.length === 0){
+    var empty = document.createElement('div');
+    empty.className = 'task-combobox-empty';
+    empty.textContent = 'Không tìm thấy nghiệp vụ nào.';
+    panel.appendChild(empty);
+  } else {
+    matches.forEach(function(t){
+      var row = document.createElement('div');
+      row.className = 'task-combobox-option';
+      row.innerHTML = highlightTaskName(t.name, words);
+      // mousedown (not click) fires and commits BEFORE the input's blur
+      // handler hides the panel — a click handler here would lose the race.
+      row.addEventListener('mousedown', function(e){
+        e.preventDefault();
+        _cloneSelectedTargetId = t.id;
+        document.getElementById('subtaskCloneTarget').value = t.name;
+        panel.style.display = 'none';
+      });
+      panel.appendChild(row);
+    });
+  }
+  positionCloneComboboxPanel();
+  panel.style.display = 'block';
+}
+document.getElementById('subtaskCloneTarget').addEventListener('input', function(){
+  _cloneSelectedTargetId = null; // typing invalidates whatever was picked before
+  renderCloneComboboxOptions(this.value);
+});
+document.getElementById('subtaskCloneTarget').addEventListener('focus', function(){
+  if (this.value.trim()) renderCloneComboboxOptions(this.value);
+});
+document.getElementById('subtaskCloneTarget').addEventListener('blur', function(){
+  // deferred so an option's own mousedown (above) fires first
+  setTimeout(function(){ document.getElementById('subtaskCloneComboboxPanel').style.display = 'none'; }, 0);
+});
+// Enter clones straight away, no need to click a suggestion first then hit
+// the "Nhân bản" button — if nothing's been explicitly picked yet but the
+// search has narrowed to exactly one match, that one is picked implicitly
+// (mirrors what a user typing a distinctive word and hitting Enter expects).
+// With zero or multiple matches still showing, the confirm button's own
+// "Chọn 1 nghiệp vụ đích..." validation applies same as a real click would.
+document.getElementById('subtaskCloneTarget').addEventListener('keydown', function(e){
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  if (_cloneSelectedTargetId === null){
+    var rows = document.getElementById('subtaskCloneComboboxPanel').querySelectorAll('.task-combobox-option');
+    if (rows.length === 1) rows[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  }
+  document.getElementById('subtaskCloneConfirmBtn').click();
+});
+
+function cloneSubtasksToTask(sourceTaskId, targetTaskId){
+  return authFetch('/api/tasks/' + sourceTaskId + '/subtasks/clone', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_task_id: targetTaskId })
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+    return res.json();
+  });
+}
+document.getElementById('cloneSubtasksBtn').addEventListener('click', function(){
+  if (!editingTaskId) return;
+  document.getElementById('cloneSubtasksBtn').style.display = 'none';
+  var row = document.getElementById('subtaskCloneRow');
+  row.style.display = 'flex';
+  _cloneSelectedTargetId = null;
+  document.getElementById('subtaskCloneTarget').value = '';
+  document.getElementById('subtaskCloneComboboxPanel').style.display = 'none';
+  document.getElementById('subtaskCloneTarget').focus();
+});
+function closeCloneSubtaskRow(){
+  document.getElementById('subtaskCloneRow').style.display = 'none';
+  document.getElementById('subtaskCloneComboboxPanel').style.display = 'none';
+  document.getElementById('cloneSubtasksBtn').style.display = '';
+  _cloneSelectedTargetId = null;
+}
+document.getElementById('subtaskCloneCancelBtn').addEventListener('click', closeCloneSubtaskRow);
+document.getElementById('subtaskCloneConfirmBtn').addEventListener('click', function(){
+  var target = _drawerAllTasks.filter(function(t){ return t.id === _cloneSelectedTargetId; })[0];
+  if (!target){
+    toastError('Chọn 1 nghiệp vụ đích từ danh sách gợi ý.');
+    return;
+  }
+  if (!editingTaskId || _drawerSubtasks.length === 0){
+    toastError('Nghiệp vụ này chưa có subtask nào để nhân bản.');
+    return;
+  }
+  var btn = document.getElementById('subtaskCloneConfirmBtn');
+  btn.disabled = true;
+  cloneSubtasksToTask(editingTaskId, target.id).then(function(cloned){
+    toastSuccess('Đã nhân bản ' + cloned.length + ' subtask sang "' + target.name + '".');
+    closeCloneSubtaskRow();
+  }).catch(function(err){
+    toastError('Không nhân bản được: ' + err.message);
+  }).finally(function(){
+    btn.disabled = false;
+  });
+});
 
 // ---- resource roles (Resource cần): which teams a task needs (PO, ITBA,
 // BE Dev, App Dev, Web Dev, Core, by default, but fully managed via
@@ -885,6 +1088,7 @@ function openDrawer(mode, t){
   document.getElementById('deleteBtn').disabled = false;
   // subtasks belong to an already-saved task too — same reasoning as clone.
   document.getElementById('subtaskField').style.display = isEdit ? 'block' : 'none';
+  closeCloneSubtaskRow(); // in case it was left open from a previous drawer session
   // always visible (not just isEdit) — "Ghi chú" was removed as a separate
   // create-only field, so this is now the single place to write a note on
   // both create and edit; the placeholder below explains what happens to it
@@ -1047,7 +1251,13 @@ overlay.addEventListener('click', function(){
   if (_drawerActionBusy) return;
   close();
 });
-function close(){ overlay.classList.remove('show'); drawer.classList.remove('show'); }
+function close(){
+  overlay.classList.remove('show'); drawer.classList.remove('show');
+  // the clone-target combobox panel lives in <body>, not inside .drawer
+  // (see positionCloneComboboxPanel) — the drawer's own closing animation
+  // won't hide it for free, so it needs its own explicit close here.
+  document.getElementById('subtaskCloneComboboxPanel').style.display = 'none';
+}
 
 // hybrid date UX: picking a sprint auto-fills start/due unless the user has
 // already hand-edited the dates since the last time we auto-filled them
@@ -1285,6 +1495,21 @@ document.getElementById('logoutBtn').addEventListener('click', logout);
 function ddmm(iso){ var p = iso.split('-'); return p[2] + '/' + p[1]; }
 function fmtDMY(iso){ var p = iso.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
 function fmtRange(startIso, endIso){ return ddmm(startIso) + '–' + ddmm(endIso); }
+// the inverse of fmtDMY, for the subtask table's typed dd/mm/yyyy date
+// cells — 'dd/mm/yyyy' → 'yyyy-mm-dd', or null for anything that isn't a
+// real calendar date (empty string, garbage text, or an overflow date
+// like 30/02 — Date silently normalizes those instead of erroring, so the
+// UTC round-trip is checked against what was actually typed).
+function parseDMY(str){
+  var m = (str || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  var d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  var date = new Date(Date.UTC(y, mo - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return null;
+  var p = function(n){ return String(n).padStart(2, '0'); };
+  return y + '-' + p(mo) + '-' + p(d);
+}
 // a full timestamp (status-transition stamp) → "dd/mm/yyyy HH:mm" local; '' for null.
 function fmtStamp(iso){
   if (!iso) return '';
@@ -3397,6 +3622,10 @@ var _tableFilterCategory = [], _tableFilterPlatform = [], _tableFilterStatus = [
 // sprint's In-Dev carry-over). Set only by the summary widgets; any
 // column-header filter change or "Bỏ lọc" drops it back to null.
 var _tableFilterFn = null;
+// same word-by-word substring matching as the subtask-clone task picker
+// (see taskNameMatchesWords) — every typed word must appear somewhere in
+// the task's name, order-independent.
+var _tableSearchWords = [];
 var _tableGroupBy = 'sprint';
 // which TABLE_COLUMNS key each group-by mode duplicates — hidden while
 // grouped by it (every row in a group already shares that value, shown
@@ -3404,10 +3633,16 @@ var _tableGroupBy = 'sprint';
 // saved column picks rather than mutating them.
 var TABLE_GROUPBY_COLUMN_KEY = { category: 'category', sprint: 'sprint', phase: 'phase', platform: 'platform', status: 'status' };
 var _lastTableTasks = null, _lastTableSprints = null, _lastTablePhases = null;
+// which tasks currently have their subtask preview row open — keyed by
+// task id, survives re-renders from filtering/sorting/grouping within the
+// session (only a fresh page load resets it), same "ephemeral session
+// state, not persisted" scope as _tableVisibleColumns' in-memory siblings.
+var _tableExpandedTaskIds = {};
 var _tableLatestLogByTaskId = {};
 
 function applyTableFilters(tasks){
   return tasks.filter(function(t){
+    if (_tableSearchWords.length && !taskNameMatchesWords(t.name, _tableSearchWords)) return false;
     if (_tableFilterFn && !_tableFilterFn(t)) return false;
     if (_tableFilterCategory.length && _tableFilterCategory.indexOf(t.category) === -1) return false;
     if (_tableFilterPlatform.length && _tableFilterPlatform.indexOf(t.platform) === -1) return false;
@@ -3651,10 +3886,22 @@ function appendEditableCell(td, col, t){
 // every call above (bucketsForGroupBy's own output, or a hand-built list)
 // passes straight through without reshaping.
 
-function renderTableRow(t, visibleCols, canEdit, rowNum){
+function renderTableRow(t, visibleCols, canEdit, rowNum, isExpanded){
   var tr = document.createElement('tr');
   tr.className = 'data-table-row';
   tr.dataset.taskId = t.id;
+
+  var toggleTd = document.createElement('td');
+  toggleTd.className = 'data-table-toggle-cell';
+  if (t.subtasks && t.subtasks.length){
+    var toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button'; toggleBtn.className = 'table-row-toggle';
+    toggleBtn.textContent = isExpanded ? '▾' : '▸';
+    toggleBtn.title = (isExpanded ? 'Thu gọn' : 'Mở rộng') + ' ' + t.subtasks.length + ' subtask';
+    toggleTd.appendChild(toggleBtn);
+  }
+  tr.appendChild(toggleTd);
+
   visibleCols.forEach(function(col){
     var td = document.createElement('td');
     if (col.key === 'stt'){
@@ -3672,6 +3919,40 @@ function renderTableRow(t, visibleCols, canEdit, rowNum){
     }
     tr.appendChild(td);
   });
+  return tr;
+}
+
+// the expanded detail row for one task — a single <td colspan=totalCols>
+// holding a compact, read-only subtask TREE (a vertical spine with an
+// elbow branching off to each subtask's name box — see .subtask-tree in
+// styles.css), so the parent/child relationship reads visually, not just
+// from indentation. Read-only on purpose: full editing (add/rename/
+// status/dates/PIC/delete/clone) already lives in the task drawer one
+// click away, so this stays a quick look rather than a second place the
+// same data can be edited from.
+function renderSubtaskPreviewRow(t, totalCols){
+  var tr = document.createElement('tr');
+  tr.className = 'data-table-subtask-row';
+  var td = document.createElement('td');
+  td.colSpan = totalCols;
+
+  var tree = document.createElement('div');
+  tree.className = 'subtask-tree';
+  t.subtasks.forEach(function(st){
+    var item = document.createElement('div');
+    item.className = 'subtask-tree-item';
+    item.innerHTML =
+      '<span class="subtask-tree-connector"></span>' +
+      '<span class="subtask-tree-name-box" title="' + escapeHtml(st.name || '') + '">' + escapeHtml(st.name || '') + '</span>' +
+      '<span class="subtask-status-pill ' + escapeHtml(st.status) + '">' +
+        escapeHtml(SUBTASK_STATUS_LABELS[st.status] || st.status) + '</span>' +
+      '<span class="subtask-tree-date">' + (st.start_date ? fmtDMY(st.start_date) : '—') + '</span>' +
+      '<span class="subtask-tree-date">' + (st.due_date ? fmtDMY(st.due_date) : '—') + '</span>' +
+      '<span class="subtask-tree-pic">' + escapeHtml(st.pic || '—') + '</span>';
+    tree.appendChild(item);
+  });
+  td.appendChild(tree);
+  tr.appendChild(td);
   return tr;
 }
 
@@ -3808,6 +4089,9 @@ function renderTableView(tasks){
   var table = document.createElement('table'); table.className = 'data-table';
   var thead = document.createElement('thead');
   var headRow = document.createElement('tr');
+  var toggleTh = document.createElement('th');
+  toggleTh.className = 'data-table-toggle-th';
+  headRow.appendChild(toggleTh);
   visibleCols.forEach(function(col){
     var th = document.createElement('th');
     var labelSpan = document.createElement('span'); labelSpan.textContent = col.label;
@@ -3820,26 +4104,32 @@ function renderTableView(tasks){
 
   var canEdit = hasRole('editor');
   var rowSortFn = tableSortByColumn(tableRowSortColumn(visibleCols));
+  var totalCols = visibleCols.length + 1; // +1 for the toggle gutter column
   var tbody = document.createElement('tbody');
   var rowNum = 0; // STT: a running 1..N counter down the whole table
+  function appendTaskRow(t){
+    var expanded = !!_tableExpandedTaskIds[t.id];
+    tbody.appendChild(renderTableRow(t, visibleCols, canEdit, ++rowNum, expanded));
+    if (expanded && t.subtasks && t.subtasks.length) tbody.appendChild(renderSubtaskPreviewRow(t, totalCols));
+  }
   if (tasks.length === 0){
     var emptyTr = document.createElement('tr');
-    var emptyTd = document.createElement('td'); emptyTd.colSpan = visibleCols.length;
+    var emptyTd = document.createElement('td'); emptyTd.colSpan = totalCols;
     emptyTd.className = 'view-sub'; emptyTd.style.padding = '16px'; emptyTd.textContent = 'Không có nghiệp vụ nào khớp filter.';
     emptyTr.appendChild(emptyTd);
     tbody.appendChild(emptyTr);
   } else if (_tableGroupBy === 'none'){
-    tasks.slice().sort(rowSortFn).forEach(function(t){ tbody.appendChild(renderTableRow(t, visibleCols, canEdit, ++rowNum)); });
+    tasks.slice().sort(rowSortFn).forEach(appendTaskRow);
   } else {
     tableGroupsForMode(tasks, _lastTableSprints || [], _lastTablePhases || [], _tableGroupBy).forEach(function(g){
       var groupTasks = tasks.filter(function(t){ return tableTaskGroupKey(t, _tableGroupBy) === g.key; }).sort(rowSortFn);
       if (groupTasks.length === 0) return;
       var headTr = document.createElement('tr'); headTr.className = 'data-table-group-row';
-      var th = document.createElement('td'); th.colSpan = visibleCols.length;
+      var th = document.createElement('td'); th.colSpan = totalCols;
       th.textContent = g.label + ' (' + groupTasks.length + ')';
       headTr.appendChild(th);
       tbody.appendChild(headTr);
-      groupTasks.forEach(function(t){ tbody.appendChild(renderTableRow(t, visibleCols, canEdit, ++rowNum)); });
+      groupTasks.forEach(appendTaskRow);
     });
   }
   table.appendChild(tbody);
@@ -3860,11 +4150,29 @@ function renderTableView(tasks){
 }
 
 document.getElementById('tableViewWrap').addEventListener('click', function(e){
+  var toggleBtn = e.target.closest('.table-row-toggle');
+  if (toggleBtn){
+    var toggleRow = toggleBtn.closest('.data-table-row');
+    var toggleTaskId = Number(toggleRow.dataset.taskId);
+    if (_tableExpandedTaskIds[toggleTaskId]) delete _tableExpandedTaskIds[toggleTaskId];
+    else _tableExpandedTaskIds[toggleTaskId] = true;
+    if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
+    return;
+  }
   if (e.target.closest('.table-cell-input')) return; // let the input/select handle its own interaction
+  if (e.target.closest('.data-table-subtask-row')) return; // read-only preview, nothing to open a drawer for
   var row = e.target.closest('.data-table-row');
   if (!row || !_lastTableTasks) return;
   var task = _lastTableTasks.find(function(t){ return String(t.id) === row.dataset.taskId; });
   if (task) openDrawer('edit', task);
+});
+document.getElementById('tableCollapseAllBtn').addEventListener('click', function(){
+  _tableExpandedTaskIds = {};
+  if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
+});
+document.getElementById('tableExpandAllBtn').addEventListener('click', function(){
+  (_lastTableTasks || []).forEach(function(t){ if (t.subtasks && t.subtasks.length) _tableExpandedTaskIds[t.id] = true; });
+  if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
 });
 
 // scoped to [data-groupby] specifically — the export JSON/Excel buttons
@@ -3877,6 +4185,10 @@ document.querySelectorAll('#tableGroupByChips .chip[data-groupby]').forEach(func
     _tableGroupBy = btn.dataset.groupby;
     if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
   });
+});
+document.getElementById('tableSearchBox').addEventListener('input', function(){
+  _tableSearchWords = this.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
 });
 
 // column-visibility picker: static list (TABLE_COLUMNS never changes), so
@@ -4083,6 +4395,8 @@ function clearAllTableFilters(){
   _tableFilterFn = null;
   _tableFilterCategory.length = 0; _tableFilterPlatform.length = 0; _tableFilterStatus.length = 0;
   _tableFilterPhase.length = 0; _tableFilterSprint.length = 0;
+  _tableSearchWords = [];
+  document.getElementById('tableSearchBox').value = '';
   if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
 }
 document.getElementById('tableClearFiltersBtn').addEventListener('click', clearAllTableFilters);
@@ -4279,22 +4593,71 @@ function buildTableExportData(){
 function tableExportCell(col, t, i){
   return col.key === 'stt' ? i + 1 : tableCellPlainText(col, t);
 }
+
+// subtask fields for export — separate from TABLE_COLUMNS (which drives
+// the on-screen column picker) since these never appear as their own
+// on-screen columns; the table shows them via the expand/collapse preview
+// row instead. Kept in export because a spreadsheet has no equivalent of
+// "click to expand" — the data has to show up somewhere.
+var SUBTASK_EXPORT_COLUMNS = [
+  { key: 'name', label: 'Subtask - Tên' },
+  { key: 'status', label: 'Subtask - Status' },
+  { key: 'start_date', label: 'Subtask - Start' },
+  { key: 'due_date', label: 'Subtask - Due' },
+  { key: 'pic', label: 'Subtask - PIC' }
+];
+function subtaskExportCellText(col, st){
+  switch (col.key){
+    case 'name': return st.name || '';
+    case 'status': return SUBTASK_STATUS_LABELS[st.status] || st.status || '';
+    case 'start_date': return st.start_date ? fmtDMY(st.start_date) : '';
+    case 'due_date': return st.due_date ? fmtDMY(st.due_date) : '';
+    case 'pic': return st.pic || '';
+    default: return '';
+  }
+}
+// JSON keeps the natural nested shape (one task object, a "subtasks"
+// array on it) — unambiguous for a human or an LLM reading the file: each
+// subtask is clearly a child of its task, not just another row that
+// happens to share some column values.
 function buildTableExportJson(){
   var data = buildTableExportData();
   return data.tasks.map(function(t, i){
     var obj = {};
     data.visibleCols.forEach(function(col){ obj[col.label] = tableExportCell(col, t, i); });
+    obj.subtasks = (t.subtasks || []).map(function(st){
+      var sub = {};
+      SUBTASK_EXPORT_COLUMNS.forEach(function(col){ sub[col.label.replace('Subtask - ', '')] = subtaskExportCellText(col, st); });
+      return sub;
+    });
     return obj;
   });
 }
+// Excel/CSV has no nesting, so it's flattened the standard "pivot table"
+// way instead: one row per subtask, with the parent task's own columns
+// repeated on every one of its subtask rows (so either a task-level or a
+// subtask-level PivotTable field works straight off this sheet). A task
+// with no subtasks still gets exactly one row (with the Subtask - *
+// columns blank) so it's never silently dropped from the export.
 function buildTableExportAoa(){
   var data = buildTableExportData();
-  var header = data.visibleCols.map(function(c){ return c.label; });
-  var rows = data.tasks.map(function(t, i){ return data.visibleCols.map(function(col){ return tableExportCell(col, t, i); }); });
+  var header = data.visibleCols.map(function(c){ return c.label; }).concat(SUBTASK_EXPORT_COLUMNS.map(function(c){ return c.label; }));
+  var rows = [];
+  data.tasks.forEach(function(t, i){
+    var taskCells = data.visibleCols.map(function(col){ return tableExportCell(col, t, i); });
+    var subtasks = t.subtasks || [];
+    if (subtasks.length === 0){
+      rows.push(taskCells.concat(SUBTASK_EXPORT_COLUMNS.map(function(){ return ''; })));
+    } else {
+      subtasks.forEach(function(st){
+        rows.push(taskCells.concat(SUBTASK_EXPORT_COLUMNS.map(function(col){ return subtaskExportCellText(col, st); })));
+      });
+    }
+  });
   return [header].concat(rows);
 }
-wireExportJsonButton('exportTableJsonBtn', function(){ return Promise.resolve(buildTableExportJson()); }, 'ttt-bang-danh-sach');
-wireExportExcelButton('exportTableExcelBtn', function(){ return Promise.resolve(buildTableExportAoa()); }, 'ttt-bang-danh-sach', 'Bang danh sach');
+wireExportJsonButton('exportTableJsonBtn', function(){ return Promise.resolve(buildTableExportJson()); }, 'ttt-danh-sach-nghiep-vu');
+wireExportExcelButton('exportTableExcelBtn', function(){ return Promise.resolve(buildTableExportAoa()); }, 'ttt-danh-sach-nghiep-vu', 'Danh sach nghiep vu');
 
 // hidden scratchpad for measuring how tall a card's real content (with
 // wrapping enabled) actually renders at a given width — position:fixed +

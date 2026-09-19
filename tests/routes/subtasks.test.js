@@ -185,3 +185,76 @@ test('deleting the parent task cascades and removes its subtasks', async () => {
   const remaining = await pool.query('SELECT * FROM subtasks WHERE task_id=$1', [taskId]);
   assert.equal(remaining.rows.length, 0);
 });
+
+test('POST .../subtasks/clone copies every subtask onto the target task, preserving their fields', async () => {
+  const pool = makeTestPool();
+  const app = createApp(pool);
+  const sourceId = await seedTask(pool);
+  const targetId = await seedTask(pool);
+  await asActor(request(app).post(`/api/tasks/${sourceId}/subtasks`), EDITOR)
+    .send({ name: 'Viết doc', status: 'wip', start_date: '2026-08-05', due_date: '2026-08-07', pic: 'Quân' });
+  await asActor(request(app).post(`/api/tasks/${sourceId}/subtasks`), EDITOR).send({ name: 'Review code' });
+
+  const res = await asActor(request(app).post(`/api/tasks/${sourceId}/subtasks/clone`), EDITOR)
+    .send({ target_task_id: targetId });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.length, 2);
+  assert.equal(res.body[0].task_id, targetId);
+  assert.equal(res.body[0].name, 'Viết doc');
+  assert.equal(res.body[0].status, 'wip');
+  assert.equal(res.body[0].start_date, '2026-08-05');
+  assert.equal(res.body[0].pic, 'Quân');
+
+  const targetList = await request(app).get(`/api/tasks/${targetId}/subtasks`);
+  assert.equal(targetList.body.length, 2);
+  const sourceList = await request(app).get(`/api/tasks/${sourceId}/subtasks`);
+  assert.equal(sourceList.body.length, 2); // source untouched
+});
+
+test('POST .../subtasks/clone appends to a target that already has subtasks, without wiping them', async () => {
+  const pool = makeTestPool();
+  const app = createApp(pool);
+  const sourceId = await seedTask(pool);
+  const targetId = await seedTask(pool);
+  await asActor(request(app).post(`/api/tasks/${sourceId}/subtasks`), EDITOR).send({ name: 'From source' });
+  await asActor(request(app).post(`/api/tasks/${targetId}/subtasks`), EDITOR).send({ name: 'Already there' });
+
+  const res = await asActor(request(app).post(`/api/tasks/${sourceId}/subtasks/clone`), EDITOR)
+    .send({ target_task_id: targetId });
+  assert.equal(res.status, 201);
+
+  const targetList = await request(app).get(`/api/tasks/${targetId}/subtasks`);
+  assert.equal(targetList.body.length, 2);
+  assert.deepEqual(targetList.body.map((s) => s.name).sort(), ['Already there', 'From source']);
+});
+
+test('POST .../subtasks/clone rejects cloning onto itself, a non-existent target, or a source with no subtasks', async () => {
+  const pool = makeTestPool();
+  const app = createApp(pool);
+  const sourceId = await seedTask(pool);
+  const targetId = await seedTask(pool);
+
+  const ontoSelf = await asActor(request(app).post(`/api/tasks/${sourceId}/subtasks/clone`), EDITOR)
+    .send({ target_task_id: sourceId });
+  assert.equal(ontoSelf.status, 400);
+
+  const badTarget = await asActor(request(app).post(`/api/tasks/${sourceId}/subtasks/clone`), EDITOR)
+    .send({ target_task_id: 9999 });
+  assert.equal(badTarget.status, 400);
+
+  const noSubtasks = await asActor(request(app).post(`/api/tasks/${sourceId}/subtasks/clone`), EDITOR)
+    .send({ target_task_id: targetId });
+  assert.equal(noSubtasks.status, 400);
+});
+
+test('POST .../subtasks/clone as viewer is rejected', async () => {
+  const pool = makeTestPool();
+  const app = createApp(pool);
+  const sourceId = await seedTask(pool);
+  const targetId = await seedTask(pool);
+  await asActor(request(app).post(`/api/tasks/${sourceId}/subtasks`), EDITOR).send({ name: 'X' });
+
+  const res = await asActor(request(app).post(`/api/tasks/${sourceId}/subtasks/clone`), VIEWER_NAME)
+    .send({ target_task_id: targetId });
+  assert.equal(res.status, 403);
+});

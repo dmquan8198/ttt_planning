@@ -138,6 +138,35 @@ test('resource_roles is empty on create when omitted, and is persisted when give
   assert.deepEqual(taskB.resource_roles.sort(), ['BE Dev', 'PO']);
 });
 
+test('GET /api/tasks includes each task\'s own subtasks, empty array when it has none', async () => {
+  const app = createApp(makeTestPool());
+  const created = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task A', category: 'Product Foundation', platform: 'Web',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  const taskId = created.body.id;
+
+  await asAdmin(request(app).post(`/api/tasks/${taskId}/subtasks`))
+    .send({ name: 'Viết doc', status: 'wip', pic: 'Quân' });
+
+  const listed = await request(app).get('/api/tasks');
+  const withSubtask = listed.body.find((t) => t.id === taskId);
+  assert.equal(withSubtask.subtasks.length, 1);
+  assert.equal(withSubtask.subtasks[0].name, 'Viết doc');
+  assert.equal(withSubtask.subtasks[0].status, 'wip');
+  assert.equal(withSubtask.subtasks[0].pic, 'Quân');
+
+  const noSubtaskTask = await asAdmin(request(app).post('/api/tasks'))
+    .send({
+      name: 'Task B', category: 'Product Foundation', platform: 'Web',
+      start_date: '2026-08-05', due_date: '2026-08-10'
+    });
+  const listed2 = await request(app).get('/api/tasks');
+  const withoutSubtask = listed2.body.find((t) => t.id === noSubtaskTask.body.id);
+  assert.deepEqual(withoutSubtask.subtasks, []);
+});
+
 test('PUT full-replaces resource_roles, same contract as every other field — a PUT that omits it clears it', async () => {
   const app = createApp(makeTestPool());
   const created = await asAdmin(request(app).post('/api/tasks'))

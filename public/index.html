@@ -57,9 +57,9 @@
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 6h15M2.5 14h15"/><rect x="5" y="4.2" width="6" height="3.6" rx="1"/><rect x="10.5" y="12.2" width="7" height="3.6" rx="1"/></svg>
           <span class="nav-label">Timeline nhóm</span>
         </div>
-        <div class="nav-item" data-view="table" title="Bảng danh sách">
+        <div class="nav-item" data-view="table" title="Danh sách nghiệp vụ">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3.5" width="15" height="13" rx="1.5"/><path d="M2.5 8h15M2.5 12.5h15M8 3.5v13M13 3.5v13"/></svg>
-          <span class="nav-label">Bảng danh sách</span>
+          <span class="nav-label">Danh sách nghiệp vụ</span>
         </div>
         <div class="nav-item" data-view="log" title="Log">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3.5h9l3 3v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M13 3.5V7h3"/><path d="M6 10.5h6M6 13.5h6"/></svg>
@@ -273,7 +273,7 @@
       <section class="view" id="view-table">
         <div class="view-head">
           <div>
-            <div class="view-title">Bảng danh sách</div>
+            <div class="view-title">Danh sách nghiệp vụ</div>
             <div class="view-sub">Toàn bộ nghiệp vụ dạng bảng — ẩn/hiện cột theo ý bạn (tự nhớ cho lần sau), lọc, nhóm, bấm 1 dòng để sửa</div>
           </div>
           <div class="view-head-controls">
@@ -305,6 +305,9 @@
           <button type="button" class="chip" data-groupby="phase">Phase</button>
           <button type="button" class="chip" data-groupby="platform">Platform</button>
           <button type="button" class="chip" data-groupby="status">Status</button>
+          <button type="button" class="chip" id="tableCollapseAllBtn" title="Thu gọn subtask ở mọi nghiệp vụ">▸ Thu gọn</button>
+          <button type="button" class="chip" id="tableExpandAllBtn" title="Mở rộng subtask ở mọi nghiệp vụ">▾ Mở rộng</button>
+          <input type="search" class="table-search-box" id="tableSearchBox" placeholder="Tìm theo tên nghiệp vụ...">
           <div class="table-export-actions">
             <button type="button" class="chip" id="exportTableJsonBtn">⭳ Xuất JSON</button>
             <button type="button" class="chip" id="exportTableExcelBtn">⭳ Xuất Excel</button>
@@ -480,7 +483,10 @@
   </div>
 
   <div class="field" id="subtaskField" style="display:none; margin-top:22px;">
-    <label>Subtask</label>
+    <div class="field-label-row">
+      <label>Subtask</label>
+      <button type="button" class="ai-suggest-btn" id="cloneSubtasksBtn">⧉ Nhân bản sang task khác</button>
+    </div>
     <div class="subtask-table-scroll">
       <table class="subtask-table">
         <thead>
@@ -492,6 +498,14 @@
     <div class="subtask-add-row">
       <button type="button" class="multiselect-action-btn" id="addSubtaskBtn">+ Thêm subtask</button>
       <input type="text" id="subtaskNameNew" placeholder="Tên subtask, Enter để tạo" style="display:none;">
+    </div>
+    <div class="subtask-clone-row" id="subtaskCloneRow" style="display:none;">
+      <div class="task-combobox" id="subtaskCloneCombobox">
+        <input type="text" id="subtaskCloneTarget" placeholder="Gõ tên nghiệp vụ đích..." autocomplete="off">
+        <div class="task-combobox-panel" id="subtaskCloneComboboxPanel"></div>
+      </div>
+      <button type="button" class="ai-suggest-btn" id="subtaskCloneConfirmBtn">Nhân bản</button>
+      <button type="button" class="subtask-clone-cancel" id="subtaskCloneCancelBtn">Huỷ</button>
     </div>
   </div>
 

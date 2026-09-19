@@ -477,11 +477,17 @@ body{
 .gantt-legend-row .gantt-legend{margin-bottom:0;}
 .gantt-legend-row .groupby-chips{margin-bottom:0;}
 .groupby-chips .chip-label{font-size:11px; color:var(--ink-muted); margin-right:2px;}
-/* Bảng danh sách's export buttons share the "Nhóm theo" chip row instead of
-   sitting on their own line below it — margin-left:auto on this flex child
-   pushes it (and nothing else follows it) to the row's right edge; wraps
-   to its own line below only if the row is too narrow to fit both. */
-.table-export-actions{display:flex; gap:8px; margin-left:auto;}
+/* the search box and export buttons share the "Nhóm theo" chip row instead
+   of sitting on their own line below it — margin-left:auto on the search
+   box pushes it and everything after it (the export buttons) to the row's
+   right edge together; wraps to its own line below only if the row is too
+   narrow to fit all three. */
+.table-search-box{
+  font-family:var(--sans); font-size:12px; padding:6px 10px; border-radius:999px; width:200px;
+  border:1px solid var(--border); background:var(--surface); color:var(--ink); margin-left:auto;
+}
+.table-search-box:focus{outline:none; border-color:var(--accent-ink);}
+.table-export-actions{display:flex; gap:8px;}
 .chip{
   font-family:var(--sans); font-size:12px; padding:6px 13px; border-radius:999px;
   border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); cursor:pointer;
@@ -1013,6 +1019,46 @@ input.subtask-input:disabled, select.subtask-input:disabled{opacity:0.6; cursor:
   flex:1; font-family:var(--sans); font-size:12.5px; padding:7px 10px; border-radius:6px;
   border:1px solid var(--border); background:var(--canvas); color:var(--ink);
 }
+.subtask-clone-row{display:flex; align-items:center; gap:8px; margin-top:8px;}
+/* a real custom dropdown (not a native <input list=datalist>, which can't
+   be styled or have matched text bolded — the browser draws its own
+   unstyleable popup) — styled to match .field select exactly (same
+   chevron/padding/colors) so it still reads as "a dropdown" like every
+   other field in the drawer, but the option list itself is ours to
+   render, filter, and highlight. See renderCloneComboboxOptions in app.js. */
+.task-combobox{position:relative; flex:1;}
+.task-combobox input{
+  width:100%; font-family:var(--sans); font-size:13px; color:var(--ink); box-sizing:border-box;
+  padding:8px 30px 8px 10px; border-radius:6px; border:1px solid var(--border); background-color:var(--canvas);
+  background-image:var(--select-arrow); background-repeat:no-repeat; background-position:right 10px center; background-size:11px;
+}
+/* same visual language as .multiselect-panel (dropdown filters elsewhere
+   in the app) — consistent "this is a dropdown panel" look app-wide.
+   position:fixed (not absolute) because the panel is relocated to a
+   direct child of <body> in JS the first time it opens — the drawer's own
+   .drawer-scroll has overflow-y:auto, which would silently clip an
+   absolutely-positioned panel anywhere it fell outside the CURRENTLY
+   SCROLLED-INTO-VIEW portion of that container. top/left/width are set
+   inline from the input's own getBoundingClientRect() every time it
+   opens (see positionCloneComboboxPanel in app.js) — the values here are
+   just a fallback before that first run. z-index:50 clears .drawer's own
+   z-index:10 (it isn't a descendant of the drawer's stacking context once
+   moved, but still needs to sit above it visually). */
+.task-combobox-panel{
+  display:none; position:fixed; top:0; left:0; z-index:50; max-height:220px; overflow-y:auto;
+  background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:var(--shadow); padding:6px;
+}
+.task-combobox-option{
+  padding:7px 9px; border-radius:5px; font-size:12.5px; color:var(--ink); cursor:pointer;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.task-combobox-option:hover{background:var(--surface-2);}
+.task-combobox-option strong{font-weight:700; color:var(--accent-ink);}
+.task-combobox-empty{padding:7px 9px; font-size:12px; color:var(--ink-muted); font-style:italic;}
+.subtask-clone-cancel{
+  font-family:var(--sans); font-size:11px; color:var(--ink-muted); background:none; border:none; cursor:pointer; padding:4px 2px;
+}
+.subtask-clone-cancel:hover{color:var(--ink); text-decoration:underline;}
 
 /* ---- PIC management (Resource view) — same "name left, ✎/× right"
    language as the resource-role matrix header, as a plain vertical list
@@ -1073,6 +1119,64 @@ input.subtask-input:disabled, select.subtask-input:disabled{opacity:0.6; cursor:
   background:var(--surface-2); font-family:var(--serif); font-size:12.5px; font-weight:700;
   color:var(--ink); border-bottom:1px solid var(--border);
 }
+/* expand/collapse gutter — its own always-present column, independent of
+   the user's column picker, so hiding STT (or any other column) never
+   hides the only way to reach a task's subtasks. Empty (no button) for a
+   task with no subtasks, so the affordance never implies there's
+   something to open when there isn't. */
+.data-table-toggle-th{width:22px; padding-left:8px !important; padding-right:0 !important;}
+.data-table-toggle-cell{width:22px; text-align:center; padding:8px 0 8px 8px !important;}
+.table-row-toggle{
+  background:none; border:none; cursor:pointer; color:var(--ink-muted); font-size:9px; padding:2px; line-height:1;
+  font-family:var(--sans);
+}
+.table-row-toggle:hover{color:var(--ink);}
+/* the nested subtask preview itself — indented under its parent row so it
+   reads as "belongs to the row above". No background override (matches
+   the task row above it exactly, whatever that background is) — the
+   indent + tree connector are what say "belongs to the row above", not a
+   shaded panel. Read-only: full subtask editing already lives in the task
+   drawer (bấm 1 dòng để sửa), this is a quick look, not a second place to
+   edit them. */
+.data-table-subtask-row > td{
+  padding:8px 12px 8px 32px !important; border-bottom:1px solid var(--border);
+  white-space:normal;
+}
+/* a file-tree-style parent/child connector (vertical spine + an elbow
+   branching off to each subtask), not a plain table — the point is to
+   make "these belong to the task above" readable at a glance rather than
+   inferred from indentation/shading alone. Each row's connector is its own
+   little vertical+horizontal line pair; the vertical segment runs the
+   FULL row height except on the last item, where it stops halfway so the
+   spine visibly ends instead of dangling past the last branch. */
+.subtask-tree{display:flex; flex-direction:column;}
+/* the name column is capped, not a flexible fr track — inside a colspan'd
+   cell that can be 900px+ wide, a flexible track would claim almost all of
+   that as its own column width even for a short name, leaving a huge dead
+   gap before Status/Start/Due/PIC. Bounded instead to roughly the same
+   width the task's own Nghiệp vụ column renders at elsewhere in this
+   table (.data-table-cell-wrap's min-width:220px). */
+.subtask-tree-item{
+  display:grid; grid-template-columns:22px minmax(160px, 260px) 62px 66px 66px 84px; align-items:center;
+  column-gap:10px; min-height:28px; font-size:11.5px; color:var(--ink);
+}
+.subtask-tree-connector{position:relative; align-self:stretch;}
+.subtask-tree-connector::before{
+  content:''; position:absolute; left:9px; top:-2px; width:2px; height:calc(50% + 2px); background:var(--ink-faint);
+}
+.subtask-tree-item:not(:last-child) .subtask-tree-connector::before{ height:calc(100% + 2px); }
+.subtask-tree-connector::after{
+  content:''; position:absolute; left:9px; top:50%; width:9px; height:2px; background:var(--ink-faint);
+}
+.subtask-tree-name-box{
+  display:inline-block; max-width:100%; padding:3px 4px; color:var(--ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.subtask-tree-item .subtask-tree-date, .subtask-tree-item .subtask-tree-pic{color:var(--ink-muted); white-space:nowrap;}
+.subtask-status-pill{display:inline-block; padding:1px 8px; border-radius:999px; font-size:10px; font-weight:600; white-space:nowrap;}
+.subtask-status-pill.todo{background:var(--neutral-bg); color:var(--neutral-ink);}
+.subtask-status-pill.wip{background:var(--status-blue-bg); color:var(--status-blue-ink);}
+.subtask-status-pill.done{background:var(--green-bg); color:var(--green-ink);}
 /* the "Cập nhật mới nhất" cell is the one column meant to be read, not
    scanned — force-wrapping it (instead of the table's default nowrap)
    keeps a long note readable without pushing the whole table absurdly wide. */
