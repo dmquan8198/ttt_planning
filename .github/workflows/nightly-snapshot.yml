@@ -1,0 +1,22 @@
+name: Nightly progress snapshot
+
+# 17:00 UTC = 00:00 Vietnam (UTC+7, no DST) — see src/lib/today.js for why
+# the app itself reasons about "today" the same way. Runs from GitHub
+# Actions (not an in-process scheduler) because the Render free plan the
+# app runs on sleeps after ~15 min idle; this HTTP call is what wakes it
+# back up, so it fires reliably every night regardless of traffic.
+on:
+  schedule:
+    - cron: '0 17 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger snapshot
+        run: |
+          curl -sS -f -X POST \
+            --max-time 120 --retry 2 --retry-delay 15 --retry-all-errors \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            https://ttt-planning.onrender.com/api/snapshots/run

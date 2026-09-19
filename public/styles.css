@@ -20,6 +20,7 @@
   --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
   --milestone-ink:#A6295C;
   --shadow: 0 1px 2px rgba(32,31,27,0.03);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237A776E' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --serif: 'Iowan Old Style','Palatino Linotype', Georgia, 'Charter', serif;
   --sans: -apple-system, 'Segoe UI', 'SF Pro Display', system-ui, sans-serif;
   --mono: 'SF Mono', 'Cascadia Code', Consolas, 'JetBrains Mono', monospace;
@@ -44,6 +45,7 @@
     --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
     --milestone-ink:#E39BC0;
     --shadow: 0 1px 3px rgba(0,0,0,0.3);
+    --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239B988E' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 }
 :root[data-theme="dark"]{
@@ -64,6 +66,7 @@
   --status-4-bg:var(--status-orange-bg); --status-4-ink:var(--status-orange-ink);
   --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
   --milestone-ink:#E39BC0;
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239B988E' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 :root[data-theme="light"]{
   --canvas:#FBFAF7; --surface:#FFFFFF; --surface-2:#F5F3EE;
@@ -88,6 +91,7 @@
   --status-4-bg:var(--status-orange-bg); --status-4-ink:var(--status-orange-ink);
   --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
   --milestone-ink:#A6295C;
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237A776E' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 *{box-sizing:border-box;}
@@ -827,7 +831,7 @@ body{
    fields — the drawer had grown long enough (Resource cần, log history,
    ...) that the save button was often off the bottom of the viewport. */
 .drawer{
-  position:fixed; top:0; right:0; height:100%; width:400px; background:var(--surface);
+  position:fixed; top:0; right:0; height:100%; width:800px; max-width:calc(100vw - 40px); background:var(--surface);
   border-left:1px solid var(--border); z-index:10; transform:translateX(100%);
   transition:transform .28s cubic-bezier(0.16,1,0.3,1);
   display:flex; flex-direction:column;
@@ -836,14 +840,28 @@ body{
 .drawer-scroll{flex:1; min-height:0; overflow-y:auto; padding:24px;}
 .drawer h3{font-family:var(--serif); font-size:19px; margin:0 0 2px;}
 .drawer .drawer-sub{font-size:12px; color:var(--ink-muted); margin-bottom:20px;}
-.field{margin-bottom:14px;}
+.field{margin-bottom:14px; min-width:0;}
 .field label{display:block; font-size:11.5px; color:var(--ink-muted); margin-bottom:5px; font-weight:600;}
 .field input, .field select, .field textarea{
   width:100%; font-family:var(--sans); font-size:13px; padding:8px 10px; border-radius:6px;
-  border:1px solid var(--border); background:var(--canvas); color:var(--ink);
+  border:1px solid var(--border); background:var(--canvas); color:var(--ink); box-sizing:border-box;
+}
+/* native select arrows sat almost flush against the border in narrower
+   columns (3-col rows) — swap in a custom chevron with real breathing
+   room on the right instead of relying on the browser's own inset. */
+.field select{
+  appearance:none; -webkit-appearance:none; -moz-appearance:none;
+  padding-right:30px;
+  background-image:var(--select-arrow);
+  background-repeat:no-repeat; background-position:right 10px center; background-size:11px;
 }
 .field-row{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+/* Why gets much more room than the two short selects beside it; Sprint
+   (a text-bearing select) gets a bit more than the two date inputs. */
+.field-row-why{grid-template-columns:2fr 1fr 1fr;}
+.field-row-sprint{grid-template-columns:1.3fr 1fr 1fr;}
 .field textarea{min-height:64px; resize:vertical; font-family:var(--sans);}
+.field-row-why textarea{min-height:38px;}
 .field-label-row{display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;}
 .field-label-row label{margin-bottom:0;}
 .ai-suggest-btn{
@@ -947,6 +965,75 @@ body{
 .log-edit-textarea{width:100%; font-family:var(--sans); font-size:11.5px; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--canvas); color:var(--ink); resize:vertical; min-height:56px;}
 .log-edit-actions{display:flex; gap:8px; margin-top:6px;}
 .log-edit-cancel{background:var(--surface); color:var(--ink);}
+
+/* ---- subtasks (drawer, edit mode only): a real table — one row per
+   subtask, one column per field, every cell its own independently
+   autosaving input/select (same "sửa xong rời khỏi cell là lưu" pattern
+   as Bảng danh sách's inline table edits). Horizontal scroll is a safety
+   net, not the normal case — the drawer is wide enough to fit all 6
+   columns without it. ---- */
+.subtask-table-scroll{overflow-x:auto; border:1px solid var(--border); border-radius:7px;}
+.subtask-table{width:100%; border-collapse:collapse; table-layout:fixed;}
+.subtask-table th{
+  text-align:left; font-size:10.5px; font-weight:600; color:var(--ink-muted); text-transform:uppercase;
+  letter-spacing:0.03em; padding:7px 8px; background:var(--surface-2); border-bottom:1px solid var(--border);
+}
+.subtask-table td{padding:5px 6px; border-bottom:1px solid var(--border); vertical-align:middle;}
+.subtask-table tbody tr:last-child td{border-bottom:none;}
+.subtask-table th:first-child, .subtask-table td:first-child{width:auto;}
+.subtask-table th:nth-child(2), .subtask-table td:nth-child(2){width:76px;}
+.subtask-table th:nth-child(3), .subtask-table td:nth-child(3),
+.subtask-table th:nth-child(4), .subtask-table td:nth-child(4){width:96px;}
+.subtask-table th:nth-child(5), .subtask-table td:nth-child(5){width:120px;}
+.subtask-table th:last-child, .subtask-table td:last-child{width:28px; padding-right:8px;}
+.subtask-empty-row td{padding:10px 8px; font-size:12px; color:var(--ink-muted); font-style:italic; border-bottom:none;}
+/* flush cell look, same technique as .table-cell-input in Bảng danh sách:
+   the input's own padding is canceled by an equal negative margin, so it
+   sits exactly in the <td>'s own padding box instead of adding a second,
+   visually "boxed" inset on top of it. Selectors are element+class
+   (input.subtask-input, not just .subtask-input) to match the specificity
+   of the generic ".field input" rule and win on source order, since these
+   cells live inside the drawer's #subtaskField.field wrapper. */
+input.subtask-input, select.subtask-input{
+  width:100%; box-sizing:border-box; font-family:var(--sans); font-size:12px; color:var(--ink);
+  background:transparent; border:1px solid transparent; border-radius:4px; padding:3px 5px; margin:-3px -5px;
+}
+select.subtask-input{-webkit-appearance:none; -moz-appearance:none; appearance:none; background-image:none;}
+input.subtask-input:hover, select.subtask-input:hover{border-color:var(--border);}
+input.subtask-input:focus, select.subtask-input:focus{border-color:var(--accent-ink); background:var(--canvas); outline:none;}
+input.subtask-input:disabled, select.subtask-input:disabled{opacity:0.6; cursor:not-allowed;}
+.subtask-delete-btn{
+  flex:none; width:22px; height:22px; display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--ink-muted);
+  cursor:pointer; font-size:13px; line-height:1; padding:0;
+}
+.subtask-delete-btn:hover{border-color:var(--red-ink); color:var(--red-ink); background:var(--red-bg);}
+.subtask-add-row{display:flex; align-items:center; gap:8px; margin-top:8px;}
+.subtask-add-row input{
+  flex:1; font-family:var(--sans); font-size:12.5px; padding:7px 10px; border-radius:6px;
+  border:1px solid var(--border); background:var(--canvas); color:var(--ink);
+}
+
+/* ---- PIC management (Resource view) — same "name left, ✎/× right"
+   language as the resource-role matrix header, as a plain vertical list
+   instead of a grid cell since there's no PIC "matrix" to anchor it to. ---- */
+.pic-manage-row{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:8px 4px; border-bottom:1px solid var(--border); font-size:12.5px;
+}
+.pic-manage-row:last-of-type{border-bottom:none;}
+.pic-manage-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.pic-manage-count{color:var(--ink-muted); font-family:var(--mono); font-size:11px; margin-left:6px;}
+.pic-manage-actions{display:flex; gap:8px; flex:none;}
+.pic-manage-action-btn{
+  background:none; border:none; cursor:pointer; color:var(--ink-muted); font-size:13px; padding:0; line-height:1;
+}
+.pic-manage-action-btn:hover{color:var(--accent-ink);}
+.pic-manage-edit-input{
+  flex:1; box-sizing:border-box; font-family:var(--sans); font-size:12px; padding:4px 6px;
+  border:1px solid var(--accent-ink); border-radius:5px; background:var(--surface); color:var(--ink);
+}
+.pic-manage-empty{padding:10px 4px; font-size:12.5px; color:var(--ink-muted);}
 
 /* ---- Bảng danh sách: every task, every column, user picks which columns
    show (persisted in localStorage — see _tableVisibleColumns) — the

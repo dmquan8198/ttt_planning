@@ -205,3 +205,56 @@ UPDATE tasks SET done_at              = updated_at WHERE status = '5.done'      
 -- else needs migrating; the WHERE matches nothing once already applied,
 -- safe to re-run.
 UPDATE tasks SET platform = 'App' WHERE platform IN ('BE', 'App/Auto');
+
+-- PIC (người phụ trách) list for subtasks below — a real lookup table the
+-- user manages themselves (add/rename/delete via PUT/DELETE
+-- /api/pics/:id), NOT the users/login table. subtasks.pic stores the
+-- picked NAME as text rather than this table's id, same reasoning as
+-- resource_roles/task_resource_roles: a rename is a plain text swap with
+-- no FK churn on the subtasks it's already assigned to.
+CREATE TABLE IF NOT EXISTS pics (
+  id SERIAL PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- one task's checklist of smaller units of work, each independently
+-- assignable/trackable — deliberately a much lighter record than tasks
+-- itself: only name is required, everything else (status/dates/pic) can
+-- be filled in later or left blank. status is its own 3-value pipeline
+-- (todo/wip/done), unrelated to the parent task's 6-stage one.
+CREATE TABLE IF NOT EXISTS subtasks (
+  id SERIAL PRIMARY KEY,
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'wip', 'done')),
+  start_date DATE,
+  due_date DATE,
+  pic TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_subtasks_task ON subtasks(task_id);
+
+-- one row per calendar night (Vietnam midnight — see src/lib/today.js),
+-- captured by a scheduled job hitting POST /api/snapshots/run (see
+-- src/routes/snapshots.js) so progress-over-time can be analyzed later
+-- without replaying activity_logs. snapshot_date is UNIQUE so re-running
+-- the same night (retry, manual re-run) overwrites rather than duplicates.
+-- by_status/by_category/sprint_now/sprint_next are JSON blobs rather than
+-- normalized columns since their shape (which statuses/categories exist,
+-- which sprint is "current") changes over time as the project evolves —
+-- normalizing would require a schema migration every time a category is
+-- renamed or a sprint is added.
+CREATE TABLE IF NOT EXISTS daily_snapshots (
+  id SERIAL PRIMARY KEY,
+  snapshot_date DATE UNIQUE NOT NULL,
+  total_tasks INTEGER NOT NULL,
+  completed_tasks INTEGER NOT NULL,
+  completion_rate NUMERIC(5,2) NOT NULL,
+  by_status JSONB NOT NULL,
+  by_category JSONB NOT NULL,
+  sprint_now JSONB,
+  sprint_next JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

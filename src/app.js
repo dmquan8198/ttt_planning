@@ -10,6 +10,9 @@ const usersRouter = require('./routes/users');
 const aiAssessmentsRouter = require('./routes/aiAssessments');
 const aiSuggestionsRouter = require('./routes/aiSuggestions');
 const resourceRolesRouter = require('./routes/resourceRoles');
+const subtasksRouter = require('./routes/subtasks');
+const picsRouter = require('./routes/pics');
+const snapshotsRouter = require('./routes/snapshots');
 const { verifyGoogleToken } = require('./lib/googleAuth');
 const { generateText } = require('./lib/geminiClient');
 
@@ -57,6 +60,12 @@ function createApp(pool, googleTokenVerifier, geminiGenerateFn) {
   app.use('/api/sprints', sprintsRouter(pool));
 
   app.use('/api/tasks/:taskId/logs', logsRouter(pool));
+
+  app.use('/api/tasks/:taskId/subtasks', subtasksRouter(pool));
+
+  app.use('/api/pics', picsRouter(pool));
+
+  app.use('/api/snapshots', snapshotsRouter(pool));
 
   app.use('/api/logs', allLogsRouter(pool));
 

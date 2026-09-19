@@ -399,6 +399,271 @@ function fetchAndRenderLogs(taskId){
     });
 }
 
+// ---- subtasks (drawer, edit mode only): a task's own small checklist —
+// name required, status/dates/PIC all optional and each autosaves on its
+// own change (same "sửa xong rời khỏi cell là lưu" pattern as Bảng danh
+// sách's inline table edits), independent of the parent task's own Save.
+// Edit/delete gated to editor+, same as every other task field — see
+// hasRole('editor') below. ----
+var SUBTASK_STATUS_ORDER = ['todo', 'wip', 'done'];
+var SUBTASK_STATUS_LABELS = { todo: 'TODO', wip: 'WIP', done: 'Done' };
+var _drawerSubtasks = []; // last-fetched list for the currently-open task
+
+function fetchAndRenderSubtasks(taskId){
+  var wrap = document.getElementById('subtaskList');
+  wrap.innerHTML = '<div class="view-sub">Đang tải...</div>';
+  return Promise.all([fetchJSON('/api/tasks/' + taskId + '/subtasks'), loadPics()])
+    .then(function(results){
+      _drawerSubtasks = results[0];
+      renderSubtaskList(taskId, _drawerSubtasks, results[1]);
+    })
+    .catch(function(err){
+      console.error('Failed to load subtasks', err);
+      wrap.innerHTML = '<div class="view-sub">Không tải được subtask.</div>';
+    });
+}
+
+function saveSubtaskField(taskId, subtaskId, patch, inputEl){
+  if (inputEl) inputEl.disabled = true;
+  return authFetch('/api/tasks/' + taskId + '/subtasks/' + subtaskId, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch)
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+    return res.json();
+  }).then(function(updated){
+    toastSuccess('Đã lưu subtask.');
+    var idx = _drawerSubtasks.findIndex(function(s){ return s.id === subtaskId; });
+    if (idx !== -1) _drawerSubtasks[idx] = updated;
+    return updated;
+  }).catch(function(err){
+    toastError('Không lưu được subtask: ' + err.message);
+    throw err;
+  }).finally(function(){
+    if (inputEl) inputEl.disabled = false;
+  });
+}
+
+function createSubtask(taskId, name){
+  return authFetch('/api/tasks/' + taskId + '/subtasks', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name })
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+    return res.json();
+  });
+}
+
+function deleteSubtask(taskId, subtaskId){
+  return authFetch('/api/tasks/' + taskId + '/subtasks/' + subtaskId, { method: 'DELETE' }).then(function(res){
+    if (!res.ok && res.status !== 204){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+  });
+}
+
+function renderSubtaskList(taskId, subtasks, pics){
+  var wrap = document.getElementById('subtaskList');
+  wrap.innerHTML = '';
+  var canEdit = hasRole('editor');
+  if (subtasks.length === 0){
+    var emptyRow = document.createElement('tr'); emptyRow.className = 'subtask-empty-row';
+    var emptyTd = document.createElement('td'); emptyTd.colSpan = 6; emptyTd.textContent = 'Chưa có subtask nào.';
+    emptyRow.appendChild(emptyTd);
+    wrap.appendChild(emptyRow);
+  } else {
+    subtasks.forEach(function(st){ wrap.appendChild(renderSubtaskItem(taskId, st, pics, canEdit)); });
+  }
+  document.getElementById('addSubtaskBtn').style.display = canEdit ? '' : 'none';
+}
+
+// one <tr> per subtask, columns matching the table header exactly (Tên
+// subtask, Status, Start, Due, PIC, xoá) — each cell its own
+// independently autosaving input/select, same fields/logic as before,
+// just laid out as a table row instead of a stacked card.
+function renderSubtaskItem(taskId, st, pics, canEdit){
+  var row = document.createElement('tr');
+
+  var nameTd = document.createElement('td');
+  var nameInput = document.createElement('input');
+  nameInput.type = 'text'; nameInput.className = 'subtask-input'; nameInput.value = st.name; nameInput.disabled = !canEdit;
+  nameInput.dataset.original = st.name;
+  nameTd.appendChild(nameInput);
+  row.appendChild(nameTd);
+
+  var statusTd = document.createElement('td');
+  var statusSel = document.createElement('select'); statusSel.className = 'subtask-input'; statusSel.disabled = !canEdit;
+  SUBTASK_STATUS_ORDER.forEach(function(s){
+    var o = document.createElement('option'); o.value = s; o.textContent = SUBTASK_STATUS_LABELS[s];
+    if (s === st.status) o.selected = true;
+    statusSel.appendChild(o);
+  });
+  statusTd.appendChild(statusSel);
+  row.appendChild(statusTd);
+
+  var startTd = document.createElement('td');
+  var startInput = document.createElement('input');
+  startInput.type = 'date'; startInput.className = 'subtask-input'; startInput.disabled = !canEdit;
+  startInput.value = st.start_date || '';
+  startTd.appendChild(startInput);
+  row.appendChild(startTd);
+
+  var dueTd = document.createElement('td');
+  var dueInput = document.createElement('input');
+  dueInput.type = 'date'; dueInput.className = 'subtask-input'; dueInput.disabled = !canEdit;
+  dueInput.value = st.due_date || '';
+  dueTd.appendChild(dueInput);
+  row.appendChild(dueTd);
+
+  var picTd = document.createElement('td');
+  var picSel = document.createElement('select'); picSel.className = 'subtask-input'; picSel.disabled = !canEdit;
+  var emptyOpt = document.createElement('option'); emptyOpt.value = ''; emptyOpt.textContent = '— PIC —';
+  if (!st.pic) emptyOpt.selected = true;
+  picSel.appendChild(emptyOpt);
+  pics.forEach(function(p){
+    var o = document.createElement('option'); o.value = p.name; o.textContent = p.name;
+    if (p.name === st.pic) o.selected = true;
+    picSel.appendChild(o);
+  });
+  var addNewOpt = document.createElement('option'); addNewOpt.value = '__add_new__'; addNewOpt.textContent = '+ Thêm PIC mới...';
+  picSel.appendChild(addNewOpt);
+  picTd.appendChild(picSel);
+  row.appendChild(picTd);
+
+  var delTd = document.createElement('td');
+  if (canEdit){
+    var delBtn = document.createElement('button');
+    delBtn.type = 'button'; delBtn.className = 'subtask-delete-btn'; delBtn.title = 'Xoá subtask';
+    delBtn.textContent = '×';
+    delBtn.addEventListener('click', function(){
+      if (!confirm('Xoá subtask "' + st.name + '"?')) return;
+      deleteSubtask(taskId, st.id).then(function(){
+        return fetchAndRenderSubtasks(taskId);
+      }).catch(function(err){
+        toastError(err.message || 'Không xoá được subtask.');
+      });
+    });
+    delTd.appendChild(delBtn);
+  }
+  row.appendChild(delTd);
+
+  if (!canEdit) return row; // read-only: no autosave listeners
+
+  nameInput.addEventListener('change', function(){
+    var val = nameInput.value.trim();
+    if (!val){
+      toastError('Tên subtask không được để trống.');
+      nameInput.value = nameInput.dataset.original;
+      return;
+    }
+    if (val === nameInput.dataset.original) return;
+    saveSubtaskField(taskId, st.id, { name: val }, nameInput).then(function(){ nameInput.dataset.original = val; });
+  });
+  statusSel.addEventListener('change', function(){
+    saveSubtaskField(taskId, st.id, { status: statusSel.value }, statusSel);
+  });
+  startInput.addEventListener('change', function(){
+    saveSubtaskField(taskId, st.id, { start_date: startInput.value || null }, startInput);
+  });
+  dueInput.addEventListener('change', function(){
+    saveSubtaskField(taskId, st.id, { due_date: dueInput.value || null }, dueInput);
+  });
+  // "+ Thêm PIC mới..." reveals a text input in the select's place (same
+  // reveal-then-Enter/blur-commits idiom as Category's own "+ Thêm category
+  // mới..."), rather than a native prompt() which would look out of place
+  // here — then the new name is both a real PIC (POST /api/pics) and this
+  // subtask's pic in one flow.
+  picSel.addEventListener('change', function(){
+    if (picSel.value !== '__add_new__'){
+      saveSubtaskField(taskId, st.id, { pic: picSel.value || null }, picSel);
+      return;
+    }
+    var addInput = document.createElement('input');
+    addInput.type = 'text'; addInput.className = 'subtask-input'; addInput.placeholder = 'Tên PIC mới, Enter để xác nhận';
+    picSel.replaceWith(addInput);
+    addInput.focus();
+    var committed = false;
+    function commit(){
+      if (committed) return;
+      committed = true;
+      var newName = addInput.value.trim();
+      if (!newName){ fetchAndRenderSubtasks(taskId); return; }
+      addInput.disabled = true;
+      addPic(newName).then(function(){
+        return saveSubtaskField(taskId, st.id, { pic: newName }, addInput);
+      }).then(function(){
+        fetchAndRenderSubtasks(taskId); // refresh so every row's dropdown now includes it
+        // the Resource view's "Quản lý PIC" list has its own cache, separate
+        // from this drawer — without this it'd keep showing stale/missing
+        // data until something else happens to reload it.
+        reloadPicsAndRender();
+      }).catch(function(err){
+        toastError(err.message || 'Không thêm được PIC.');
+        fetchAndRenderSubtasks(taskId);
+      });
+    }
+    addInput.addEventListener('keydown', function(e){
+      if (e.key === 'Enter'){ e.preventDefault(); commit(); }
+      else if (e.key === 'Escape'){ committed = true; fetchAndRenderSubtasks(taskId); }
+    });
+    addInput.addEventListener('blur', commit);
+  });
+
+  return row;
+}
+
+document.getElementById('addSubtaskBtn').addEventListener('click', function(){
+  if (!editingTaskId) return;
+  document.getElementById('addSubtaskBtn').style.display = 'none';
+  var input = document.getElementById('subtaskNameNew');
+  input.style.display = ''; input.value = ''; input.focus();
+});
+// guards against the classic hidden-input reentrancy trap: setting
+// input.style.display='none' (or .disabled=true) on a focused element
+// synchronously fires its blur handler, which calls this same function
+// again — WHILE the async POST below is still in flight and input.value
+// hasn't been cleared yet, so an unguarded version double-submits. The
+// flag is set before any such mutation, so the re-entrant call sees it
+// and returns immediately.
+var _subtaskAddCommitInFlight = false;
+function commitNewSubtask(){
+  var input = document.getElementById('subtaskNameNew');
+  var addBtn = document.getElementById('addSubtaskBtn');
+  var name = input.value.trim();
+  if (!name || !editingTaskId){
+    input.style.display = 'none';
+    addBtn.style.display = '';
+    return;
+  }
+  if (_subtaskAddCommitInFlight) return;
+  _subtaskAddCommitInFlight = true;
+  var taskId = editingTaskId;
+  input.style.display = 'none';
+  input.disabled = true;
+  createSubtask(taskId, name).then(function(){
+    toastSuccess('Đã thêm subtask.');
+    return fetchAndRenderSubtasks(taskId);
+  }).catch(function(err){
+    toastError('Không thêm được subtask: ' + err.message);
+    addBtn.style.display = '';
+  }).finally(function(){
+    _subtaskAddCommitInFlight = false;
+    input.disabled = false; input.value = '';
+  });
+}
+document.getElementById('subtaskNameNew').addEventListener('keydown', function(e){
+  if (e.key === 'Enter'){ e.preventDefault(); commitNewSubtask(); }
+});
+document.getElementById('subtaskNameNew').addEventListener('blur', commitNewSubtask);
+
 // ---- resource roles (Resource cần): which teams a task needs (PO, ITBA,
 // BE Dev, App Dev, Web Dev, Core, by default, but fully managed via
 // /api/resource-roles — see the Resource view's team add/rename/delete
@@ -423,6 +688,51 @@ function addResourceRole(name){
       });
     }
     _resourceRolesPromise = null;
+  });
+}
+
+// ---- PIC (người phụ trách) list for subtasks below — a separate,
+// user-configured lookup (not the Users/login list), managed via
+// /api/pics from the Resource view's "Quản lý PIC" block. Same
+// cache/CRUD shape as resource roles above. ----
+var _picsPromise = null;
+function loadPics(){
+  if (!_picsPromise) _picsPromise = fetchJSON('/api/pics');
+  return _picsPromise;
+}
+function addPic(name){
+  return authFetch('/api/pics', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name })
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+    _picsPromise = null;
+    return res.json();
+  });
+}
+function renamePic(id, newName){
+  return authFetch('/api/pics/' + id, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newName })
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+    _picsPromise = null;
+  });
+}
+function deletePic(id){
+  return authFetch('/api/pics/' + id, { method: 'DELETE' }).then(function(res){
+    if (!res.ok && res.status !== 204){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+    _picsPromise = null;
   });
 }
 
@@ -573,6 +883,8 @@ function openDrawer(mode, t){
   document.getElementById('cloneBtn').disabled = false;
   document.getElementById('deleteBtn').style.display = (isEdit && canDelete) ? 'flex' : 'none';
   document.getElementById('deleteBtn').disabled = false;
+  // subtasks belong to an already-saved task too — same reasoning as clone.
+  document.getElementById('subtaskField').style.display = isEdit ? 'block' : 'none';
   // always visible (not just isEdit) — "Ghi chú" was removed as a separate
   // create-only field, so this is now the single place to write a note on
   // both create and edit; the placeholder below explains what happens to it
@@ -654,6 +966,7 @@ function openDrawer(mode, t){
         document.getElementById('f-start').value = full.start_date || '';
         document.getElementById('f-due').value = full.due_date || '';
         fetchAndRenderLogs(full.id);
+        fetchAndRenderSubtasks(full.id);
         _drawerResourceRoles = (full.resource_roles || []).slice();
       } else if (isClone){
         // same "next STT" auto-assign as a plain create — this becomes a
@@ -4728,13 +5041,14 @@ document.querySelectorAll('#resourceRollupTabChips .chip').forEach(function(btn)
 });
 
 function loadResourceView(){
-  return Promise.all([loadTasks(), loadSprints(), loadPhasesList(), fetchJSON('/api/sprints/current-next'), loadResourceRoles()])
+  return Promise.all([loadTasks(), loadSprints(), loadPhasesList(), fetchJSON('/api/sprints/current-next'), loadResourceRoles(), loadPics()])
     .then(function(results){
-      var tasks = results[0], sprints = results[1], phases = results[2], currentNext = results[3], roles = results[4];
+      var tasks = results[0], sprints = results[1], phases = results[2], currentNext = results[3], roles = results[4], pics = results[5];
       _resourceTasksCache = tasks;
       _resourceSprintsCache = sprints;
       _resourcePhasesCache = phases;
       _resourceRolesCache = roles;
+      _picsCache = pics;
       if (!_resourceFiltersInitialized){
         _resourceFiltersInitialized = true;
         // same current/next gap-day fallback as Sprint Overview and Sprint
@@ -4747,8 +5061,122 @@ function loadResourceView(){
       renderResourceFilters();
       renderResourceRollup();
       renderResourceMatrix();
+      renderPicManageList();
     })
     .catch(function(err){ console.error('Failed to load Resource view', err); });
+}
+
+// ---- PIC management (Resource view, "Quản lý PIC" block) — same
+// "name + ✎/× actions" language as the resource-role matrix header, just
+// as a plain vertical list rather than a grid cell (PIC has no matrix of
+// its own to anchor to). ----
+var _picsCache = []; // [{id, name, created_at, subtask_count}]
+function reloadPicsAndRender(){
+  _picsPromise = null;
+  return loadPics().then(function(pics){
+    _picsCache = pics;
+    renderPicManageList();
+  });
+}
+function renderPicManageList(){
+  var wrap = document.getElementById('picManageWrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  var canEdit = hasRole('editor');
+  var canDelete = hasRole('admin');
+
+  var toolbar = document.createElement('div'); toolbar.className = 'resource-team-toolbar';
+  if (canEdit){
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button'; addBtn.className = 'multiselect-action-btn'; addBtn.textContent = '+ Thêm PIC';
+    var addInput = document.createElement('input');
+    addInput.type = 'text'; addInput.placeholder = 'Nhập tên PIC mới, Enter để xác nhận'; addInput.style.display = 'none';
+    addBtn.addEventListener('click', function(){ addBtn.style.display = 'none'; addInput.style.display = ''; addInput.focus(); });
+    addInput.addEventListener('keydown', function(e){
+      if (e.key !== 'Enter') return;
+      var val = addInput.value.trim();
+      if (!val) return;
+      addInput.disabled = true;
+      addPic(val).then(reloadPicsAndRender).catch(function(err){
+        addInput.disabled = false;
+        toastError(err.message || 'Không thêm được PIC.');
+      });
+    });
+    toolbar.appendChild(addBtn);
+    toolbar.appendChild(addInput);
+  }
+  wrap.appendChild(toolbar);
+
+  if (_picsCache.length === 0){
+    var empty = document.createElement('div'); empty.className = 'pic-manage-empty';
+    empty.textContent = 'Chưa có PIC nào — bấm "+ Thêm PIC" để tạo.';
+    wrap.appendChild(empty);
+    return;
+  }
+  _picsCache.forEach(function(picRow){
+    wrap.appendChild(renderPicManageRow(picRow, canEdit, canDelete));
+  });
+}
+function renderPicManageRow(picRow, canEdit, canDelete){
+  var row = document.createElement('div'); row.className = 'pic-manage-row';
+
+  function renderDisplayMode(){
+    row.innerHTML = '';
+    var nameEl = document.createElement('span'); nameEl.className = 'pic-manage-name';
+    nameEl.textContent = picRow.name;
+    var countEl = document.createElement('span'); countEl.className = 'pic-manage-count';
+    countEl.textContent = picRow.subtask_count + ' subtask';
+    nameEl.appendChild(countEl);
+    row.appendChild(nameEl);
+    if (canEdit || canDelete){
+      var actions = document.createElement('span'); actions.className = 'pic-manage-actions';
+      if (canEdit){
+        var editBtn = document.createElement('button');
+        editBtn.type = 'button'; editBtn.className = 'pic-manage-action-btn'; editBtn.title = 'Sửa tên PIC';
+        editBtn.textContent = '✎';
+        editBtn.addEventListener('click', renderEditMode);
+        actions.appendChild(editBtn);
+      }
+      if (canDelete){
+        var delBtn = document.createElement('button');
+        delBtn.type = 'button'; delBtn.className = 'pic-manage-action-btn'; delBtn.title = 'Xóa PIC';
+        delBtn.textContent = '×';
+        delBtn.addEventListener('click', function(){
+          if (!confirm('Xóa PIC "' + picRow.name + '"?' + (picRow.subtask_count ? ' Còn ' + picRow.subtask_count + ' subtask đang gắn PIC này.' : ''))) return;
+          deletePic(picRow.id).then(reloadPicsAndRender).catch(function(err){
+            toastError(err.message || 'Không xóa được PIC.');
+          });
+        });
+        actions.appendChild(delBtn);
+      }
+      row.appendChild(actions);
+    }
+  }
+
+  function renderEditMode(){
+    row.innerHTML = '';
+    var input = document.createElement('input'); input.type = 'text'; input.value = picRow.name;
+    input.className = 'pic-manage-edit-input';
+    row.appendChild(input);
+    input.focus(); input.select();
+    function commit(){
+      var val = input.value.trim();
+      if (!val || val === picRow.name){ renderDisplayMode(); return; }
+      input.disabled = true;
+      renamePic(picRow.id, val).then(reloadPicsAndRender).catch(function(err){
+        toastError(err.message || 'Không đổi tên được.');
+        renderDisplayMode();
+      });
+    }
+    input.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') commit();
+      else if (e.key === 'Escape') renderDisplayMode();
+    });
+    input.addEventListener('blur', commit);
+  }
+
+  renderDisplayMode();
+  return row;
 }
 
 // after any team add/rename/delete: the tasks cache may now embed a stale
