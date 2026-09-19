@@ -37,6 +37,40 @@ var statusLabel = {0:'0. Backlog', 1:'1. In Analyst', 2:'2. Ready for Dev', 3:'3
 var STATUS_ORDER = ['0.backlog', '1.in_analyst', '2.ready_for_dev', '3.in_test', '4.ready_for_staging', '5.done'];
 function statusDotToNum(status){ return STATUS_ORDER.indexOf(status); }
 
+// a small "→" button placed right after a status <select> (the drawer's
+// own task Status field, each subtask row, and Danh sách nghiệp vụ's
+// inline Status cell all use this) — one click steps to the next stage in
+// `order` (STATUS_ORDER for a task, SUBTASK_STATUS_ORDER for a subtask),
+// same as picking it from the dropdown by hand. It reuses whatever that
+// select's own 'change' handling already does (autosave immediately, or
+// just stage the value until the drawer's Save button, depending on where
+// it lives) by actually setting .value and dispatching a real 'change'
+// event, rather than duplicating that logic here. Disabled once already
+// at the last stage in `order` — nothing to advance to.
+function appendStatusAdvanceButton(select, order){
+  var btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'status-advance-btn'; btn.textContent = '→';
+  function sync(){
+    var idx = order.indexOf(select.value);
+    btn.disabled = idx === -1 || idx === order.length - 1;
+    btn.title = btn.disabled ? 'Đã ở status cuối' : 'Chuyển nhanh sang status tiếp theo';
+  }
+  btn.addEventListener('click', function(){
+    var idx = order.indexOf(select.value);
+    if (idx === -1 || idx === order.length - 1) return;
+    select.value = order[idx + 1];
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    sync();
+  });
+  select.addEventListener('change', sync);
+  sync();
+  select.insertAdjacentElement('afterend', btn);
+  return btn;
+}
+// wired once — #f-status itself is static markup that persists across
+// every openDrawer() call, only its .value changes each time.
+var _fStatusAdvanceBtn = appendStatusAdvanceButton(document.getElementById('f-status'), STATUS_ORDER);
+
 // ---- light/dark theme toggle: persists the viewer's explicit choice in
 // localStorage; a tiny inline script in <head> (index.html) applies it
 // before first paint so there's no flash of the wrong theme. ----
@@ -500,7 +534,7 @@ function renderSubtaskItem(taskId, st, pics, canEdit){
   nameTd.appendChild(nameInput);
   row.appendChild(nameTd);
 
-  var statusTd = document.createElement('td');
+  var statusTd = document.createElement('td'); statusTd.className = 'subtask-status-cell';
   var statusSel = document.createElement('select'); statusSel.className = 'subtask-input'; statusSel.disabled = !canEdit;
   SUBTASK_STATUS_ORDER.forEach(function(s){
     var o = document.createElement('option'); o.value = s; o.textContent = SUBTASK_STATUS_LABELS[s];
@@ -508,6 +542,7 @@ function renderSubtaskItem(taskId, st, pics, canEdit){
     statusSel.appendChild(o);
   });
   statusTd.appendChild(statusSel);
+  if (canEdit) appendStatusAdvanceButton(statusSel, SUBTASK_STATUS_ORDER);
   row.appendChild(statusTd);
 
   var startTd = document.createElement('td');
@@ -1104,6 +1139,7 @@ function openDrawer(mode, t){
   ['f-cat', 'f-cat-new', 'f-name', 'f-why', 'f-phase', 'f-sprint', 'f-status', 'f-start', 'f-due'].forEach(function(id){
     document.getElementById(id).disabled = !canEdit;
   });
+  _fStatusAdvanceBtn.style.display = canEdit ? '' : 'none';
 
   overlay.classList.add('show'); drawer.classList.add('show');
   document.getElementById('drawerLoadingText').textContent = 'Đang tải...';
@@ -1143,8 +1179,8 @@ function openDrawer(mode, t){
       function applyDefaultPhaseSprint(){
         document.getElementById('f-phase').value = currentPhase ? String(currentPhase.id) : '';
         document.getElementById('f-sprint').value = nextSprint ? String(nextSprint.id) : '';
-        document.getElementById('f-start').value = nextSprint ? nextSprint.start_date : '';
-        document.getElementById('f-due').value = nextSprint ? nextSprint.end_date : '';
+        document.getElementById('f-start').value = nextSprint ? fmtDMY(nextSprint.start_date) : '';
+        document.getElementById('f-due').value = nextSprint ? fmtDMY(nextSprint.end_date) : '';
       }
 
       if (isEdit){
@@ -1167,8 +1203,8 @@ function openDrawer(mode, t){
         document.getElementById('f-status').value = full.status || STATUS_ORDER[0];
         document.getElementById('f-phase').value = full.phase_id != null ? String(full.phase_id) : '';
         document.getElementById('f-sprint').value = full.sprint_id != null ? String(full.sprint_id) : '';
-        document.getElementById('f-start').value = full.start_date || '';
-        document.getElementById('f-due').value = full.due_date || '';
+        document.getElementById('f-start').value = full.start_date ? fmtDMY(full.start_date) : '';
+        document.getElementById('f-due').value = full.due_date ? fmtDMY(full.due_date) : '';
         fetchAndRenderLogs(full.id);
         fetchAndRenderSubtasks(full.id);
         _drawerResourceRoles = (full.resource_roles || []).slice();
@@ -1267,8 +1303,8 @@ document.getElementById('f-sprint').addEventListener('change', function(){
   loadSprints().then(function(sprints){
     var s = sprints.filter(function(x){ return String(x.id) === String(sprintId); })[0];
     if (!s) return;
-    document.getElementById('f-start').value = s.start_date;
-    document.getElementById('f-due').value = s.end_date;
+    document.getElementById('f-start').value = fmtDMY(s.start_date);
+    document.getElementById('f-due').value = fmtDMY(s.end_date);
     manualDateEdit = false;
   });
 });
@@ -3790,13 +3826,32 @@ function tableCellHtml(col, t){
 // STT is a plain 1..N row counter (see renderTableRow) — not editable and
 // not tied to any task. resource_roles/done_*/latest_note stay read-only
 // here too — click the row to open the full drawer for those. ----
-var TABLE_EDITABLE_FIELDS = ['name', 'why', 'category', 'platform', 'phase', 'sprint', 'status', 'start', 'due'];
+// 'status' is deliberately NOT in this list — Danh sách nghiệp vụ's Status
+// column is advance-only (see appendStatusOnlyCell): no dropdown, so a
+// status can't jump to an arbitrary value from this view, only step
+// forward one stage at a time via the arrow.
+var TABLE_EDITABLE_FIELDS = ['name', 'why', 'category', 'platform', 'phase', 'sprint', 'start', 'due'];
 
 function appendEditableInput(td, type, field, task, value){
   var input = document.createElement('input');
   input.type = type; input.className = 'table-cell-input';
   input.dataset.field = field; input.dataset.taskId = task.id;
   input.value = value != null ? value : '';
+  input.dataset.original = input.value;
+  td.appendChild(input);
+}
+// Start/Due specifically — typed/displayed as dd/mm/yyyy (see fmtDMY/
+// parseDMY) instead of a native <input type=date>, whose displayed format
+// follows the browser/OS locale rather than this app's own dd/mm/yyyy
+// convention. dataset.original stores the same dd/mm/yyyy text that's
+// displayed (not the underlying ISO) so the table's 'change' handler's
+// "did it actually change" check compares like with like.
+function appendEditableDateInput(td, field, task, isoValue){
+  var input = document.createElement('input');
+  input.type = 'text'; input.className = 'table-cell-input';
+  input.dataset.field = field; input.dataset.taskId = task.id;
+  input.placeholder = 'dd/mm/yyyy';
+  input.value = isoValue ? fmtDMY(isoValue) : '';
   input.dataset.original = input.value;
   td.appendChild(input);
 }
@@ -3850,8 +3905,8 @@ function appendEditableCell(td, col, t){
   switch (col.key){
     case 'name': appendEditableTextarea(td, 'name', t, t.name || ''); return;
     case 'why': appendEditableInput(td, 'text', 'why', t, t.why || ''); return;
-    case 'start': appendEditableInput(td, 'date', 'start', t, t.start_date || ''); return;
-    case 'due': appendEditableInput(td, 'date', 'due', t, t.due_date || ''); return;
+    case 'start': appendEditableDateInput(td, 'start', t, t.start_date || ''); return;
+    case 'due': appendEditableDateInput(td, 'due', t, t.due_date || ''); return;
     case 'category':
       appendEditableSelect(td, 'category', t, bucketsForGroupBy(_lastTableTasks || [], 'category'), t.category || '');
       return;
@@ -3872,14 +3927,36 @@ function appendEditableCell(td, col, t){
         t.sprint_id != null ? String(t.sprint_id) : '', '— không có —'
       );
       return;
-    case 'status':
-      appendEditableSelect(
-        td, 'status', t,
-        STATUS_ORDER.map(function(s, idx){ return { key: s, label: statusLabel[idx].replace(/^\d+\.\s*/, '') }; }),
-        t.status
-      );
-      return;
   }
+}
+// Status column: the same read-only pill a viewer sees, plus (editor+) an
+// advance-only arrow — no dropdown, so a status can only step forward one
+// stage at a time from this view, never jump to an arbitrary value. There
+// is no <select> here at all, so this doesn't go through
+// appendStatusAdvanceButton (which expects one to read/set .value on) —
+// it reads/writes t.status directly via saveTaskInlineField instead, the
+// same helper every other inline-edited cell in this table already uses.
+function appendStatusOnlyCell(td, t, canEdit){
+  td.innerHTML = tableCellHtml({ key: 'status' }, t);
+  if (!canEdit) return;
+  td.classList.add('data-table-status-cell');
+  var idx = STATUS_ORDER.indexOf(t.status);
+  var btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'status-advance-btn'; btn.textContent = '→';
+  btn.disabled = idx === -1 || idx === STATUS_ORDER.length - 1;
+  btn.title = btn.disabled ? 'Đã ở status cuối' : 'Chuyển nhanh sang status tiếp theo';
+  btn.addEventListener('click', function(){
+    if (idx === -1 || idx === STATUS_ORDER.length - 1) return;
+    btn.disabled = true;
+    saveTaskInlineField(t, { status: STATUS_ORDER[idx + 1] }).then(function(){
+      toastSuccess('Đã lưu.');
+      refreshAllViews();
+    }).catch(function(err){
+      toastError('Không lưu được: ' + err.message);
+      btn.disabled = false;
+    });
+  });
+  td.appendChild(btn);
 }
 // appendEditableSelect's `options` take {key,label} — same shape
 // bucketsForGroupBy/renderMultiSelectDropdown already use elsewhere — so
@@ -3912,6 +3989,8 @@ function renderTableRow(t, visibleCols, canEdit, rowNum, isExpanded){
     } else if (col.key === 'latest_note'){
       td.className = 'data-table-cell-wrap data-table-cell-notes';
       td.innerHTML = tableCellHtml(col, t);
+    } else if (col.key === 'status'){
+      appendStatusOnlyCell(td, t, canEdit);
     } else {
       if (col.key === 'why' || col.key === 'name') td.className = 'data-table-cell-wrap';
       if (canEdit && TABLE_EDITABLE_FIELDS.indexOf(col.key) !== -1) appendEditableCell(td, col, t);
@@ -3923,14 +4002,15 @@ function renderTableRow(t, visibleCols, canEdit, rowNum, isExpanded){
 }
 
 // the expanded detail row for one task — a single <td colspan=totalCols>
-// holding a compact, read-only subtask TREE (a vertical spine with an
-// elbow branching off to each subtask's name box — see .subtask-tree in
+// holding a compact subtask TREE (a vertical spine with an elbow
+// branching off to each subtask's name box — see .subtask-tree in
 // styles.css), so the parent/child relationship reads visually, not just
-// from indentation. Read-only on purpose: full editing (add/rename/
-// status/dates/PIC/delete/clone) already lives in the task drawer one
-// click away, so this stays a quick look rather than a second place the
-// same data can be edited from.
-function renderSubtaskPreviewRow(t, totalCols){
+// from indentation. Everything except status is still read-only — full
+// editing (rename/dates/PIC/delete/clone) stays in the task drawer one
+// click away — but status gets the same advance-only arrow Danh sách
+// nghiệp vụ's own Status column has, so bumping a subtask along doesn't
+// require opening the drawer just for that.
+function renderSubtaskPreviewRow(t, totalCols, canEdit){
   var tr = document.createElement('tr');
   tr.className = 'data-table-subtask-row';
   var td = document.createElement('td');
@@ -3944,11 +4024,26 @@ function renderSubtaskPreviewRow(t, totalCols){
     item.innerHTML =
       '<span class="subtask-tree-connector"></span>' +
       '<span class="subtask-tree-name-box" title="' + escapeHtml(st.name || '') + '">' + escapeHtml(st.name || '') + '</span>' +
-      '<span class="subtask-status-pill ' + escapeHtml(st.status) + '">' +
-        escapeHtml(SUBTASK_STATUS_LABELS[st.status] || st.status) + '</span>' +
+      '<span class="subtask-tree-status"><span class="subtask-status-pill ' + escapeHtml(st.status) + '">' +
+        escapeHtml(SUBTASK_STATUS_LABELS[st.status] || st.status) + '</span></span>' +
       '<span class="subtask-tree-date">' + (st.start_date ? fmtDMY(st.start_date) : '—') + '</span>' +
       '<span class="subtask-tree-date">' + (st.due_date ? fmtDMY(st.due_date) : '—') + '</span>' +
       '<span class="subtask-tree-pic">' + escapeHtml(st.pic || '—') + '</span>';
+    if (canEdit){
+      var idx = SUBTASK_STATUS_ORDER.indexOf(st.status);
+      var btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'status-advance-btn'; btn.textContent = '→';
+      btn.disabled = idx === -1 || idx === SUBTASK_STATUS_ORDER.length - 1;
+      btn.title = btn.disabled ? 'Đã ở status cuối' : 'Chuyển nhanh sang status tiếp theo';
+      btn.addEventListener('click', function(){
+        if (idx === -1 || idx === SUBTASK_STATUS_ORDER.length - 1) return;
+        btn.disabled = true;
+        saveSubtaskField(t.id, st.id, { status: SUBTASK_STATUS_ORDER[idx + 1] }, btn)
+          .then(function(){ refreshAllViews(); })
+          .catch(function(){ btn.disabled = false; });
+      });
+      item.querySelector('.subtask-tree-status').appendChild(btn);
+    }
     tree.appendChild(item);
   });
   td.appendChild(tree);
@@ -4043,12 +4138,34 @@ document.getElementById('tableViewWrap').addEventListener('change', function(e){
   if (newValue === input.dataset.original) return; // left the cell without really changing it
 
   if (field === 'sprint'){ handleInlineSprintChange(task, newValue, input); return; }
-  if (field === 'due'){ handleInlineDueChange(task, newValue, input); return; }
+  // Start/Due are typed as dd/mm/yyyy (see appendEditableDateInput) — parse
+  // to ISO before anything downstream touches it; downstream (the due-date
+  // reason gate, saveTaskInlineField's PUT body) all still expects ISO,
+  // same as before this field became free-typed text instead of a native
+  // date picker.
+  if (field === 'start' || field === 'due'){
+    var iso = newValue ? parseDMY(newValue) : null;
+    if (newValue && !iso){
+      toastError('Ngày không hợp lệ. Nhập theo dạng dd/mm/yyyy.');
+      input.value = input.dataset.original;
+      return;
+    }
+    if (field === 'due'){ handleInlineDueChange(task, iso, input); return; }
+    input.disabled = true;
+    saveTaskInlineField(task, { start_date: iso, date_overridden: true }).then(function(){
+      toastSuccess('Đã lưu.');
+      refreshAllViews();
+    }).catch(function(err){
+      toastError('Không lưu được: ' + err.message);
+      input.value = input.dataset.original;
+      input.disabled = false;
+    });
+    return;
+  }
 
   var overrides;
   switch (field){
     case 'phase': overrides = { phase_id: newValue === '' ? null : Number(newValue) }; break;
-    case 'start': overrides = { start_date: newValue, date_overridden: true }; break;
     default: overrides = {}; overrides[field] = newValue; break; // name, why, category, platform, status
   }
   input.disabled = true;
@@ -4110,7 +4227,7 @@ function renderTableView(tasks){
   function appendTaskRow(t){
     var expanded = !!_tableExpandedTaskIds[t.id];
     tbody.appendChild(renderTableRow(t, visibleCols, canEdit, ++rowNum, expanded));
-    if (expanded && t.subtasks && t.subtasks.length) tbody.appendChild(renderSubtaskPreviewRow(t, totalCols));
+    if (expanded && t.subtasks && t.subtasks.length) tbody.appendChild(renderSubtaskPreviewRow(t, totalCols, canEdit));
   }
   if (tasks.length === 0){
     var emptyTr = document.createElement('tr');
@@ -4160,6 +4277,11 @@ document.getElementById('tableViewWrap').addEventListener('click', function(e){
     return;
   }
   if (e.target.closest('.table-cell-input')) return; // let the input/select handle its own interaction
+  // the Status arrow (appendStatusOnlyCell) already acted on its own click
+  // — without this, that click keeps bubbling and also matches the
+  // "clicked somewhere in a .data-table-row" case below, opening the edit
+  // drawer right on top of the toast that just confirmed the save.
+  if (e.target.closest('.status-advance-btn')) return;
   if (e.target.closest('.data-table-subtask-row')) return; // read-only preview, nothing to open a drawer for
   var row = e.target.closest('.data-table-row');
   if (!row || !_lastTableTasks) return;
@@ -5921,12 +6043,18 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   var status = document.getElementById('f-status').value;
   var phaseVal = document.getElementById('f-phase').value;
   var sprintVal = document.getElementById('f-sprint').value;
-  var startVal = document.getElementById('f-start').value || null;
-  var dueVal = document.getElementById('f-due').value || null;
+  var startTyped = document.getElementById('f-start').value.trim();
+  var dueTyped = document.getElementById('f-due').value.trim();
   var progressNoteValue = document.getElementById('f-newlog').value.trim();
 
-  if (!name || !category || !platform || !status || !startVal || !dueVal){
+  if (!name || !category || !platform || !status || !startTyped || !dueTyped){
     toastError('Vui lòng nhập đầy đủ Tên nghiệp vụ, Category, Platform, Status, Start và Due.');
+    return;
+  }
+  var startVal = parseDMY(startTyped);
+  var dueVal = parseDMY(dueTyped);
+  if (!startVal || !dueVal){
+    toastError('Start/Due không hợp lệ. Nhập theo dạng dd/mm/yyyy.');
     return;
   }
 

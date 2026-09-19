@@ -868,6 +868,29 @@ body{
 .field-row-sprint{grid-template-columns:1.3fr 1fr 1fr;}
 .field textarea{min-height:64px; resize:vertical; font-family:var(--sans);}
 .field-row-why textarea{min-height:38px;}
+/* the drawer's own task-level Status select, wrapped so its "advance to
+   next status" arrow (appendStatusAdvanceButton in app.js) sits right
+   next to it instead of falling onto its own line below. */
+.status-field-row{display:flex; gap:6px; align-items:center;}
+.status-field-row select{flex:1; min-width:0;}
+/* shared by every status <select> that gets one of these (drawer's own
+   Status field, each subtask row, Danh sách nghiệp vụ's inline Status
+   cell) — one click steps to the next stage in that select's own status
+   order, same as picking it from the dropdown by hand would. Disabled
+   (greyed, inert) once already at the last stage — there's nothing to
+   advance to, so it shouldn't look clickable. */
+.status-advance-btn{
+  flex:none; width:24px; height:24px; display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--ink-muted);
+  cursor:pointer; font-size:13px; line-height:1; padding:0;
+}
+.status-advance-btn:hover:not(:disabled){border-color:var(--accent-ink); color:var(--accent-ink); background:var(--accent-soft);}
+.status-advance-btn:disabled{opacity:0.35; cursor:not-allowed;}
+/* Danh sách nghiệp vụ's Status cell — a read-only pill plus the advance
+   arrow (no dropdown, see appendStatusOnlyCell in app.js), laid out side
+   by side instead of the arrow falling onto its own line below the pill. */
+.data-table-status-cell{display:flex; align-items:center; gap:4px;}
+.data-table-status-cell .status-advance-btn{width:20px; height:20px; font-size:11px;}
 .field-label-row{display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;}
 .field-label-row label{margin-bottom:0;}
 .ai-suggest-btn{
@@ -987,7 +1010,10 @@ body{
 .subtask-table td{padding:5px 6px; border-bottom:1px solid var(--border); vertical-align:middle;}
 .subtask-table tbody tr:last-child td{border-bottom:none;}
 .subtask-table th:first-child, .subtask-table td:first-child{width:auto;}
-.subtask-table th:nth-child(2), .subtask-table td:nth-child(2){width:76px;}
+.subtask-table th:nth-child(2), .subtask-table td:nth-child(2){width:108px;}
+.subtask-status-cell{display:flex; align-items:center; gap:2px;}
+.subtask-status-cell select.subtask-input{flex:1; width:auto;}
+.subtask-status-cell .status-advance-btn{width:18px; height:18px; font-size:10px; flex:none;}
 .subtask-table th:nth-child(3), .subtask-table td:nth-child(3),
 .subtask-table th:nth-child(4), .subtask-table td:nth-child(4){width:96px;}
 .subtask-table th:nth-child(5), .subtask-table td:nth-child(5){width:120px;}
@@ -1157,7 +1183,7 @@ input.subtask-input:disabled, select.subtask-input:disabled{opacity:0.6; cursor:
    width the task's own Nghiệp vụ column renders at elsewhere in this
    table (.data-table-cell-wrap's min-width:220px). */
 .subtask-tree-item{
-  display:grid; grid-template-columns:22px minmax(160px, 260px) 62px 66px 66px 84px; align-items:center;
+  display:grid; grid-template-columns:22px minmax(160px, 260px) 90px 66px 66px 84px; align-items:center;
   column-gap:10px; min-height:28px; font-size:11.5px; color:var(--ink);
 }
 .subtask-tree-connector{position:relative; align-self:stretch;}
@@ -1173,6 +1199,8 @@ input.subtask-input:disabled, select.subtask-input:disabled{opacity:0.6; cursor:
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .subtask-tree-item .subtask-tree-date, .subtask-tree-item .subtask-tree-pic{color:var(--ink-muted); white-space:nowrap;}
+.subtask-tree-status{display:flex; align-items:center; gap:4px;}
+.subtask-tree-status .status-advance-btn{width:18px; height:18px; font-size:10px;}
 .subtask-status-pill{display:inline-block; padding:1px 8px; border-radius:999px; font-size:10px; font-weight:600; white-space:nowrap;}
 .subtask-status-pill.todo{background:var(--neutral-bg); color:var(--neutral-ink);}
 .subtask-status-pill.wip{background:var(--status-blue-bg); color:var(--status-blue-ink);}

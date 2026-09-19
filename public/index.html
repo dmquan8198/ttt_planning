@@ -447,14 +447,16 @@
     </div>
     <div class="field">
       <label>Status</label>
-      <select id="f-status">
-        <option value="0.backlog">0. Backlog</option>
-        <option value="1.in_analyst">1. In Analyst</option>
-        <option value="2.ready_for_dev">2. Ready for Dev</option>
-        <option value="3.in_test">3. In Dev</option>
-        <option value="4.ready_for_staging">4. Done UAT</option>
-        <option value="5.done">5. Done</option>
-      </select>
+      <div class="status-field-row">
+        <select id="f-status">
+          <option value="0.backlog">0. Backlog</option>
+          <option value="1.in_analyst">1. In Analyst</option>
+          <option value="2.ready_for_dev">2. Ready for Dev</option>
+          <option value="3.in_test">3. In Dev</option>
+          <option value="4.ready_for_staging">4. Done UAT</option>
+          <option value="5.done">5. Done</option>
+        </select>
+      </div>
     </div>
   </div>
   <div class="field-row field-row-sprint">
@@ -464,11 +466,11 @@
     </div>
     <div class="field">
       <label>Start * (mặc định = đầu Sprint)</label>
-      <input id="f-start" type="date" required>
+      <input id="f-start" type="text" placeholder="dd/mm/yyyy" required>
     </div>
     <div class="field">
       <label>Due * (mặc định = cuối Sprint)</label>
-      <input id="f-due" type="date" required>
+      <input id="f-due" type="text" placeholder="dd/mm/yyyy" required>
     </div>
   </div>
   <div class="field-row">
