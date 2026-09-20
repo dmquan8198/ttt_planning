@@ -209,7 +209,7 @@
         <div class="view-head">
           <div>
             <div class="view-title">Timeline theo ngày</div>
-            <div class="view-sub">Mỗi thanh là một nghiệp vụ theo đúng ngày bắt đầu/kết thúc, bấm để sửa</div>
+            <div class="view-sub">Mỗi thanh là một nghiệp vụ theo đúng ngày bắt đầu/kết thúc, bấm để sửa — bấm ▸ để xem subtask</div>
           </div>
           <div class="view-head-controls">
             <div id="filter-phase-ms"></div>
@@ -228,16 +228,24 @@
 
         <div class="gantt-legend-row">
           <div class="gantt-legend" id="ganttLegend"></div>
+          <div class="groupby-chips" id="ganttSubtaskChips">
+            <button type="button" class="chip" id="ganttCollapseAllBtn" title="Thu gọn subtask ở mọi nghiệp vụ">▸ Thu gọn</button>
+            <button type="button" class="chip" id="ganttExpandAllBtn" title="Mở rộng subtask ở mọi nghiệp vụ">▾ Mở rộng</button>
+          </div>
           <div class="groupby-chips" id="dayUnitChips">
             <span class="chip-label">Số ngày theo</span>
             <button type="button" class="chip" data-unit="calendar">Lịch</button>
             <button type="button" class="chip active" data-unit="working">Working day</button>
           </div>
+          <div class="table-export-actions">
+            <button type="button" class="chip" id="exportTimelineJsonBtn">⭳ Xuất JSON</button>
+            <button type="button" class="chip" id="exportTimelineExcelBtn">⭳ Xuất Excel</button>
+          </div>
         </div>
 
         <div class="gantt">
           <div class="gantt-header">
-            <div class="gantt-corner">TASKS</div>
+            <div class="gantt-corner">TASKS<div class="gantt-col-resize" id="ganttColResize" title="Kéo để đổi độ rộng cột"></div></div>
             <div class="gantt-day-ruler" id="dayRuler"></div>
           </div>
           <div class="gantt-body" id="ganttBody"></div>

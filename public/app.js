@@ -2815,6 +2815,19 @@ function effectiveRange(t){
 
 // ---- group-by chips: which dimension clusters the Gantt's rows ----
 var _timelineGroupBy = 'sprint';
+// which task rows currently show their subtask sub-rows expanded — persists
+// across re-renders within the session, same convention as
+// _tableExpandedTaskIds in Bảng danh sách.
+var _timelineExpandedTaskIds = {};
+// user-resizable width of the "TASKS" label column (drag handle on
+// .gantt-corner's right edge) — persists across re-renders within the
+// session, same as the expand state above.
+var _ganttLabelWidth = 186;
+var GANTT_LABEL_MIN = 120, GANTT_LABEL_MAX = 420;
+// the current render's track width in px, stashed so the column-resize
+// drag handler (wired once, outside renderGantt) can recompute the
+// header/body's total scrollable width live without a full re-render.
+var _lastGanttTrackPxWidth = 0;
 
 function groupsForMode(tasks, sprints, phases){
   if (_timelineGroupBy === 'sprint'){
@@ -2857,14 +2870,64 @@ document.querySelectorAll('#groupByChips .chip').forEach(function(btn){
   });
 });
 
+// same "collapse/expand every subtask tree at once" pattern as Bảng danh
+// sách's tableCollapseAllBtn/tableExpandAllBtn.
+document.getElementById('ganttCollapseAllBtn').addEventListener('click', function(){
+  _timelineExpandedTaskIds = {};
+  if (_lastTimelineTasks) renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+});
+document.getElementById('ganttExpandAllBtn').addEventListener('click', function(){
+  (_lastTimelineTasks || []).forEach(function(t){ if (t.subtasks && t.subtasks.length) _timelineExpandedTaskIds[t.id] = true; });
+  if (_lastTimelineTasks) renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+});
+
+// drag the handle on the "TASKS" column's right edge to resize it — wired
+// once here (not inside renderGantt, which only touches width/left on the
+// elements it already creates each render) since the handle itself is
+// static markup, not regenerated per render.
+(function wireGanttColumnResize(){
+  var handle = document.getElementById('ganttColResize');
+  if (!handle) return;
+  handle.addEventListener('mousedown', function(e){
+    e.preventDefault();
+    var startX = e.clientX;
+    var startWidth = _ganttLabelWidth;
+    handle.classList.add('is-dragging');
+    function onMove(ev){
+      var newWidth = Math.max(GANTT_LABEL_MIN, Math.min(GANTT_LABEL_MAX, startWidth + (ev.clientX - startX)));
+      _ganttLabelWidth = newWidth;
+      document.querySelectorAll('.task-label, .gantt-corner').forEach(function(el){ el.style.width = newWidth + 'px'; });
+      var overlay = document.querySelector('.gantt-track-overlay');
+      if (overlay) overlay.style.left = newWidth + 'px';
+      var headerEl = document.querySelector('.gantt-header');
+      var bodyEl = document.getElementById('ganttBody');
+      var totalW = 'max(100%, ' + (newWidth + _lastGanttTrackPxWidth) + 'px)';
+      if (headerEl) headerEl.style.width = totalW;
+      if (bodyEl) bodyEl.style.width = totalW;
+    }
+    function onUp(){
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      handle.classList.remove('is-dragging');
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+})();
+
 // ---- day-level ruler: two-digit day-of-month ticks, a bolder one + dd/mm label every Monday ----
 function fmtDdMm(d){ return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0'); }
 
 function renderDayRuler(axisStart, axisEnd, pctPos){
   var ruler = document.getElementById('dayRuler');
   ruler.innerHTML = '';
+  // axisStart is already a clean UTC-midnight instant (every task/subtask
+  // date is a plain 'YYYY-MM-DD' string, which Date parses as UTC midnight)
+  // — do NOT re-zero it with setHours(), which operates in LOCAL time and
+  // would shift it by the local UTC offset (e.g. -7h for Vietnam), pulling
+  // every tick position out of sync with where the bars/today-line
+  // actually sit (see the axis-position bug this comment replaced).
   var d = new Date(axisStart);
-  d.setHours(0, 0, 0, 0);
   var end = new Date(axisEnd);
   while (d <= end){
     // labels only, no tick lines — the header is a solid bar and a vertical
@@ -3141,6 +3204,165 @@ function reorderTimelineTask(draggedTask, targetTask){
   });
 }
 
+// PUTs only start_date/due_date for one subtask — same endpoint
+// saveSubtaskField (drawer) uses, called directly here since the Timeline's
+// drag has no <input> element to disable/re-enable around the request.
+function updateSubtaskDates(taskId, subtaskId, newStartIso, newDueIso){
+  return authFetch('/api/tasks/' + taskId + '/subtasks/' + subtaskId, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ start_date: newStartIso, due_date: newDueIso })
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+  });
+}
+
+// drag-to-move / drag-to-resize for a subtask's own bar — the same pixel↔day
+// math as the task bar's startBarDrag, but simpler: no date-change-reason
+// prompt (subtasks don't carry that workflow) and it persists via
+// updateSubtaskDates instead of updateTaskDates. Takes axisSpan/pctPos as
+// parameters rather than closing over renderGantt's locals, since subtask
+// rows are built by a separate top-level function.
+function startSubtaskBarDrag(mode, downEvent, t, st, barEl, trackEl, origStart, origEnd, axisSpan, pctPos, markDragged){
+  if (!hasRole('editor')) return; // viewer: read-only, ignore the drag entirely
+  var startX = downEvent.clientX;
+  var trackWidth = trackEl.getBoundingClientRect().width;
+  var msPerDay = 24 * 60 * 60 * 1000;
+  var pxPerDay = (trackWidth * msPerDay) / axisSpan;
+  var moved = false;
+  var newStart = origStart, newEnd = origEnd;
+
+  var tooltip = document.createElement('div');
+  tooltip.className = 'bar-drag-tooltip';
+  trackEl.appendChild(tooltip);
+  function updateTooltip(l, w){
+    tooltip.style.left = (l + w / 2) + '%';
+    tooltip.textContent = fmtDMY(toIsoDate(newStart)) + ' → ' + fmtDMY(toIsoDate(newEnd)) + ' · ' + formatDurationText(newStart, newEnd);
+  }
+  var initL = pctPos(origStart);
+  updateTooltip(initL, Math.max(pctPos(origEnd) - initL, 0.6));
+
+  function onMove(e){
+    var deltaDays = Math.round((e.clientX - startX) / pxPerDay);
+    if (deltaDays === 0 && !moved) return;
+    moved = true;
+    if (mode === 'move'){
+      newStart = new Date(origStart); newStart.setDate(newStart.getDate() + deltaDays);
+      newEnd = new Date(origEnd); newEnd.setDate(newEnd.getDate() + deltaDays);
+    } else if (mode === 'resize-start'){
+      newStart = new Date(origStart); newStart.setDate(newStart.getDate() + deltaDays);
+      if (newStart > origEnd) newStart = new Date(origEnd);
+      newEnd = origEnd;
+    } else {
+      newEnd = new Date(origEnd); newEnd.setDate(newEnd.getDate() + deltaDays);
+      if (newEnd < origStart) newEnd = new Date(origStart);
+      newStart = origStart;
+    }
+    var l = pctPos(newStart);
+    var w = Math.max(pctPos(newEnd) - l, 0.6);
+    barEl.style.left = l + '%';
+    barEl.style.width = w + '%';
+    updateTooltip(l, w);
+  }
+  function onUp(){
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    barEl.classList.remove('bar-dragging');
+    tooltip.remove();
+    if (!moved) return;
+    markDragged();
+    updateSubtaskDates(t.id, st.id, toIsoDate(newStart), toIsoDate(newEnd))
+      .then(function(){
+        refreshAllViews();
+        toastSuccess('Đã cập nhật ngày cho subtask "' + st.name + '"');
+      })
+      .catch(function(err){
+        console.error('Cập nhật ngày subtask trên Timeline thất bại', err);
+        toastError('Không cập nhật được ngày: ' + err.message);
+        refreshAllViews(); // reload from server truth to undo the live preview
+      });
+  }
+  barEl.classList.add('bar-dragging');
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// a subtask's own sub-row under its expanded parent task. Clicking the
+// label always opens the parent task's drawer (subtask editing lives
+// there); clicking/dragging the BAR itself now also supports drag-to-move
+// and drag-to-resize (editors only), same as a task bar — a plain click
+// (no movement) still opens the drawer. A subtask with no start/due date
+// (both are optional, unlike a task's) renders its row with no bar at all
+// rather than guessing a range, so there's nothing to drag until one is set.
+function renderSubtaskGanttRow(t, st, pctPos, axisSpan){
+  var row = document.createElement('div'); row.className = 'task-row is-subtask';
+  row.setAttribute('data-task-id', t.id + '-sub-' + st.id);
+  var label = document.createElement('div'); label.className = 'task-label';
+  label.style.width = _ganttLabelWidth + 'px';
+  var labelText = document.createElement('span'); labelText.className = 'task-label-text';
+  labelText.textContent = st.name;
+  label.appendChild(labelText);
+  label.title = 'Bấm để mở "' + t.name + '"';
+  label.addEventListener('click', function(){ openDrawer('edit', t); });
+  var track = document.createElement('div'); track.className = 'task-track';
+  if (st.start_date && st.due_date){
+    var startDate = new Date(st.start_date), dueDate = new Date(st.due_date);
+    var left = pctPos(startDate);
+    var width = Math.max(pctPos(dueDate) - left, 0.6);
+    var durationText = formatDurationText(startDate, dueDate);
+    var canEdit = hasRole('editor');
+    var bar = document.createElement('div');
+    bar.className = 'bar bar-sub ' + (st.status || 'todo');
+    bar.style.left = left + '%';
+    bar.style.width = width + '%';
+    bar.title = st.name + ' · ' + (SUBTASK_STATUS_LABELS[st.status] || st.status) +
+      (st.pic ? ' · ' + st.pic : '') + ' · ' + fmtDMY(st.start_date) + ' → ' + fmtDMY(st.due_date);
+    if (!canEdit) bar.style.cursor = 'pointer';
+    var durationLabel = document.createElement('span'); durationLabel.className = 'bar-duration';
+    durationLabel.textContent = durationText;
+    bar.appendChild(durationLabel);
+
+    if (canEdit){
+      var handleL = document.createElement('div'); handleL.className = 'bar-handle bar-handle-l';
+      var handleR = document.createElement('div'); handleR.className = 'bar-handle bar-handle-r';
+      bar.appendChild(handleL);
+      bar.appendChild(handleR);
+      var dragMoved = false;
+      function markDragged(){ dragMoved = true; }
+      bar.addEventListener('mousedown', function(e){
+        if (e.target === handleL || e.target === handleR) return;
+        e.preventDefault();
+        startSubtaskBarDrag('move', e, t, st, bar, track, startDate, dueDate, axisSpan, pctPos, markDragged);
+      });
+      handleL.addEventListener('mousedown', function(e){
+        e.preventDefault(); e.stopPropagation();
+        startSubtaskBarDrag('resize-start', e, t, st, bar, track, startDate, dueDate, axisSpan, pctPos, markDragged);
+      });
+      handleR.addEventListener('mousedown', function(e){
+        e.preventDefault(); e.stopPropagation();
+        startSubtaskBarDrag('resize-end', e, t, st, bar, track, startDate, dueDate, axisSpan, pctPos, markDragged);
+      });
+      bar.addEventListener('click', function(){
+        if (dragMoved){ dragMoved = false; return; }
+        openDrawer('edit', t);
+      });
+    } else {
+      bar.addEventListener('click', function(){ openDrawer('edit', t); });
+    }
+    track.appendChild(bar);
+  } else {
+    var noDate = document.createElement('span'); noDate.className = 'task-track-sub-empty';
+    noDate.textContent = 'Chưa có ngày';
+    track.appendChild(noDate);
+  }
+  row.appendChild(label); row.appendChild(track);
+  return row;
+}
+
 function renderGantt(tasks, sprints, phases){
   var body = document.getElementById('ganttBody');
   var playFlip = captureFlipPositions(body, 'data-task-id');
@@ -3153,21 +3375,33 @@ function renderGantt(tasks, sprints, phases){
   // range — legacy pre-sprint tasks (date_overridden=true, no sprint, dated
   // well before the earliest sprint) fall outside a sprints-only range and
   // would otherwise render as bars with negative left%, overflowing into the
-  // TASKS label column.
+  // TASKS label column. Subtask dates are folded in too, now that subtask
+  // bars render on the chart. filteredDates tracks the SAME set but without
+  // the sprint padding — used below when a filter is active, so filtering
+  // down to e.g. one phase actually shrinks the chart instead of leaving it
+  // stretched across every sprint in the project.
   var allDates = [];
+  var filteredDates = [];
   sprints.forEach(function(s){
     allDates.push(new Date(s.start_date), new Date(s.end_date));
   });
   tasks.forEach(function(t){
     var r = effectiveRange(t);
-    if (r) { allDates.push(r.start, r.end); }
+    if (r) { allDates.push(r.start, r.end); filteredDates.push(r.start, r.end); }
+    (t.subtasks || []).forEach(function(st){
+      if (st.start_date) { var sd = new Date(st.start_date); allDates.push(sd); filteredDates.push(sd); }
+      if (st.due_date) { var dd = new Date(st.due_date); allDates.push(dd); filteredDates.push(dd); }
+    });
   });
   if (allDates.length === 0){
     body.innerHTML = '<div class="view-sub">Chưa có dữ liệu để hiển thị Timeline.</div>';
     return;
   }
-  var axisStart = new Date(Math.min.apply(null, allDates));
-  var axisEnd = new Date(Math.max.apply(null, allDates));
+  var hasActiveFilter = _timelineFilterPhase.length > 0 || _timelineFilterCategory.length > 0 ||
+    _timelineFilterPlatform.length > 0 || _timelineFilterStatus.length > 0;
+  var rangeDates = (hasActiveFilter && filteredDates.length) ? filteredDates : allDates;
+  var axisStart = new Date(Math.min.apply(null, rangeDates));
+  var axisEnd = new Date(Math.max.apply(null, rangeDates));
   var axisSpan = (axisEnd - axisStart) || 1; // guard against a zero-length axis
   function pctPos(d){ return (d - axisStart) / axisSpan * 100; }
 
@@ -3180,10 +3414,13 @@ function renderGantt(tasks, sprints, phases){
   var PX_PER_DAY = 8;
   var axisSpanDays = axisSpan / (24 * 60 * 60 * 1000);
   var trackPxWidth = axisSpanDays * PX_PER_DAY;
-  var totalRowWidth = 186 + trackPxWidth;
+  _lastGanttTrackPxWidth = trackPxWidth;
+  var totalRowWidth = _ganttLabelWidth + trackPxWidth;
   var headerEl = document.querySelector('.gantt-header');
   headerEl.style.width = 'max(100%, ' + totalRowWidth + 'px)';
   body.style.width = 'max(100%, ' + totalRowWidth + 'px)';
+  var cornerEl = document.querySelector('.gantt-corner');
+  if (cornerEl) cornerEl.style.width = _ganttLabelWidth + 'px';
 
   renderDayRuler(axisStart, axisEnd, pctPos);
 
@@ -3331,7 +3568,27 @@ function renderGantt(tasks, sprints, phases){
       var row = document.createElement('div'); row.className = 'task-row';
       row.setAttribute('data-task-id', t.id);
       var label = document.createElement('div'); label.className = 'task-label';
-      label.textContent = t.name;
+      label.style.width = _ganttLabelWidth + 'px';
+      var hasSubtasks = t.subtasks && t.subtasks.length > 0;
+      // toggle sits AFTER the name (not before) so every task's name starts
+      // at the same left edge whether or not it has subtasks — a leading
+      // toggle only on some rows made the whole label column look misaligned.
+      var labelText = document.createElement('span'); labelText.className = 'task-label-text';
+      labelText.textContent = t.name;
+      label.appendChild(labelText);
+      if (hasSubtasks){
+        var expandBtn = document.createElement('button');
+        expandBtn.type = 'button';
+        expandBtn.className = 'task-expand-toggle';
+        expandBtn.textContent = _timelineExpandedTaskIds[t.id] ? '▾' : '▸';
+        expandBtn.title = _timelineExpandedTaskIds[t.id] ? 'Thu gọn subtask' : 'Xem ' + t.subtasks.length + ' subtask';
+        expandBtn.addEventListener('click', function(e){
+          e.stopPropagation();
+          _timelineExpandedTaskIds[t.id] = !_timelineExpandedTaskIds[t.id];
+          renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+        });
+        label.appendChild(expandBtn);
+      }
       label.draggable = hasRole('editor');
       label.title = hasRole('editor') ? 'Bấm để sửa · Kéo để chuyển nhóm hoặc đổi vị trí' : 'Bấm để xem';
       label.addEventListener('dragstart', function(e){
@@ -3427,6 +3684,12 @@ function renderGantt(tasks, sprints, phases){
       track.appendChild(bar);
       row.appendChild(label); row.appendChild(track);
       group.appendChild(row);
+
+      if (hasSubtasks && _timelineExpandedTaskIds[t.id]){
+        t.subtasks.forEach(function(st){
+          group.appendChild(renderSubtaskGanttRow(t, st, pctPos, axisSpan));
+        });
+      }
     });
     body.appendChild(group);
   });
@@ -3435,21 +3698,52 @@ function renderGantt(tasks, sprints, phases){
   // line (real current date, only if it falls within the axis range). Mounted
   // on .gantt itself (not the scrolling .gantt-body), so it stays vertically
   // pinned while gantt-body's own vertical scroll moves under it — but .gantt
-  // now ALSO scrolls horizontally (see trackPxWidth above), and since the
-  // overlay is a direct child of .gantt (not of the wide header/body), it
-  // rides along with that horizontal scroll automatically. Positions are in
-  // PIXELS against trackPxWidth rather than "%", because % on this overlay
-  // would resolve against .gantt's own (narrower, viewport-clamped) box, not
-  // the wider scrollable content the header/bars actually use.
+  // now ALSO scrolls horizontally, and since the overlay is a direct child of
+  // .gantt (not of the wide header/body), it rides along with that
+  // horizontal scroll automatically.
+  //
+  // Positions are in "%", matching how bars are positioned within
+  // .task-track — this is deliberate, not just simplicity: .task-track is
+  // flex:1 inside a row whose own width is max(100%, totalRowWidth), so on a
+  // browser window wider than the axis's natural content, .task-track
+  // stretches past trackPxWidth to fill the extra space, and any bar's "%"
+  // position stretches right along with it. The overlay needs to end up
+  // EXACTLY the same width as .task-track for its "%" gridlines to land
+  // under the right day — width: calc(100% - labelWidth) with
+  // min-width: trackPxWidth resolves to the same
+  // max(ganttWidth, totalRowWidth) - labelWidth as .task-track's flex math,
+  // so the two stay pixel-for-pixel aligned at any window width. (An
+  // earlier version gave the overlay a flat trackPxWidth in pixels instead —
+  // correct on a narrow window, but on a wider one .task-track would stretch
+  // past it while the overlay stayed fixed-width, leaving a real gap with no
+  // gridlines past wherever the fixed width ran out.)
+  // .gantt-body scrolls vertically on its own (overflow-y:auto) and the
+  // overlay is mounted on .gantt instead (see above), so when body's own
+  // scrollbar is actually showing, it eats a few px of body's width that
+  // .task-track (inside body) loses but the overlay (outside body) doesn't
+  // — subtract it explicitly so "%" positions land on the exact same pixel
+  // in both. offsetWidth/clientWidth are 0 while this view is hidden, which
+  // just falls back to no correction — harmless, since nothing is visible
+  // to misalign in that case anyway.
+  var bodyScrollbarWidth = body.offsetWidth - body.clientWidth;
   var overlayEl = document.createElement('div');
   overlayEl.className = 'gantt-track-overlay';
+  overlayEl.style.left = _ganttLabelWidth + 'px';
+  overlayEl.style.width = 'calc(100% - ' + (_ganttLabelWidth + bodyScrollbarWidth) + 'px)';
+  // the min-width floor needs the same scrollbar deduction as the calc()
+  // above — otherwise on a narrow window (where this floor is what actually
+  // wins) the overlay reverts to being scrollbarWidth px wider than
+  // .task-track really is, the same misalignment the calc() fixed for wide
+  // windows.
+  overlayEl.style.minWidth = (trackPxWidth - bodyScrollbarWidth) + 'px';
+  // axisStart/axisEnd are already clean UTC-midnight instants (see
+  // renderDayRuler) — no setHours() reset here either, for the same reason.
   var gd = new Date(axisStart);
-  gd.setHours(0, 0, 0, 0);
   var gdEnd = new Date(axisEnd);
   while (gd <= gdEnd){
     var gLine = document.createElement('div');
     gLine.className = 'gantt-day-line' + (gd.getDay() === 1 ? ' is-week' : '');
-    gLine.style.left = (pctPos(gd) / 100 * trackPxWidth) + 'px';
+    gLine.style.left = pctPos(gd) + '%';
     overlayEl.appendChild(gLine);
     gd.setDate(gd.getDate() + 1);
   }
@@ -3463,18 +3757,22 @@ function renderGantt(tasks, sprints, phases){
     if (pct < 0 || pct > 100) return;
     var pLine = document.createElement('div');
     pLine.className = 'gantt-phase-line';
-    pLine.style.left = (pct / 100 * trackPxWidth) + 'px';
+    pLine.style.left = pct + '%';
     var pLabel = document.createElement('div');
     pLabel.className = 'gantt-phase-line-label';
     pLabel.textContent = p.code;
     pLine.appendChild(pLabel);
     overlayEl.appendChild(pLine);
   });
-  var todayPct = pctPos(new Date());
+  // todayIsoLocal() + Date() parses as UTC midnight, matching how every
+  // task/subtask date is represented — using the raw new Date() (real
+  // time-of-day attached) instead drifted the line up to a visible fraction
+  // of a day off from where a task starting "today" would actually sit.
+  var todayPct = pctPos(new Date(todayIsoLocal()));
   if (todayPct >= 0 && todayPct <= 100){
     var line = document.createElement('div');
     line.className = 'gantt-today-line';
-    line.style.left = (todayPct / 100 * trackPxWidth) + 'px';
+    line.style.left = todayPct + '%';
     overlayEl.appendChild(line);
   }
   var ganttEl = document.querySelector('.gantt');
@@ -4847,6 +5145,72 @@ function buildTableExportAoa(){
 wireExportJsonButton('exportTableJsonBtn', function(){ return Promise.resolve(buildTableExportJson()); }, 'ttt-danh-sach-nghiep-vu');
 wireExportExcelButton('exportTableExcelBtn', function(){ return Promise.resolve(buildTableExportAoa()); }, 'ttt-danh-sach-nghiep-vu', 'Danh sach nghiep vu');
 
+// ---- Timeline export: whatever's currently on the chart (respects the
+// active Phase/Category/Platform/Status filters, same "export what you're
+// looking at" convention as Bảng danh sách's export) — dates are the
+// EFFECTIVE ones actually drawn (sprint-inherited or overridden), not
+// necessarily the task's raw stored start_date/due_date, and tasks with no
+// effective range (skipped from the chart entirely) are skipped here too.
+var TIMELINE_EXPORT_COLUMNS = [
+  { key: 'name', label: 'Tên nghiệp vụ' },
+  { key: 'category', label: 'Category' },
+  { key: 'platform', label: 'Platform' },
+  { key: 'phase', label: 'Phase' },
+  { key: 'sprint', label: 'Sprint' },
+  { key: 'status', label: 'Status' },
+  { key: 'start', label: 'Start' },
+  { key: 'due', label: 'Due' },
+  { key: 'duration', label: 'Duration' }
+];
+function timelineExportCell(col, t){
+  var r;
+  switch (col.key){
+    case 'name': return t.name || '';
+    case 'category': return t.category || '';
+    case 'platform': return t.platform || '';
+    case 'phase': return t.phase_code || '';
+    case 'sprint': return t.sprint_code || '';
+    case 'status': return statusLabel[statusDotToNum(t.status)] || t.status || '';
+    case 'start': r = effectiveRange(t); return r ? fmtDMY(toIsoDate(r.start)) : '';
+    case 'due': r = effectiveRange(t); return r ? fmtDMY(toIsoDate(r.end)) : '';
+    case 'duration': r = effectiveRange(t); return r ? formatDurationText(r.start, r.end) : '';
+    default: return '';
+  }
+}
+function buildTimelineExportTasks(){
+  return applyTimelineFilters(_lastTimelineTasks || []).filter(function(t){ return !!effectiveRange(t); });
+}
+function buildTimelineExportJson(){
+  return buildTimelineExportTasks().map(function(t){
+    var obj = {};
+    TIMELINE_EXPORT_COLUMNS.forEach(function(col){ obj[col.label] = timelineExportCell(col, t); });
+    obj.subtasks = (t.subtasks || []).map(function(st){
+      var sub = {};
+      SUBTASK_EXPORT_COLUMNS.forEach(function(col){ sub[col.label.replace('Subtask - ', '')] = subtaskExportCellText(col, st); });
+      return sub;
+    });
+    return obj;
+  });
+}
+function buildTimelineExportAoa(){
+  var header = TIMELINE_EXPORT_COLUMNS.map(function(c){ return c.label; }).concat(SUBTASK_EXPORT_COLUMNS.map(function(c){ return c.label; }));
+  var rows = [];
+  buildTimelineExportTasks().forEach(function(t){
+    var taskCells = TIMELINE_EXPORT_COLUMNS.map(function(col){ return timelineExportCell(col, t); });
+    var subtasks = t.subtasks || [];
+    if (subtasks.length === 0){
+      rows.push(taskCells.concat(SUBTASK_EXPORT_COLUMNS.map(function(){ return ''; })));
+    } else {
+      subtasks.forEach(function(st){
+        rows.push(taskCells.concat(SUBTASK_EXPORT_COLUMNS.map(function(col){ return subtaskExportCellText(col, st); })));
+      });
+    }
+  });
+  return [header].concat(rows);
+}
+wireExportJsonButton('exportTimelineJsonBtn', function(){ return Promise.resolve(buildTimelineExportJson()); }, 'ttt-timeline');
+wireExportExcelButton('exportTimelineExcelBtn', function(){ return Promise.resolve(buildTimelineExportAoa()); }, 'ttt-timeline', 'Timeline');
+
 // hidden scratchpad for measuring how tall a card's real content (with
 // wrapping enabled) actually renders at a given width — position:fixed +
 // visibility:hidden (NOT display:none) so it still takes part in layout
@@ -5361,6 +5725,14 @@ function applyTimelineFilters(tasks){
   });
 }
 
+// pre-selects the current phase on the Timeline's very first load only —
+// same "first phase whose pct_complete isn't null and < 100" rule as the
+// drawer's default and Bảng danh sách's phase pivot (see currentPhase in
+// openDrawer / _tableSummaryInitialized above). Guarded so a later
+// refreshAllViews() (after any task edit) doesn't keep re-forcing the
+// filter back once the user has deliberately changed or cleared it.
+var _timelineFiltersInitialized = false;
+
 function loadTimelineView(){
   var body = document.getElementById('ganttBody');
   return Promise.all([loadTasks(), loadSprints(), loadPhasesList()])
@@ -5368,6 +5740,11 @@ function loadTimelineView(){
       _lastTimelineTasks = results[0];
       _lastTimelineSprints = results[1];
       _lastTimelinePhases = results[2];
+      if (!_timelineFiltersInitialized){
+        _timelineFiltersInitialized = true;
+        var currentPhase = _lastTimelinePhases.find(function(p){ return p.pct_complete !== null && p.pct_complete < 100; });
+        if (currentPhase) _timelineFilterPhase.push(String(currentPhase.id));
+      }
       renderTimelineFilterDropdowns(_lastTimelineTasks, _lastTimelinePhases);
       renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
     })

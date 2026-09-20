@@ -579,6 +579,28 @@ body{
   background:var(--ink); color:var(--canvas); font-family:var(--mono); font-size:11px; font-weight:600;
   padding:4px 9px; border-radius:5px; white-space:nowrap; pointer-events:none; z-index:10;
 }
+.task-expand-toggle{
+  flex:none; width:16px; height:16px; margin-left:4px; display:flex; align-items:center; justify-content:center;
+  border:none; background:none; color:var(--ink-muted); cursor:pointer; font-size:10px; padding:0;
+}
+.task-expand-toggle:hover{color:var(--ink);}
+/* flex:1 + min-width:0 is what actually lets a flex child shrink below its
+   text's natural width — without min-width:0 the ellipsis below never
+   kicks in, the label just pushes the toggle button out of the column. */
+.task-label-text{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.task-row.is-subtask{border-top:1px dashed var(--border);}
+.task-row.is-subtask .task-label{padding-left:30px; font-size:11px; color:var(--ink-muted); cursor:pointer;}
+.task-row.is-subtask .task-track{height:40px;}
+/* no cursor override here — editors get the base .bar's grab/grabbing
+   cursor (draggable now), viewers get an inline cursor:pointer override
+   from JS (see renderSubtaskGanttRow), same split as task bars. */
+.bar.bar-sub{top:6px; height:28px;}
+.bar-sub.todo{background:var(--neutral-bg); color:var(--neutral-ink);}
+.bar-sub.wip{background:var(--status-blue-bg); color:var(--status-blue-ink);}
+.bar-sub.done{background:var(--green-bg); color:var(--green-ink);}
+.task-track-sub-empty{position:absolute; top:12px; left:8px; font-size:10.5px; color:var(--ink-faint); font-style:italic;}
+.gantt-col-resize{position:absolute; top:0; right:-3px; bottom:0; width:6px; cursor:col-resize; z-index:5;}
+.gantt-col-resize:hover, .gantt-col-resize.is-dragging{background:var(--accent-ink); opacity:0.35;}
 
 /* ===== TIMELINE NHÓM (separate roadmap-style view) =====
    Mirrors .gantt's proven architecture: one scrolling box holds a
