@@ -2813,6 +2813,18 @@ function effectiveRange(t){
   return null;
 }
 
+// a due/end date is a whole day, not an instant — "due Thursday" means the
+// bar should visually cover all of Thursday's cell, not stop right at
+// Thursday's own midnight (which would render as if it stopped at the end
+// of Wednesday). Every bar/axis-end position below is computed from
+// dayAfter(end), i.e. the boundary AFTER the last day, so a 4-calendar-day
+// span always fills exactly 4 grid cells — matching the inclusive day count
+// formatDurationText already shows in the label. Only used for POSITIONING;
+// the stored due_date itself (and anything displaying it as text) is
+// unaffected.
+var ONE_DAY_MS = 24 * 60 * 60 * 1000;
+function dayAfter(d){ return new Date(d.getTime() + ONE_DAY_MS); }
+
 // ---- group-by chips: which dimension clusters the Gantt's rows ----
 var _timelineGroupBy = 'sprint';
 // which task rows currently show their subtask sub-rows expanded — persists
@@ -3244,7 +3256,7 @@ function startSubtaskBarDrag(mode, downEvent, t, st, barEl, trackEl, origStart, 
     tooltip.textContent = fmtDMY(toIsoDate(newStart)) + ' → ' + fmtDMY(toIsoDate(newEnd)) + ' · ' + formatDurationText(newStart, newEnd);
   }
   var initL = pctPos(origStart);
-  updateTooltip(initL, Math.max(pctPos(origEnd) - initL, 0.6));
+  updateTooltip(initL, Math.max(pctPos(dayAfter(origEnd)) - initL, 0.6));
 
   function onMove(e){
     var deltaDays = Math.round((e.clientX - startX) / pxPerDay);
@@ -3263,7 +3275,7 @@ function startSubtaskBarDrag(mode, downEvent, t, st, barEl, trackEl, origStart, 
       newStart = origStart;
     }
     var l = pctPos(newStart);
-    var w = Math.max(pctPos(newEnd) - l, 0.6);
+    var w = Math.max(pctPos(dayAfter(newEnd)) - l, 0.6);
     barEl.style.left = l + '%';
     barEl.style.width = w + '%';
     updateTooltip(l, w);
@@ -3312,7 +3324,7 @@ function renderSubtaskGanttRow(t, st, pctPos, axisSpan){
   if (st.start_date && st.due_date){
     var startDate = new Date(st.start_date), dueDate = new Date(st.due_date);
     var left = pctPos(startDate);
-    var width = Math.max(pctPos(dueDate) - left, 0.6);
+    var width = Math.max(pctPos(dayAfter(dueDate)) - left, 0.6); // dayAfter: the due date's own cell counts too
     var durationText = formatDurationText(startDate, dueDate);
     var canEdit = hasRole('editor');
     var bar = document.createElement('div');
@@ -3383,14 +3395,14 @@ function renderGantt(tasks, sprints, phases){
   var allDates = [];
   var filteredDates = [];
   sprints.forEach(function(s){
-    allDates.push(new Date(s.start_date), new Date(s.end_date));
+    allDates.push(new Date(s.start_date), dayAfter(new Date(s.end_date)));
   });
   tasks.forEach(function(t){
     var r = effectiveRange(t);
-    if (r) { allDates.push(r.start, r.end); filteredDates.push(r.start, r.end); }
+    if (r) { allDates.push(r.start, dayAfter(r.end)); filteredDates.push(r.start, dayAfter(r.end)); }
     (t.subtasks || []).forEach(function(st){
       if (st.start_date) { var sd = new Date(st.start_date); allDates.push(sd); filteredDates.push(sd); }
-      if (st.due_date) { var dd = new Date(st.due_date); allDates.push(dd); filteredDates.push(dd); }
+      if (st.due_date) { var dd = dayAfter(new Date(st.due_date)); allDates.push(dd); filteredDates.push(dd); }
     });
   });
   if (allDates.length === 0){
@@ -3448,7 +3460,7 @@ function renderGantt(tasks, sprints, phases){
       tooltip.textContent = fmtDMY(toIsoDate(newStart)) + ' → ' + fmtDMY(toIsoDate(newEnd)) + ' · ' + formatDurationText(newStart, newEnd);
     }
     var initL = pctPos(origStart);
-    updateTooltip(initL, Math.max(pctPos(origEnd) - initL, 0.6));
+    updateTooltip(initL, Math.max(pctPos(dayAfter(origEnd)) - initL, 0.6));
 
     function onMove(e){
       var deltaDays = Math.round((e.clientX - startX) / pxPerDay);
@@ -3467,7 +3479,7 @@ function renderGantt(tasks, sprints, phases){
         newStart = origStart;
       }
       var l = pctPos(newStart);
-      var w = Math.max(pctPos(newEnd) - l, 0.6);
+      var w = Math.max(pctPos(dayAfter(newEnd)) - l, 0.6);
       barEl.style.left = l + '%';
       barEl.style.width = w + '%';
       updateTooltip(l, w);
@@ -3640,7 +3652,7 @@ function renderGantt(tasks, sprints, phases){
       var track = document.createElement('div'); track.className = 'task-track';
 
       var left = pctPos(range.start);
-      var width = Math.max(pctPos(range.end) - left, 0.6); // keep a visible sliver for short/zero-width ranges
+      var width = Math.max(pctPos(dayAfter(range.end)) - left, 0.6); // dayAfter: the due date's own cell counts too (see dayAfter's comment)
       var n = statusDotToNum(t.status);
       var durationText = formatDurationText(range.start, range.end);
       var bar = document.createElement('div');
@@ -3741,8 +3753,21 @@ function renderGantt(tasks, sprints, phases){
   var gd = new Date(axisStart);
   var gdEnd = new Date(axisEnd);
   while (gd <= gdEnd){
+    var dow = gd.getDay(); // 0 = Sunday, 6 = Saturday
+    // weekend wash — a full-day-wide band, not just a line, so Sat/Sun read
+    // at a glance without having to trace individual gridlines. Appended
+    // before the day-line below so the line still draws on top of it.
+    if (dow === 0 || dow === 6){
+      var weekendBand = document.createElement('div');
+      weekendBand.className = 'gantt-weekend-band';
+      var bandLeft = pctPos(gd);
+      var nextDay = new Date(gd); nextDay.setDate(nextDay.getDate() + 1);
+      weekendBand.style.left = bandLeft + '%';
+      weekendBand.style.width = (pctPos(nextDay) - bandLeft) + '%';
+      overlayEl.appendChild(weekendBand);
+    }
     var gLine = document.createElement('div');
-    gLine.className = 'gantt-day-line' + (gd.getDay() === 1 ? ' is-week' : '');
+    gLine.className = 'gantt-day-line' + (dow === 1 ? ' is-week' : '');
     gLine.style.left = pctPos(gd) + '%';
     overlayEl.appendChild(gLine);
     gd.setDate(gd.getDate() + 1);
@@ -3792,6 +3817,11 @@ function renderStatusLegend(elementId){
 renderStatusLegend('ganttLegend');
 renderStatusLegend('sprintLegend');
 renderStatusLegend('gtLegend');
+// weekend-shading legend — only the plain Timeline has .gantt-weekend-band,
+// so appended directly here rather than folded into renderStatusLegend
+// (shared with Sprint/Timeline nhóm's legends, which don't have it).
+document.getElementById('ganttLegend').insertAdjacentHTML('beforeend',
+  '<span class="legend-item"><span class="legend-swatch legend-swatch-weekend"></span>Thứ 7, CN</span>');
 
 // ---- Timeline nhóm: a separate, roadmap-style Timeline view. Rows are
 // GROUPS (category/sprint/phase/platform) rather than individual tasks —

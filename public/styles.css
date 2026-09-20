@@ -506,6 +506,9 @@ body{
 .legend-swatch.st-3{background:var(--status-3-bg); border:1px solid var(--status-3-ink);}
 .legend-swatch.st-4{background:var(--status-4-bg); border:1px solid var(--status-4-ink);}
 .legend-swatch.st-5{background:var(--status-5-bg); border:1px solid var(--status-5-ink);}
+/* stronger than the real .gantt-weekend-band wash (opacity:0.05, too faint
+   to read at swatch size) — just needs to look like "a shaded square" here. */
+.legend-swatch-weekend{background:var(--surface-2); border:1px solid var(--border);}
 .gantt{
   border:1px solid var(--border); border-radius:8px; background:var(--surface); position:relative;
   overflow-x:auto; overflow-y:hidden;
@@ -536,6 +539,9 @@ body{
 .gantt-track-overlay{position:absolute; top:36px; bottom:0; left:186px; right:0; pointer-events:none; z-index:2;}
 .gantt-day-line{position:absolute; top:0; bottom:0; width:1px; background:var(--border); opacity:0.4;}
 .gantt-day-line.is-week{background:var(--ink-faint); opacity:0.55;}
+/* a full-day-wide wash, not just a line — low opacity so it reads as a
+   background tint rather than covering bar colors/text on a weekend day. */
+.gantt-weekend-band{position:absolute; top:0; bottom:0; background:var(--ink); opacity:0.05;}
 .gantt-today-line{position:absolute; top:0; bottom:0; width:1.5px; background:var(--accent-ink);}
 .gantt-today-line::before{content:'HÔM NAY'; position:absolute; top:6px; left:5px; font-family:var(--mono); font-size:9.5px; color:var(--accent-ink); font-weight:700; letter-spacing:0.04em; white-space:nowrap;}
 .gantt-phase-line{position:absolute; top:0; bottom:0; width:0; border-left:1.5px dashed var(--ink-muted);}
