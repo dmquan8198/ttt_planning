@@ -520,6 +520,53 @@ function renderSubtaskList(taskId, subtasks, pics){
   document.getElementById('cloneSubtasksBtn').style.display = canEdit ? '' : 'none';
 }
 
+// name/start/due/pic validate-and-autosave-on-change, identical wherever
+// a subtask's fields are editable — the drawer's own subtask table
+// (renderSubtaskItem) AND Danh sách nghiệp vụ's subtask tree preview
+// (renderSubtaskPreviewRow). Status is deliberately NOT here: the drawer
+// gives it a real dropdown, the table gives it an advance-only arrow (see
+// appendStatusOnlyCell's task-level equivalent) — different enough in
+// each place that sharing wouldn't simplify anything. PIC's own listener
+// skips '__add_new__' silently so a caller that offers that option (only
+// the drawer does) can layer its own listener on top without the two
+// fighting over the same change event.
+function wireSubtaskFieldAutosave(taskId, st, fields){
+  fields.nameInput.addEventListener('change', function(){
+    var val = fields.nameInput.value.trim();
+    if (!val){
+      toastError('Tên subtask không được để trống.');
+      fields.nameInput.value = fields.nameInput.dataset.original;
+      return;
+    }
+    if (val === fields.nameInput.dataset.original) return;
+    saveSubtaskField(taskId, st.id, { name: val }, fields.nameInput).then(function(){ fields.nameInput.dataset.original = val; });
+  });
+  fields.startInput.addEventListener('change', function(){
+    var typed = fields.startInput.value.trim();
+    var iso = typed ? parseDMY(typed) : null;
+    if (typed && !iso){
+      toastError('Ngày không hợp lệ. Nhập theo dạng dd/mm/yyyy.');
+      fields.startInput.value = fields.startInput.dataset.original ? fmtDMY(fields.startInput.dataset.original) : '';
+      return;
+    }
+    saveSubtaskField(taskId, st.id, { start_date: iso }, fields.startInput).then(function(){ fields.startInput.dataset.original = iso || ''; });
+  });
+  fields.dueInput.addEventListener('change', function(){
+    var typed = fields.dueInput.value.trim();
+    var iso = typed ? parseDMY(typed) : null;
+    if (typed && !iso){
+      toastError('Ngày không hợp lệ. Nhập theo dạng dd/mm/yyyy.');
+      fields.dueInput.value = fields.dueInput.dataset.original ? fmtDMY(fields.dueInput.dataset.original) : '';
+      return;
+    }
+    saveSubtaskField(taskId, st.id, { due_date: iso }, fields.dueInput).then(function(){ fields.dueInput.dataset.original = iso || ''; });
+  });
+  fields.picSel.addEventListener('change', function(){
+    if (fields.picSel.value === '__add_new__') return;
+    saveSubtaskField(taskId, st.id, { pic: fields.picSel.value || null }, fields.picSel);
+  });
+}
+
 // one <tr> per subtask, columns matching the table header exactly (Tên
 // subtask, Status, Start, Due, PIC, xoá) — each cell its own
 // independently autosaving input/select, same fields/logic as before,
@@ -597,49 +644,19 @@ function renderSubtaskItem(taskId, st, pics, canEdit){
 
   if (!canEdit) return row; // read-only: no autosave listeners
 
-  nameInput.addEventListener('change', function(){
-    var val = nameInput.value.trim();
-    if (!val){
-      toastError('Tên subtask không được để trống.');
-      nameInput.value = nameInput.dataset.original;
-      return;
-    }
-    if (val === nameInput.dataset.original) return;
-    saveSubtaskField(taskId, st.id, { name: val }, nameInput).then(function(){ nameInput.dataset.original = val; });
-  });
+  wireSubtaskFieldAutosave(taskId, st, { nameInput: nameInput, startInput: startInput, dueInput: dueInput, picSel: picSel });
   statusSel.addEventListener('change', function(){
     saveSubtaskField(taskId, st.id, { status: statusSel.value }, statusSel);
-  });
-  startInput.addEventListener('change', function(){
-    var typed = startInput.value.trim();
-    var iso = typed ? parseDMY(typed) : null;
-    if (typed && !iso){
-      toastError('Ngày không hợp lệ. Nhập theo dạng dd/mm/yyyy.');
-      startInput.value = startInput.dataset.original ? fmtDMY(startInput.dataset.original) : '';
-      return;
-    }
-    saveSubtaskField(taskId, st.id, { start_date: iso }, startInput).then(function(){ startInput.dataset.original = iso || ''; });
-  });
-  dueInput.addEventListener('change', function(){
-    var typed = dueInput.value.trim();
-    var iso = typed ? parseDMY(typed) : null;
-    if (typed && !iso){
-      toastError('Ngày không hợp lệ. Nhập theo dạng dd/mm/yyyy.');
-      dueInput.value = dueInput.dataset.original ? fmtDMY(dueInput.dataset.original) : '';
-      return;
-    }
-    saveSubtaskField(taskId, st.id, { due_date: iso }, dueInput).then(function(){ dueInput.dataset.original = iso || ''; });
   });
   // "+ Thêm PIC mới..." reveals a text input in the select's place (same
   // reveal-then-Enter/blur-commits idiom as Category's own "+ Thêm category
   // mới..."), rather than a native prompt() which would look out of place
   // here — then the new name is both a real PIC (POST /api/pics) and this
-  // subtask's pic in one flow.
+  // subtask's pic in one flow. A second 'change' listener on top of
+  // wireSubtaskFieldAutosave's — that one already saves any real pic pick
+  // and ignores '__add_new__', so the two never fight over the same value.
   picSel.addEventListener('change', function(){
-    if (picSel.value !== '__add_new__'){
-      saveSubtaskField(taskId, st.id, { pic: picSel.value || null }, picSel);
-      return;
-    }
+    if (picSel.value !== '__add_new__') return;
     var addInput = document.createElement('input');
     addInput.type = 'text'; addInput.className = 'subtask-input'; addInput.placeholder = 'Tên PIC mới, Enter để xác nhận';
     picSel.replaceWith(addInput);
@@ -1436,6 +1453,8 @@ function refreshActorRole(){
 function applyRoleUI(){
   document.getElementById('openDrawer').style.display = hasRole('editor') ? '' : 'none';
   document.getElementById('navUsers').style.display = hasRole('admin') ? '' : 'none';
+  var openSopsBtn = document.getElementById('openSopsDrawer');
+  if (openSopsBtn) openSopsBtn.style.display = hasRole('editor') ? '' : 'none';
   var nameEl = document.getElementById('userChipName');
   if (nameEl) nameEl.textContent = getActorName() + ' · ' + ROLE_DISPLAY[getActorRole()];
   if (typeof refreshAllViews === 'function') refreshAllViews();
@@ -3615,8 +3634,8 @@ wireExportExcelButton('exportGtExcelBtn', function(){
 // only 'status' and the ungrouped default are specific to this view. ----
 var TABLE_COLUMNS = [
   { key: 'stt', label: 'STT' },
-  { key: 'category', label: 'Category' },
   { key: 'name', label: 'Nghiệp vụ' },
+  { key: 'category', label: 'Category' },
   { key: 'why', label: 'Tại sao cần làm' },
   { key: 'platform', label: 'Platform' },
   { key: 'phase', label: 'Phase' },
@@ -3636,7 +3655,7 @@ var TABLE_COLUMNS = [
   { key: 'done_staging', label: 'Done Staging' },
   { key: 'latest_note', label: 'Cập nhật mới nhất' }
 ];
-var TABLE_DEFAULT_VISIBLE = ['stt', 'category', 'name', 'platform', 'phase', 'sprint', 'status', 'start', 'due'];
+var TABLE_DEFAULT_VISIBLE = ['stt', 'name', 'category', 'platform', 'phase', 'sprint', 'status', 'start', 'due'];
 
 function loadTableColumnPrefs(){
   try {
@@ -3669,6 +3688,12 @@ var _tableGroupBy = 'sprint';
 // saved column picks rather than mutating them.
 var TABLE_GROUPBY_COLUMN_KEY = { category: 'category', sprint: 'sprint', phase: 'phase', platform: 'platform', status: 'status' };
 var _lastTableTasks = null, _lastTableSprints = null, _lastTablePhases = null;
+// for the subtask tree preview's PIC <select> (renderSubtaskPreviewRow) —
+// loaded alongside the rest of this view's data in loadTableView rather
+// than read from the Resource view's own _picsCache, which may not have
+// resolved yet by the time this view first renders (both are kicked off
+// at page load with no ordering guarantee between them).
+var _tablePicsCache = [];
 // which tasks currently have their subtask preview row open — keyed by
 // task id, survives re-renders from filtering/sorting/grouping within the
 // session (only a fresh page load resets it), same "ephemeral session
@@ -4005,12 +4030,14 @@ function renderTableRow(t, visibleCols, canEdit, rowNum, isExpanded){
 // holding a compact subtask TREE (a vertical spine with an elbow
 // branching off to each subtask's name box — see .subtask-tree in
 // styles.css), so the parent/child relationship reads visually, not just
-// from indentation. Everything except status is still read-only — full
-// editing (rename/dates/PIC/delete/clone) stays in the task drawer one
-// click away — but status gets the same advance-only arrow Danh sách
-// nghiệp vụ's own Status column has, so bumping a subtask along doesn't
-// require opening the drawer just for that.
-function renderSubtaskPreviewRow(t, totalCols, canEdit){
+// from indentation. Name/Start/Due/PIC are editable inline here (same
+// autosave-on-change as the drawer's own subtask table, via
+// wireSubtaskFieldAutosave) — a quick fix from the list view doesn't have
+// to detour through the drawer anymore. Status still isn't a dropdown
+// here, same advance-only arrow Danh sách nghiệp vụ's own Status column
+// uses (see appendStatusOnlyCell) — that's a deliberate, separate
+// decision from "make subtasks editable here", not an oversight.
+function renderSubtaskPreviewRow(t, totalCols, canEdit, pics){
   var tr = document.createElement('tr');
   tr.className = 'data-table-subtask-row';
   var td = document.createElement('td');
@@ -4021,14 +4048,20 @@ function renderSubtaskPreviewRow(t, totalCols, canEdit){
   t.subtasks.forEach(function(st){
     var item = document.createElement('div');
     item.className = 'subtask-tree-item';
-    item.innerHTML =
-      '<span class="subtask-tree-connector"></span>' +
-      '<span class="subtask-tree-name-box" title="' + escapeHtml(st.name || '') + '">' + escapeHtml(st.name || '') + '</span>' +
-      '<span class="subtask-tree-status"><span class="subtask-status-pill ' + escapeHtml(st.status) + '">' +
-        escapeHtml(SUBTASK_STATUS_LABELS[st.status] || st.status) + '</span></span>' +
-      '<span class="subtask-tree-date">' + (st.start_date ? fmtDMY(st.start_date) : '—') + '</span>' +
-      '<span class="subtask-tree-date">' + (st.due_date ? fmtDMY(st.due_date) : '—') + '</span>' +
-      '<span class="subtask-tree-pic">' + escapeHtml(st.pic || '—') + '</span>';
+
+    var connector = document.createElement('span'); connector.className = 'subtask-tree-connector';
+    item.appendChild(connector);
+
+    var nameInput = document.createElement('input');
+    nameInput.type = 'text'; nameInput.className = 'subtask-tree-input subtask-tree-name-box'; nameInput.disabled = !canEdit;
+    nameInput.value = st.name || ''; nameInput.dataset.original = st.name || ''; nameInput.title = st.name || '';
+    item.appendChild(nameInput);
+
+    var statusWrap = document.createElement('span'); statusWrap.className = 'subtask-tree-status';
+    var pill = document.createElement('span'); pill.className = 'subtask-status-pill ' + st.status;
+    pill.textContent = SUBTASK_STATUS_LABELS[st.status] || st.status;
+    statusWrap.appendChild(pill);
+    item.appendChild(statusWrap);
     if (canEdit){
       var idx = SUBTASK_STATUS_ORDER.indexOf(st.status);
       var btn = document.createElement('button');
@@ -4042,8 +4075,40 @@ function renderSubtaskPreviewRow(t, totalCols, canEdit){
           .then(function(){ refreshAllViews(); })
           .catch(function(){ btn.disabled = false; });
       });
-      item.querySelector('.subtask-tree-status').appendChild(btn);
+      statusWrap.appendChild(btn);
     }
+
+    var startInput = document.createElement('input');
+    startInput.type = 'text'; startInput.className = 'subtask-tree-input subtask-tree-date'; startInput.disabled = !canEdit;
+    startInput.placeholder = 'dd/mm/yyyy';
+    startInput.value = st.start_date ? fmtDMY(st.start_date) : ''; startInput.dataset.original = st.start_date || '';
+    item.appendChild(startInput);
+
+    var dueInput = document.createElement('input');
+    dueInput.type = 'text'; dueInput.className = 'subtask-tree-input subtask-tree-date'; dueInput.disabled = !canEdit;
+    dueInput.placeholder = 'dd/mm/yyyy';
+    dueInput.value = st.due_date ? fmtDMY(st.due_date) : ''; dueInput.dataset.original = st.due_date || '';
+    item.appendChild(dueInput);
+
+    // no "+ Thêm PIC mới..." option here (unlike the drawer's own PIC
+    // select) — adding a brand new PIC name is still a drawer-only action,
+    // this is just picking among ones that already exist.
+    var picSel = document.createElement('select');
+    picSel.className = 'subtask-tree-input subtask-tree-pic'; picSel.disabled = !canEdit;
+    var emptyOpt = document.createElement('option'); emptyOpt.value = ''; emptyOpt.textContent = '— PIC —';
+    if (!st.pic) emptyOpt.selected = true;
+    picSel.appendChild(emptyOpt);
+    (pics || []).forEach(function(p){
+      var o = document.createElement('option'); o.value = p.name; o.textContent = p.name;
+      if (p.name === st.pic) o.selected = true;
+      picSel.appendChild(o);
+    });
+    item.appendChild(picSel);
+
+    if (canEdit){
+      wireSubtaskFieldAutosave(t.id, st, { nameInput: nameInput, startInput: startInput, dueInput: dueInput, picSel: picSel });
+    }
+
     tree.appendChild(item);
   });
   td.appendChild(tree);
@@ -4227,7 +4292,7 @@ function renderTableView(tasks){
   function appendTaskRow(t){
     var expanded = !!_tableExpandedTaskIds[t.id];
     tbody.appendChild(renderTableRow(t, visibleCols, canEdit, ++rowNum, expanded));
-    if (expanded && t.subtasks && t.subtasks.length) tbody.appendChild(renderSubtaskPreviewRow(t, totalCols, canEdit));
+    if (expanded && t.subtasks && t.subtasks.length) tbody.appendChild(renderSubtaskPreviewRow(t, totalCols, canEdit, _tablePicsCache));
   }
   if (tasks.length === 0){
     var emptyTr = document.createElement('tr');
@@ -4326,9 +4391,10 @@ renderMultiSelectDropdown(
 );
 
 function loadTableView(){
-  return Promise.all([loadTasks(), loadSprints(), loadPhasesList(), fetchJSON('/api/logs')])
+  return Promise.all([loadTasks(), loadSprints(), loadPhasesList(), fetchJSON('/api/logs'), loadPics()])
     .then(function(results){
       _lastTableTasks = results[0]; _lastTableSprints = results[1]; _lastTablePhases = results[2];
+      _tablePicsCache = results[4];
       // /api/logs is already sorted newest-first, so the first entry seen
       // per task_id is that task's most recent log — same reduction used
       // by the Sprint page and Timeline nhóm.
@@ -5949,11 +6015,296 @@ document.querySelector('.gantt').addEventListener('scroll', function(){
   });
 });
 
+// ---- Báo cáo Snapshot: GET /api/snapshots already carries everything a
+// night's snapshot recorded (see src/routes/snapshots.js) — total/
+// completed/rate, a full by_status and by_category breakdown, and
+// sprint_now/sprint_next — so this view is pure client-side read + diff,
+// no new backend endpoint needed. Exists so the user can sanity-check the
+// nightly cron is recording the right numbers without having to read the
+// raw API response by hand, and see day-over-day movement at a glance. ----
+function snapshotDeltaHtml(delta, suffix){
+  var text = (delta > 0 ? '+' : '') + delta + (suffix || '');
+  var cls = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+  return '<span class="snapshot-delta ' + cls + '">' + escapeHtml(text) + '</span>';
+}
+function renderSnapshotHistory(snapshots){
+  var wrap = document.getElementById('snapshotHistoryWrap');
+  if (!wrap) return;
+  if (snapshots.length === 0){
+    wrap.innerHTML = '<div class="view-sub">Chưa có snapshot nào — job chạy 0h giờ VN mỗi đêm sẽ tạo bản đầu tiên vào đêm tới.</div>';
+    return;
+  }
+  var sorted = snapshots.slice().sort(function(a, b){ return b.snapshot_date.localeCompare(a.snapshot_date); });
+  var rows = sorted.map(function(s){
+    return '<tr>' +
+      '<td>' + fmtDMY(s.snapshot_date) + '</td>' +
+      '<td>' + s.total_tasks + '</td>' +
+      '<td>' + s.completed_tasks + '</td>' +
+      '<td>' + s.completion_rate + '%</td>' +
+      '<td>' + (s.sprint_now ? escapeHtml(s.sprint_now.code) + ' (' + s.sprint_now.completed_tasks + '/' + s.sprint_now.total_tasks + ')' : '—') + '</td>' +
+      '<td>' + (s.sprint_next ? escapeHtml(s.sprint_next.code) + ' (' + s.sprint_next.completed_tasks + '/' + s.sprint_next.total_tasks + ')' : '—') + '</td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<div class="data-table-card"><div class="data-table-scroll" style="max-height:360px;"><table class="data-table">' +
+    '<thead><tr><th>Ngày</th><th>Tổng task</th><th>Hoàn thành</th><th>Tỉ lệ</th><th>Sprint này</th><th>Sprint sau</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table></div></div>';
+}
+function snapshotCompareRow(label, yVal, tVal, delta){
+  return '<tr><td>' + escapeHtml(label) + '</td><td>' + yVal + '</td><td>' + tVal + '</td><td>' + delta + '</td></tr>';
+}
+function snapshotCompareTable(title, leftLabel, rightLabel, bodyRowsHtml){
+  return '<div class="view-sub" style="margin-top:16px; margin-bottom:6px; font-weight:600;">' + escapeHtml(title) + '</div>' +
+    '<table class="data-table"><thead><tr><th>Chỉ số</th><th>' + escapeHtml(leftLabel) + '</th><th>' + escapeHtml(rightLabel) + '</th><th>Thay đổi</th></tr></thead>' +
+    '<tbody>' + bodyRowsHtml + '</tbody></table>';
+}
+function snapshotSprintCompareBlock(label, leftLabel, rightLabel, yS, tS){
+  if (!yS && !tS) return '';
+  var rows =
+    snapshotCompareRow('Mã sprint', yS ? yS.code : '—', tS ? tS.code : '—', '') +
+    snapshotCompareRow('Tổng task', yS ? yS.total_tasks : '—', tS ? tS.total_tasks : '—',
+      (yS && tS) ? snapshotDeltaHtml(tS.total_tasks - yS.total_tasks) : '') +
+    snapshotCompareRow('Hoàn thành', yS ? yS.completed_tasks : '—', tS ? tS.completed_tasks : '—',
+      (yS && tS) ? snapshotDeltaHtml(tS.completed_tasks - yS.completed_tasks) : '');
+  return snapshotCompareTable(label, leftLabel, rightLabel, rows);
+}
+// shared by the day-over-day and week-over-week comparisons below — both
+// are "diff these two snapshots", just picked differently. leftSnap is
+// the earlier point (Hôm qua / Tuần trước), rightSnap the later one (Hôm
+// nay / Tuần này).
+function renderSnapshotDiff(wrapId, leftSnap, rightSnap, leftLabel, rightLabel, emptyMessage){
+  var wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  if (!leftSnap || !rightSnap){
+    wrap.innerHTML = '<div class="view-sub">' + escapeHtml(emptyMessage) + '</div>';
+    return;
+  }
+
+  var html = '<div class="snapshot-compare-head">' +
+    '<div><div class="view-sub">' + escapeHtml(leftLabel) + '</div><strong>' + fmtDMY(leftSnap.snapshot_date) + '</strong></div>' +
+    '<div class="snapshot-compare-arrow">→</div>' +
+    '<div><div class="view-sub">' + escapeHtml(rightLabel) + '</div><strong>' + fmtDMY(rightSnap.snapshot_date) + '</strong></div>' +
+  '</div>';
+
+  html += snapshotCompareTable('Tổng quan', leftLabel, rightLabel,
+    snapshotCompareRow('Tổng task', leftSnap.total_tasks, rightSnap.total_tasks, snapshotDeltaHtml(rightSnap.total_tasks - leftSnap.total_tasks)) +
+    snapshotCompareRow('Hoàn thành', leftSnap.completed_tasks, rightSnap.completed_tasks, snapshotDeltaHtml(rightSnap.completed_tasks - leftSnap.completed_tasks)) +
+    snapshotCompareRow('Tỉ lệ hoàn thành', leftSnap.completion_rate + '%', rightSnap.completion_rate + '%',
+      snapshotDeltaHtml(Math.round((rightSnap.completion_rate - leftSnap.completion_rate) * 100) / 100, ' đpt'))
+  );
+
+  var statusRows = STATUS_ORDER.map(function(code, idx){
+    var y = leftSnap.by_status[code] || 0, t = rightSnap.by_status[code] || 0;
+    return snapshotCompareRow(statusLabel[idx].replace(/^\d+\.\s*/, ''), y, t, snapshotDeltaHtml(t - y));
+  }).join('');
+  html += snapshotCompareTable('Theo trạng thái', leftLabel, rightLabel, statusRows);
+
+  var categories = Array.from(new Set(
+    Object.keys(leftSnap.by_category || {}).concat(Object.keys(rightSnap.by_category || {}))
+  )).sort(function(a, b){ return a.localeCompare(b, 'vi'); });
+  var categoryRows = categories.map(function(cat){
+    var y = (leftSnap.by_category || {})[cat] || 0, t = (rightSnap.by_category || {})[cat] || 0;
+    return snapshotCompareRow(cat, y, t, snapshotDeltaHtml(t - y));
+  }).join('');
+  html += snapshotCompareTable('Theo category', leftLabel, rightLabel, categoryRows);
+
+  html += snapshotSprintCompareBlock('Sprint này', leftLabel, rightLabel, leftSnap.sprint_now, rightSnap.sprint_now);
+  html += snapshotSprintCompareBlock('Sprint sau', leftLabel, rightLabel, leftSnap.sprint_next, rightSnap.sprint_next);
+
+  wrap.innerHTML = html;
+}
+function renderSnapshotCompare(snapshots){
+  if (snapshots.length < 2){
+    var wrap = document.getElementById('snapshotCompareWrap');
+    if (wrap) wrap.innerHTML = '<div class="view-sub">Cần ít nhất 2 đêm snapshot mới so sánh được — hiện có ' + snapshots.length + '.</div>';
+    return;
+  }
+  var sorted = snapshots.slice().sort(function(a, b){ return b.snapshot_date.localeCompare(a.snapshot_date); });
+  renderSnapshotDiff('snapshotCompareWrap', sorted[1], sorted[0], 'Hôm qua', 'Hôm nay', '');
+}
+// Monday-start ISO week — the calendar date (YYYY-MM-DD, UTC-anchored so
+// no local-timezone off-by-one) of the Monday that starts the week
+// containing dateStr.
+function isoWeekStart(dateStr){
+  var d = new Date(dateStr + 'T00:00:00Z');
+  var day = d.getUTCDay(); // 0=Sun..6=Sat
+  var diff = day === 0 ? -6 : 1 - day; // days back to that week's Monday
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+// "Tuần này" = the latest snapshot whose date falls in the calendar week
+// containing the most recent snapshot overall. "Tuần trước" = the latest
+// snapshot in the week immediately before that. Point-in-time snapshots
+// compared exactly like Hôm qua/Hôm nay, just a week apart instead of a
+// day — this reads as "how much moved this week" (where things stand now
+// vs. where they stood at the end of last week), not a sum over 7 days.
+function renderSnapshotWeekCompare(snapshots){
+  if (snapshots.length === 0){
+    var wrap = document.getElementById('snapshotWeekCompareWrap');
+    if (wrap) wrap.innerHTML = '<div class="view-sub">Chưa có snapshot nào.</div>';
+    return;
+  }
+  var sorted = snapshots.slice().sort(function(a, b){ return b.snapshot_date.localeCompare(a.snapshot_date); });
+  var thisWeekStart = isoWeekStart(sorted[0].snapshot_date);
+  var lastWeekStartD = new Date(thisWeekStart + 'T00:00:00Z');
+  lastWeekStartD.setUTCDate(lastWeekStartD.getUTCDate() - 7);
+  var lastWeekStart = lastWeekStartD.toISOString().slice(0, 10);
+
+  var thisWeekSnap = sorted.find(function(s){ return isoWeekStart(s.snapshot_date) === thisWeekStart; });
+  var lastWeekSnap = sorted.find(function(s){ return isoWeekStart(s.snapshot_date) === lastWeekStart; });
+  renderSnapshotDiff('snapshotWeekCompareWrap', lastWeekSnap, thisWeekSnap, 'Tuần trước', 'Tuần này',
+    'Chưa đủ dữ liệu 2 tuần liên tiếp để so sánh.');
+}
+// ---- Lịch snapshot: a month calendar, one cell per day, ✓/✗ for whether
+// that night actually recorded a snapshot — the fastest way to answer
+// "is the nightly cron actually running" without reading raw dates off
+// the history table. Click a ✓ day to see everything that night recorded. ----
+var MONTH_NAMES_VI = ['Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6', 'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'];
+var _snapshotCalendarMonth = null; // 'YYYY-MM' currently displayed; null = not yet initialized
+var _snapshotCalendarSelectedDate = null;
+function todayIsoClient(){
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function shiftYearMonth(yearMonth, delta){
+  var parts = yearMonth.split('-');
+  var d = new Date(Number(parts[0]), Number(parts[1]) - 1 + delta, 1);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+// Monday-first grid: leading blanks so day 1 lands under the right
+// weekday column, one entry ('YYYY-MM-DD') per day of the month after that.
+function buildCalendarCells(yearMonth){
+  var parts = yearMonth.split('-');
+  var year = Number(parts[0]), month = Number(parts[1]);
+  var firstDow = new Date(year, month - 1, 1).getDay(); // 0=Sun..6=Sat
+  var leadingBlanks = firstDow === 0 ? 6 : firstDow - 1;
+  var totalDays = new Date(year, month, 0).getDate();
+  var cells = [];
+  for (var i = 0; i < leadingBlanks; i++) cells.push(null);
+  for (var d = 1; d <= totalDays; d++){
+    cells.push(year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0'));
+  }
+  return cells;
+}
+function renderSnapshotCalendar(snapshots){
+  var wrap = document.getElementById('snapshotCalendarWrap');
+  if (!wrap) return;
+  var byDate = {};
+  snapshots.forEach(function(s){ byDate[s.snapshot_date] = s; });
+  var sortedDates = Object.keys(byDate).sort();
+
+  if (!_snapshotCalendarMonth){
+    _snapshotCalendarMonth = (sortedDates.length ? sortedDates[sortedDates.length - 1] : todayIsoClient()).slice(0, 7);
+  }
+  var earliestDate = sortedDates.length ? sortedDates[0] : null;
+  var todayIso = todayIsoClient();
+  var parts = _snapshotCalendarMonth.split('-');
+  var monthLabel = MONTH_NAMES_VI[Number(parts[1]) - 1] + '/' + parts[0];
+
+  var html = '<div class="snapshot-calendar-head">' +
+    '<button type="button" class="chip" id="snapshotCalPrev">‹</button>' +
+    '<span class="snapshot-calendar-label">' + escapeHtml(monthLabel) + '</span>' +
+    '<button type="button" class="chip" id="snapshotCalNext">›</button>' +
+  '</div><div class="snapshot-calendar-grid">';
+  ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].forEach(function(d){ html += '<div class="snapshot-calendar-dow">' + d + '</div>'; });
+  buildCalendarCells(_snapshotCalendarMonth).forEach(function(dateStr){
+    if (!dateStr){ html += '<div class="snapshot-calendar-cell empty"></div>'; return; }
+    var dayNum = Number(dateStr.slice(8, 10));
+    var has = !!byDate[dateStr];
+    var untracked = (earliestDate && dateStr < earliestDate) || dateStr > todayIso;
+    var stateClass = has ? 'ok' : (untracked ? 'neutral' : 'missing');
+    var icon = has ? '✓' : (untracked ? '' : '✗');
+    var selected = dateStr === _snapshotCalendarSelectedDate ? ' selected' : '';
+    html += '<div class="snapshot-calendar-cell ' + stateClass + selected + '" data-date="' + dateStr + '">' +
+      '<span class="snapshot-calendar-daynum">' + dayNum + '</span>' +
+      (icon ? '<span class="snapshot-calendar-icon">' + icon + '</span>' : '') +
+    '</div>';
+  });
+  html += '</div>';
+  wrap.innerHTML = html;
+
+  document.getElementById('snapshotCalPrev').addEventListener('click', function(){
+    _snapshotCalendarMonth = shiftYearMonth(_snapshotCalendarMonth, -1);
+    renderSnapshotCalendar(snapshots);
+  });
+  document.getElementById('snapshotCalNext').addEventListener('click', function(){
+    _snapshotCalendarMonth = shiftYearMonth(_snapshotCalendarMonth, 1);
+    renderSnapshotCalendar(snapshots);
+  });
+  wrap.querySelectorAll('.snapshot-calendar-cell.ok').forEach(function(cell){
+    cell.addEventListener('click', function(){
+      _snapshotCalendarSelectedDate = cell.dataset.date;
+      renderSnapshotCalendar(snapshots);
+      renderSnapshotCalendarDetail(byDate[cell.dataset.date]);
+    });
+  });
+}
+function snapshotDetailTable(title, headLabel, rowsHtml){
+  return '<div class="view-sub" style="margin-top:14px; margin-bottom:6px; font-weight:600;">' + escapeHtml(title) + '</div>' +
+    '<table class="data-table"><thead><tr><th>' + escapeHtml(headLabel) + '</th><th>Giá trị</th></tr></thead>' +
+    '<tbody>' + rowsHtml + '</tbody></table>';
+}
+function snapshotDetailRow(label, val){
+  return '<tr><td>' + escapeHtml(label) + '</td><td>' + val + '</td></tr>';
+}
+function renderSnapshotCalendarDetail(snapshot){
+  var wrap = document.getElementById('snapshotCalendarDetailWrap');
+  if (!wrap) return;
+  if (!snapshot){ wrap.innerHTML = ''; return; }
+
+  var html = '<div class="view-sub" style="margin-top:18px; margin-bottom:6px; font-weight:600;">Chi tiết ngày ' + fmtDMY(snapshot.snapshot_date) + '</div>';
+  html += snapshotDetailTable('Tổng quan', 'Chỉ số',
+    snapshotDetailRow('Tổng task', snapshot.total_tasks) +
+    snapshotDetailRow('Hoàn thành', snapshot.completed_tasks) +
+    snapshotDetailRow('Tỉ lệ hoàn thành', snapshot.completion_rate + '%')
+  );
+
+  var statusRows = STATUS_ORDER.map(function(code, idx){
+    return snapshotDetailRow(statusLabel[idx].replace(/^\d+\.\s*/, ''), snapshot.by_status[code] || 0);
+  }).join('');
+  html += snapshotDetailTable('Theo trạng thái', 'Trạng thái', statusRows);
+
+  var cats = Object.keys(snapshot.by_category || {}).sort(function(a, b){ return a.localeCompare(b, 'vi'); });
+  var categoryRows = cats.map(function(cat){ return snapshotDetailRow(cat, snapshot.by_category[cat]); }).join('');
+  html += snapshotDetailTable('Theo category', 'Category', categoryRows);
+
+  [['Sprint này', snapshot.sprint_now], ['Sprint sau', snapshot.sprint_next]].forEach(function(pair){
+    var label = pair[0], s = pair[1];
+    if (!s) return;
+    html += snapshotDetailTable(label, 'Chỉ số',
+      snapshotDetailRow('Mã sprint', s.code) +
+      snapshotDetailRow('Tổng task', s.total_tasks) +
+      snapshotDetailRow('Hoàn thành', s.completed_tasks)
+    );
+  });
+
+  wrap.innerHTML = html;
+}
+function loadSnapshotView(){
+  return fetchJSON('/api/snapshots').then(function(snapshots){
+    renderSnapshotCalendar(snapshots);
+    renderSnapshotHistory(snapshots);
+    renderSnapshotCompare(snapshots);
+    renderSnapshotWeekCompare(snapshots);
+  }).catch(function(err){
+    console.error('Failed to load snapshots', err);
+    var historyWrap = document.getElementById('snapshotHistoryWrap');
+    var compareWrap = document.getElementById('snapshotCompareWrap');
+    var weekWrap = document.getElementById('snapshotWeekCompareWrap');
+    var calWrap = document.getElementById('snapshotCalendarWrap');
+    if (historyWrap) historyWrap.innerHTML = '<div class="view-sub">Không tải được dữ liệu snapshot.</div>';
+    if (compareWrap) compareWrap.innerHTML = '';
+    if (weekWrap) weekWrap.innerHTML = '';
+    if (calWrap) calWrap.innerHTML = '';
+  });
+}
+
 loadTimelineView();
 loadGroupedTimelineView();
 loadLogView();
 loadResourceView();
 loadTableView();
+loadSnapshotView();
 
 // keep the drawer's Category <select> in sync with whatever custom category
 // names have actually been used before, not just the 4 known defaults —
@@ -6234,3 +6585,400 @@ document.getElementById('deleteBtn').addEventListener('click', function(){
 // just cleared and re-demand the very reason the user already gave. Save
 // now posts whatever's in "Cập nhật tình trạng task" itself (see saveBtn's
 // handler below), so there's only ever one action to take.
+
+// ---- SOPs: "Quy trình vận hành" (Ops/Marketing/Ticket-handling playbook) ----
+// A separate, self-contained CRUD module — own drawer/overlay, own cache —
+// deliberately not wired into refreshAllViews()/the task drawer's plumbing
+// since sops.js is an independent resource with nothing in common with
+// tasks beyond the same table+drawer UX convention.
+var _sopsCache = null;
+var _sopsPromise = null;
+function loadSopsList(){
+  if (_sopsPromise) return _sopsPromise;
+  _sopsPromise = fetchJSON('/api/sops').then(function(rows){ _sopsCache = rows; return rows; });
+  return _sopsPromise;
+}
+function invalidateSopsCache(){ _sopsPromise = null; }
+
+var _sopsGroupBy = 'group_name';
+var _sopsSearch = '';
+var _sopsEditingId = null;
+
+function sopsGroupLabel(key, val){
+  if (val) return val;
+  return key === 'category' ? '(Không có category)' : '(Không có nhóm)';
+}
+
+function renderSopsView(sops){
+  var wrap = document.getElementById('sopsViewWrap');
+  if (!wrap) return;
+  var canEdit = hasRole('editor');
+  var words = _sopsSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  var filtered = sops.filter(function(s){
+    if (words.length === 0) return true;
+    var hay = (s.title + ' ' + (s.group_name || '') + ' ' + (s.category || '')).toLowerCase();
+    return words.every(function(w){ return hay.indexOf(w) !== -1; });
+  });
+
+  if (filtered.length === 0){
+    wrap.innerHTML = '<div class="view-sub" style="padding:20px;">' + (sops.length === 0 ? 'Chưa có quy trình nào.' : 'Không tìm thấy quy trình phù hợp.') + '</div>';
+    return;
+  }
+
+  var groups = {};
+  var groupOrder = [];
+  filtered.forEach(function(s){
+    var key = _sopsGroupBy === 'category' ? (s.category || '') : (s.group_name || '');
+    if (!(key in groups)){ groups[key] = []; groupOrder.push(key); }
+    groups[key].push(s);
+  });
+  groupOrder.sort(function(a, b){ return a.localeCompare(b, 'vi'); });
+
+  var html = '<table class="data-table"><thead><tr>' +
+    '<th>Nhóm</th><th>Category</th><th>Tên quy trình</th><th>PIC</th><th>Tần suất</th><th>Thời gian hoàn thành</th>' +
+    '</tr></thead><tbody>';
+  groupOrder.forEach(function(key){
+    var rows = groups[key];
+    html += '<tr class="data-table-group-row"><td colspan="6">' + escapeHtml(sopsGroupLabel(_sopsGroupBy, key)) + ' <span style="font-weight:400; color:var(--ink-muted);">(' + rows.length + ')</span></td></tr>';
+    rows.forEach(function(s){
+      html += '<tr class="data-table-row" data-sop-id="' + s.id + '">' +
+        '<td>' + escapeHtml(s.group_name || '') + '</td>' +
+        '<td>' + escapeHtml(s.category || '') + '</td>' +
+        '<td class="data-table-cell-wrap">' + escapeHtml(s.title || '') + '</td>' +
+        '<td>' + escapeHtml(s.pic || '') + '</td>' +
+        '<td>' + escapeHtml(s.timing || '') + '</td>' +
+        '<td>' + escapeHtml(s.duration || '') + '</td>' +
+        '</tr>';
+    });
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+
+  wrap.querySelectorAll('.data-table-row').forEach(function(tr){
+    tr.addEventListener('click', function(){
+      var id = Number(tr.dataset.sopId);
+      var sop = (_sopsCache || []).filter(function(s){ return s.id === id; })[0];
+      if (sop) openSopsDrawer('edit', sop);
+    });
+  });
+}
+
+function loadSopsView(){
+  return loadSopsList().then(renderSopsView).catch(function(err){
+    console.error('Failed to load sops', err);
+    var wrap = document.getElementById('sopsViewWrap');
+    if (wrap) wrap.innerHTML = '<div class="view-sub" style="padding:20px;">Không tải được dữ liệu.</div>';
+  });
+}
+
+document.querySelectorAll('#sopsGroupByChips .chip[data-sopsgroupby]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#sopsGroupByChips .chip[data-sopsgroupby]').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    _sopsGroupBy = btn.dataset.sopsgroupby;
+    if (_sopsCache) renderSopsView(_sopsCache);
+  });
+});
+document.getElementById('sopsSearchBox').addEventListener('input', function(){
+  _sopsSearch = this.value;
+  if (_sopsCache) renderSopsView(_sopsCache);
+});
+
+// keeps sf-group/sf-category in sync with values actually in use, same
+// "+ Thêm ... mới" convention as f-cat (see addCategoryOptionIfMissing above)
+function addSopsSelectOptionIfMissing(selectId, name){
+  if (!name) return;
+  var sel = document.getElementById(selectId);
+  var exists = Array.from(sel.options).some(function(o){ return o.value === name; });
+  if (exists) return;
+  var opt = document.createElement('option');
+  opt.value = name; opt.textContent = name;
+  sel.insertBefore(opt, sel.querySelector('option[value="__add_new__"]'));
+}
+
+function wireSopsAddNewSelect(selectId, newInputId, fallbackValue, onCommit){
+  var sel = document.getElementById(selectId);
+  var newInput = document.getElementById(newInputId);
+  function commit(){
+    var name = newInput.value.trim();
+    newInput.style.display = 'none';
+    if (!name){ sel.value = fallbackValue; if (onCommit) onCommit(sel.value); return; }
+    addSopsSelectOptionIfMissing(selectId, name);
+    sel.value = name;
+    if (onCommit) onCommit(sel.value);
+  }
+  sel.addEventListener('change', function(){
+    if (this.value === '__add_new__'){
+      newInput.style.display = 'block';
+      newInput.value = '';
+      newInput.focus();
+    } else {
+      newInput.style.display = 'none';
+      if (onCommit) onCommit(this.value);
+    }
+  });
+  newInput.addEventListener('keydown', function(e){
+    if (e.key === 'Enter'){ e.preventDefault(); commit(); }
+  });
+  newInput.addEventListener('blur', commit);
+}
+
+// Category options are scoped to whichever Nhóm is currently selected — the
+// real data naturally splits this way (Vận hành: Contract/Budget/Túi+/Ops;
+// Xử lý ticket: Ticket/Auto Invest/Túi+/VA VPBank/Lost_SIM/Product;
+// Marketing: none), and showing every group's categories in one flat list
+// invited picking a category that belongs to the wrong Nhóm.
+function sopsCategoriesForGroup(groupName){
+  var set = {};
+  (_sopsCache || []).forEach(function(s){
+    if (s.group_name === groupName && s.category) set[s.category] = true;
+  });
+  return Object.keys(set).sort(function(a, b){ return a.localeCompare(b, 'vi'); });
+}
+function refreshSopsCategoryOptions(groupName, selectedValue){
+  var sel = document.getElementById('sf-category');
+  sel.innerHTML = '';
+  var emptyOpt = document.createElement('option'); emptyOpt.value = ''; emptyOpt.textContent = '(không có)';
+  sel.appendChild(emptyOpt);
+  sopsCategoriesForGroup(groupName).forEach(function(c){
+    var opt = document.createElement('option'); opt.value = c; opt.textContent = c;
+    sel.appendChild(opt);
+  });
+  var addNewOpt = document.createElement('option'); addNewOpt.value = '__add_new__'; addNewOpt.textContent = '+ Thêm category mới...';
+  sel.appendChild(addNewOpt);
+  if (selectedValue) addSopsSelectOptionIfMissing('sf-category', selectedValue);
+  sel.value = selectedValue || '';
+  document.getElementById('sf-category-new').style.display = 'none';
+}
+
+wireSopsAddNewSelect('sf-group', 'sf-group-new', '', function(groupName){
+  refreshSopsCategoryOptions(groupName, '');
+});
+wireSopsAddNewSelect('sf-category', 'sf-category-new', '');
+
+loadSopsList().then(function(sops){
+  var groupNames = {};
+  sops.forEach(function(s){ if (s.group_name) groupNames[s.group_name] = true; });
+  Object.keys(groupNames).sort(function(a, b){ return a.localeCompare(b, 'vi'); }).forEach(function(g){ addSopsSelectOptionIfMissing('sf-group', g); });
+}).catch(function(err){ console.error('Failed to load sops for select options', err); });
+
+// "Các bước thực hiện" is a list of steps the user builds with +/- rows
+// (matching the subtask add/remove convention), not one big textarea —
+// but it's still stored in the DB as one plain TEXT blob (steps is the
+// column meant to feed a future AI/chatbot feature, see migrations/001_init.sql),
+// so these two functions are the only place that translates between "a list
+// of step strings" (what the UI edits) and "Bước 1: ...\nBước 2: ..." (what's
+// actually stored). Imported rows whose steps text doesn't follow that
+// "Bước N:" convention (the raw Excel Action column, arbitrary multi-line
+// text) just come back as a single step — still editable, just not
+// pre-split, since there's no reliable way to guess where the sheet author
+// intended step boundaries.
+function sopsStepsTextToList(text){
+  if (!text) return [''];
+  var parts = text.split(/\n(?=Bước\s*\d+\s*:)/);
+  var list = parts.map(function(p){ return p.replace(/^Bước\s*\d+\s*:\s*/, '').trim(); });
+  return list.length ? list : [''];
+}
+function sopsStepsListToText(list){
+  var nonEmpty = list.map(function(s){ return s.trim(); }).filter(Boolean);
+  return nonEmpty.map(function(s, i){ return 'Bước ' + (i + 1) + ': ' + s; }).join('\n');
+}
+function renderSopsStepsRow(text, canEdit){
+  var row = document.createElement('div');
+  row.className = 'sops-step-row';
+  var num = document.createElement('span');
+  num.className = 'sops-step-num';
+  row.appendChild(num);
+  var textarea = document.createElement('textarea');
+  textarea.className = 'sops-step-input';
+  textarea.rows = 2;
+  textarea.placeholder = 'Nội dung bước này...';
+  textarea.value = text || '';
+  textarea.disabled = !canEdit;
+  row.appendChild(textarea);
+  var removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'sops-step-remove';
+  removeBtn.title = 'Xoá bước này';
+  removeBtn.textContent = '✕';
+  removeBtn.disabled = !canEdit;
+  removeBtn.addEventListener('click', function(){
+    row.remove();
+    renumberSopsStepsRows();
+  });
+  row.appendChild(removeBtn);
+  return row;
+}
+function renumberSopsStepsRows(){
+  var rows = document.querySelectorAll('#sopsStepsList .sops-step-row');
+  rows.forEach(function(row, i){ row.querySelector('.sops-step-num').textContent = 'Bước ' + (i + 1); });
+  // always leave at least one row so there's somewhere to type a first step
+  if (rows.length === 0){
+    var canEdit = hasRole('editor');
+    document.getElementById('sopsStepsList').appendChild(renderSopsStepsRow('', canEdit));
+    renumberSopsStepsRows();
+  }
+}
+function renderSopsStepsList(text, canEdit){
+  var wrap = document.getElementById('sopsStepsList');
+  wrap.innerHTML = '';
+  sopsStepsTextToList(text).forEach(function(stepText){
+    wrap.appendChild(renderSopsStepsRow(stepText, canEdit));
+  });
+  renumberSopsStepsRows();
+}
+function readSopsStepsList(){
+  return Array.from(document.querySelectorAll('#sopsStepsList .sops-step-input')).map(function(ta){ return ta.value; });
+}
+document.getElementById('sopsAddStepBtn').addEventListener('click', function(){
+  document.getElementById('sopsStepsList').appendChild(renderSopsStepsRow('', true));
+  renumberSopsStepsRows();
+});
+
+var sopsOverlay = document.getElementById('sopsOverlay'), sopsDrawer = document.getElementById('sopsDrawer');
+var SOPS_FIELD_IDS = ['sf-group', 'sf-category', 'sf-title', 'sf-timing', 'sf-duration', 'sf-pic', 'sf-context', 'sf-next-action', 'sf-stakeholders', 'sf-reference'];
+
+function closeSopsDrawer(){
+  sopsOverlay.classList.remove('show'); sopsDrawer.classList.remove('show');
+  _sopsEditingId = null;
+}
+
+function openSopsDrawer(mode, sop){
+  var isEdit = mode === 'edit';
+  _sopsEditingId = isEdit ? sop.id : null;
+  var canEdit = hasRole('editor');
+
+  document.getElementById('sopsDrawerTitle').textContent = isEdit ? 'Sửa quy trình' : 'Quy trình mới';
+  document.getElementById('sopsDeleteBtn').style.display = isEdit && canEdit ? '' : 'none';
+  document.getElementById('sopsSaveBtn').style.display = canEdit ? '' : 'none';
+
+  document.getElementById('sf-group-new').style.display = 'none';
+
+  if (isEdit){
+    addSopsSelectOptionIfMissing('sf-group', sop.group_name);
+    document.getElementById('sf-group').value = sop.group_name || '';
+    refreshSopsCategoryOptions(sop.group_name || '', sop.category || '');
+    document.getElementById('sf-title').value = sop.title || '';
+    document.getElementById('sf-timing').value = sop.timing || '';
+    document.getElementById('sf-duration').value = sop.duration || '';
+    document.getElementById('sf-pic').value = sop.pic || '';
+    document.getElementById('sf-context').value = sop.context || '';
+    document.getElementById('sf-next-action').value = sop.next_action || '';
+    document.getElementById('sf-stakeholders').value = sop.stakeholders || '';
+    document.getElementById('sf-reference').value = sop.reference || '';
+    renderSopsStepsList(sop.steps || '', canEdit);
+  } else {
+    document.getElementById('sf-group').value = '';
+    refreshSopsCategoryOptions('', '');
+    ['sf-title', 'sf-timing', 'sf-duration', 'sf-pic', 'sf-context', 'sf-next-action', 'sf-stakeholders', 'sf-reference'].forEach(function(id){
+      document.getElementById(id).value = '';
+    });
+    renderSopsStepsList('', canEdit);
+  }
+
+  SOPS_FIELD_IDS.forEach(function(id){ document.getElementById(id).disabled = !canEdit; });
+  document.getElementById('sopsAddStepBtn').style.display = canEdit ? '' : 'none';
+
+  sopsOverlay.classList.add('show'); sopsDrawer.classList.add('show');
+}
+
+document.getElementById('openSopsDrawer').addEventListener('click', function(){ openSopsDrawer('create'); });
+document.getElementById('closeSopsDrawer').addEventListener('click', closeSopsDrawer);
+sopsOverlay.addEventListener('click', closeSopsDrawer);
+
+var _sopsActionBusy = false;
+
+function readSopsFieldValue(selectId, newInputId){
+  var sel = document.getElementById(selectId);
+  if (sel.value === '__add_new__') return document.getElementById(newInputId).value.trim();
+  return sel.value;
+}
+
+document.getElementById('sopsSaveBtn').addEventListener('click', function(){
+  if (_sopsActionBusy) return;
+  var groupName = readSopsFieldValue('sf-group', 'sf-group-new');
+  var category = readSopsFieldValue('sf-category', 'sf-category-new');
+  var title = document.getElementById('sf-title').value.trim();
+  if (!groupName || !title){
+    toastError('Cần nhập Nhóm và Tên quy trình.');
+    return;
+  }
+  var payload = {
+    group_name: groupName,
+    category: category,
+    title: title,
+    timing: document.getElementById('sf-timing').value.trim(),
+    duration: document.getElementById('sf-duration').value.trim(),
+    pic: document.getElementById('sf-pic').value.trim(),
+    context: document.getElementById('sf-context').value.trim(),
+    steps: sopsStepsListToText(readSopsStepsList()),
+    next_action: document.getElementById('sf-next-action').value.trim(),
+    stakeholders: document.getElementById('sf-stakeholders').value.trim(),
+    reference: document.getElementById('sf-reference').value.trim()
+  };
+
+  _sopsActionBusy = true;
+  var saveBtnEl = document.getElementById('sopsSaveBtn');
+  saveBtnEl.disabled = true;
+
+  var url = _sopsEditingId ? ('/api/sops/' + _sopsEditingId) : '/api/sops';
+  var method = _sopsEditingId ? 'PUT' : 'POST';
+  authFetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    .then(function(res){
+      if (!res.ok){
+        return res.json().catch(function(){ return {}; }).then(function(errBody){
+          throw new Error(errBody.error || ('HTTP ' + res.status));
+        });
+      }
+      return res.json();
+    })
+    .then(function(){
+      closeSopsDrawer();
+      invalidateSopsCache();
+      loadSopsView();
+      toastSuccess(_sopsEditingId ? 'Đã lưu thay đổi' : 'Đã tạo quy trình mới');
+    })
+    .catch(function(err){
+      console.error('Save sop failed', err);
+      toastError('Không lưu được: ' + err.message);
+    })
+    .finally(function(){
+      _sopsActionBusy = false;
+      saveBtnEl.disabled = false;
+    });
+});
+
+document.getElementById('sopsDeleteBtn').addEventListener('click', function(){
+  if (_sopsActionBusy) return;
+  if (!_sopsEditingId) return;
+  if (!confirm('Xoá quy trình này? Không thể hoàn tác.')) return;
+
+  _sopsActionBusy = true;
+  var deleteBtnEl = document.getElementById('sopsDeleteBtn');
+  deleteBtnEl.disabled = true;
+
+  authFetch('/api/sops/' + _sopsEditingId, { method: 'DELETE' })
+    .then(function(res){
+      if (!res.ok){
+        return res.json().catch(function(){ return {}; }).then(function(errBody){
+          throw new Error(errBody.error || ('HTTP ' + res.status));
+        });
+      }
+    })
+    .then(function(){
+      closeSopsDrawer();
+      invalidateSopsCache();
+      loadSopsView();
+      toastSuccess('Đã xoá quy trình');
+    })
+    .catch(function(err){
+      console.error('Delete sop failed', err);
+      toastError('Không xoá được: ' + err.message);
+    })
+    .finally(function(){
+      _sopsActionBusy = false;
+      deleteBtnEl.disabled = false;
+    });
+});
+
+loadSopsView();

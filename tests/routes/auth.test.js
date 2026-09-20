@@ -25,11 +25,31 @@ function fakeVerifier(identity) {
   };
 }
 
-test('POST /api/auth/google provisions a brand-new email as viewer', async () => {
-  const app = createApp(makeTestPool(), fakeVerifier({ email: 'new.person@gmail.com', name: 'New Person' }));
+test('POST /api/auth/google provisions a brand-new @mservice.com.vn email as viewer', async () => {
+  const app = createApp(makeTestPool(), fakeVerifier({ email: 'new.person@mservice.com.vn', name: 'New Person' }));
   const res = await request(app).post('/api/auth/google').send({ credential: 'valid-token' });
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, { ok: true, email: 'new.person@gmail.com', name: 'New Person', role: 'viewer' });
+  assert.deepEqual(res.body, { ok: true, email: 'new.person@mservice.com.vn', name: 'New Person', role: 'viewer' });
+});
+
+test('POST /api/auth/google rejects a brand-new sign-in outside @mservice.com.vn', async () => {
+  const app = createApp(makeTestPool(), fakeVerifier({ email: 'new.person@gmail.com', name: 'New Person' }));
+  const res = await request(app).post('/api/auth/google').send({ credential: 'valid-token' });
+  assert.equal(res.status, 403);
+
+  const listed = await request(app).get('/api/users');
+  assert.equal(listed.body.some((u) => u.email === 'new.person@gmail.com'), false); // never provisioned
+});
+
+// the domain gate only blocks a NEW sign-in — an email the migration
+// already seeded (dmquan8198@gmail.com, admin) keeps working even though
+// it isn't @mservice.com.vn, same as the "refreshes name" test above
+// already relies on for a non-mservice email.
+test('POST /api/auth/google still allows a known non-@mservice.com.vn email to log in', async () => {
+  const app = createApp(makeTestPool(), fakeVerifier({ email: 'dmquan8198@gmail.com', name: 'Quan Dang' }));
+  const res = await request(app).post('/api/auth/google').send({ credential: 'valid-token' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.role, 'admin');
 });
 
 test('POST /api/auth/google returns the seeded role for a known email, unchanged', async () => {

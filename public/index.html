@@ -65,9 +65,17 @@
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3.5h9l3 3v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M13 3.5V7h3"/><path d="M6 10.5h6M6 13.5h6"/></svg>
           <span class="nav-label">Log</span>
         </div>
+        <div class="nav-item" data-view="snapshot" title="Báo cáo Snapshot">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 16.5h14"/><rect x="4.5" y="10" width="3" height="6.5" rx="0.8"/><rect x="8.5" y="6.5" width="3" height="10" rx="0.8"/><rect x="12.5" y="3" width="3" height="13.5" rx="0.8"/></svg>
+          <span class="nav-label">Báo cáo Snapshot</span>
+        </div>
         <div class="nav-item" data-view="resource" title="Resource">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6.5" cy="6" r="2.3"/><path d="M2.5 16c0-2.4 1.8-4.3 4-4.3s4 1.9 4 4.3"/><rect x="12.5" y="9.5" width="5" height="7" rx="1"/><path d="M14 9.5V8a1.5 1.5 0 0 1 3 0v1.5"/></svg>
           <span class="nav-label">Resource</span>
+        </div>
+        <div class="nav-item" data-view="sops" title="Quy trình vận hành">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2.5h6l3 3v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1Z"/><path d="M12 2.5V6h3"/><path d="M7 10.2l1.4 1.4L11 9"/><path d="M7 14.5h6"/></svg>
+          <span class="nav-label">Quy trình vận hành</span>
         </div>
         <div class="nav-item" data-view="users" id="navUsers" style="display:none;" title="Người dùng">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7.5" cy="6.5" r="2.7"/><path d="M2.5 16.5c0-2.8 2.2-5 5-5s5 2.2 5 5"/><circle cx="14.5" cy="7" r="2.1"/><path d="M13 11.7c1.9.2 3.5 1.9 3.5 4.3"/></svg>
@@ -374,6 +382,57 @@
         <div id="picManageWrap"></div>
       </section>
 
+      <!-- SNAPSHOT REPORT -->
+      <section class="view" id="view-snapshot">
+        <div class="view-head">
+          <div>
+            <div class="view-title">Báo cáo Snapshot</div>
+            <div class="view-sub">Dữ liệu snapshot mỗi đêm 0h (giờ VN) — để kiểm tra snapshot đang chạy đúng, và so sánh tiến độ hôm nay với hôm qua</div>
+          </div>
+        </div>
+
+        <div class="view-title" style="font-size:16px; margin-bottom:2px;">Lịch snapshot</div>
+        <div class="view-sub" style="margin-bottom:12px;">✓ = đêm đó snapshot thành công, ✗ = không có (job không chạy hoặc lỗi) — bấm vào 1 ngày ✓ để xem chi tiết</div>
+        <div id="snapshotCalendarWrap"></div>
+        <div id="snapshotCalendarDetailWrap"></div>
+
+        <div class="view-title" style="font-size:16px; margin-bottom:2px; margin-top:30px;">So sánh Hôm nay vs Hôm qua</div>
+        <div class="view-sub" style="margin-bottom:12px;">Lấy 2 đêm snapshot gần nhất để so sánh</div>
+        <div id="snapshotCompareWrap"></div>
+
+        <div class="view-title" style="font-size:16px; margin-bottom:2px; margin-top:30px;">So sánh Tuần này vs Tuần trước</div>
+        <div class="view-sub" style="margin-bottom:12px;">Đêm snapshot gần nhất của tuần này so với tuần trước (tuần tính từ Thứ Hai)</div>
+        <div id="snapshotWeekCompareWrap"></div>
+
+        <div class="view-title" style="font-size:16px; margin-bottom:2px; margin-top:30px;">Lịch sử snapshot</div>
+        <div class="view-sub" style="margin-bottom:12px;">Toàn bộ các đêm đã snapshot — mới nhất ở trên</div>
+        <div id="snapshotHistoryWrap"></div>
+      </section>
+
+      <!-- SOPs: Quy trinh van hanh / Marketing / Xu ly ticket -->
+      <section class="view" id="view-sops">
+        <div class="view-head">
+          <div>
+            <div class="view-title">Quy trình vận hành</div>
+            <div class="view-sub">Vận hành, Marketing, Xử lý ticket - mọi quy trình xử lý ở một chỗ, bấm 1 dòng để xem/sửa chi tiết</div>
+          </div>
+          <div class="view-head-controls">
+            <button type="button" class="btn-new" id="openSopsDrawer">+ Quy trình mới</button>
+          </div>
+        </div>
+
+        <div class="groupby-chips" id="sopsGroupByChips">
+          <span class="chip-label">Nhóm theo</span>
+          <button type="button" class="chip active" data-sopsgroupby="group_name">Nhóm</button>
+          <button type="button" class="chip" data-sopsgroupby="category">Category</button>
+          <input type="search" class="table-search-box" id="sopsSearchBox" placeholder="Tìm theo tên quy trình...">
+        </div>
+
+        <div class="data-table-card">
+          <div class="data-table-scroll" id="sopsViewWrap"></div>
+        </div>
+      </section>
+
       <!-- USERS (admin only) -->
       <section class="view" id="view-users">
         <div class="view-head">
@@ -531,6 +590,85 @@
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h12"/><path d="M8 6V4.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V6"/><path d="M5.5 6l.6 10a1.5 1.5 0 0 0 1.5 1.4h4.8a1.5 1.5 0 0 0 1.5-1.4l.6-10"/><path d="M8.3 9v5"/><path d="M11.7 9v5"/></svg>
     </button>
     <button class="save-btn" id="saveBtn">Lưu nghiệp vụ</button>
+  </div>
+</div>
+
+<div class="overlay" id="sopsOverlay"></div>
+<div class="drawer" id="sopsDrawer">
+  <button class="drawer-close" id="closeSopsDrawer">&#10005;</button>
+  <div class="drawer-scroll" id="sopsDrawerScroll">
+  <h3 id="sopsDrawerTitle">Quy trình mới</h3>
+  <div class="drawer-sub">Vận hành / Marketing / Xử lý ticket — điền càng chi tiết càng dễ tra cứu và dùng làm dữ liệu AI về sau</div>
+
+  <div class="field-row">
+    <div class="field">
+      <label>Nhóm *</label>
+      <select id="sf-group">
+        <option value="__add_new__">+ Thêm nhóm mới...</option>
+      </select>
+      <input id="sf-group-new" type="text" placeholder="Nhập tên nhóm mới, Enter để xác nhận" style="display:none; margin-top:6px;">
+    </div>
+    <div class="field">
+      <label>Category</label>
+      <select id="sf-category">
+        <option value="">(không có)</option>
+        <option value="__add_new__">+ Thêm category mới...</option>
+      </select>
+      <input id="sf-category-new" type="text" placeholder="Nhập category mới, Enter để xác nhận" style="display:none; margin-top:6px;">
+    </div>
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label>Tên quy trình *</label>
+      <input id="sf-title" type="text" placeholder="Vd: Trình ký hợp đồng">
+    </div>
+    <div class="field">
+      <label>PIC</label>
+      <input id="sf-pic" type="text" placeholder="Vd: anh.nguyen80">
+    </div>
+  </div>
+  <div class="field-row">
+    <div class="field">
+      <label>Tần suất</label>
+      <input id="sf-timing" type="text" placeholder="Vd: Hàng quý, Khi có phát sinh...">
+    </div>
+    <div class="field">
+      <label>Thời gian hoàn thành</label>
+      <input id="sf-duration" type="text" placeholder="Vd: Khoảng 1-2 ngày làm việc">
+    </div>
+  </div>
+
+  <div class="field" style="margin-top:12px;">
+    <label>Bối cảnh / Mục tiêu</label>
+    <textarea id="sf-context" placeholder="Bối cảnh, root cause, mục tiêu của quy trình này..." rows="3"></textarea>
+  </div>
+  <div class="field" style="margin-top:12px;">
+    <div class="field-label-row">
+      <label>Các bước thực hiện</label>
+      <button type="button" class="multiselect-action-btn" id="sopsAddStepBtn">+ Thêm bước</button>
+    </div>
+    <div id="sopsStepsList"></div>
+  </div>
+  <div class="field" style="margin-top:12px;">
+    <label>Đề xuất cải tiến / Next action</label>
+    <textarea id="sf-next-action" placeholder="Hướng cải tiến, next action đề xuất..." rows="3"></textarea>
+  </div>
+  <div class="field" style="margin-top:12px;">
+    <label>Stakeholders</label>
+    <textarea id="sf-stakeholders" placeholder="Các bên liên quan..." rows="2"></textarea>
+  </div>
+  <div class="field" style="margin-top:12px;">
+    <label>Tài liệu tham khảo</label>
+    <textarea id="sf-reference" placeholder="Link mail, file, quy trình liên quan..." rows="2"></textarea>
+  </div>
+  </div>
+
+  <div class="drawer-actions">
+    <button class="icon-btn-delete" id="sopsDeleteBtn" style="display:none;" title="Xoá quy trình" aria-label="Xoá quy trình">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h12"/><path d="M8 6V4.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V6"/><path d="M5.5 6l.6 10a1.5 1.5 0 0 0 1.5 1.4h4.8a1.5 1.5 0 0 0 1.5-1.4l.6-10"/><path d="M8.3 9v5"/><path d="M11.7 9v5"/></svg>
+    </button>
+    <button class="save-btn" id="sopsSaveBtn">Lưu quy trình</button>
   </div>
 </div>
 

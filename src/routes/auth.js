@@ -29,6 +29,16 @@ function authRouter(pool, verifyGoogleToken) {
       return res.status(401).json({ error: 'Xác thực Google thất bại' });
     }
 
+    // domain gate only applies to a brand-new sign-in (an email never seen
+    // before) — an email already in the users table keeps working
+    // regardless of its domain, so turning this rule on can't silently
+    // lock out an account already in active use (e.g. the admin's own
+    // @gmail.com row from before this rule existed).
+    const { rows: existingRows } = await pool.query('SELECT 1 FROM users WHERE email=$1', [identity.email]);
+    if (existingRows.length === 0 && !/@mservice\.com\.vn$/i.test(identity.email)) {
+      return res.status(403).json({ error: 'Chỉ email @mservice.com.vn mới được đăng ký tài khoản mới.' });
+    }
+
     // new email -> auto-provisioned as viewer (deny-by-default for anyone
     // an admin hasn't already recognized); existing email -> role
     // untouched, only the display name refreshes to whatever Google has

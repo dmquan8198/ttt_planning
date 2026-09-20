@@ -1040,6 +1040,16 @@ input.subtask-input:disabled, select.subtask-input:disabled{opacity:0.6; cursor:
   cursor:pointer; font-size:13px; line-height:1; padding:0;
 }
 .subtask-delete-btn:hover{border-color:var(--red-ink); color:var(--red-ink); background:var(--red-bg);}
+
+.sops-step-row{display:flex; align-items:flex-start; gap:8px; margin-bottom:8px;}
+.sops-step-num{flex:none; width:54px; padding-top:9px; font-size:12px; color:var(--ink-muted);}
+.sops-step-row textarea.sops-step-input{flex:1; min-height:46px;}
+.sops-step-remove{
+  flex:none; width:22px; height:22px; margin-top:4px; display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--ink-muted);
+  cursor:pointer; font-size:13px; line-height:1; padding:0;
+}
+.sops-step-remove:hover{border-color:var(--red-ink); color:var(--red-ink); background:var(--red-bg);}
 .subtask-add-row{display:flex; align-items:center; gap:8px; margin-top:8px;}
 .subtask-add-row input{
   flex:1; font-family:var(--sans); font-size:12.5px; padding:7px 10px; border-radius:6px;
@@ -1106,6 +1116,40 @@ input.subtask-input:disabled, select.subtask-input:disabled{opacity:0.6; cursor:
   border:1px solid var(--accent-ink); border-radius:5px; background:var(--surface); color:var(--ink);
 }
 .pic-manage-empty{padding:10px 4px; font-size:12.5px; color:var(--ink-muted);}
+
+/* ---- Báo cáo Snapshot: "Hôm qua" and "Hôm nay" side by side with a
+   plain arrow between (which snapshot dates are actually being compared,
+   at a glance) and a green/red/grey delta badge per metric row below. ---- */
+.snapshot-compare-head{display:flex; align-items:center; gap:18px; font-size:14px; margin-bottom:4px;}
+.snapshot-compare-head strong{font-family:var(--serif); font-size:16px;}
+.snapshot-compare-arrow{color:var(--ink-faint); font-size:16px;}
+.snapshot-delta{font-weight:700; font-family:var(--mono); font-size:12px;}
+.snapshot-delta.up{color:var(--green-ink);}
+.snapshot-delta.down{color:var(--red-ink);}
+.snapshot-delta.flat{color:var(--ink-muted);}
+/* month calendar, one cell per day — green ✓ (a snapshot exists),
+   red ✗ (that night should have one but doesn't — a real gap to
+   investigate), or a plain faint day number for anything outside the
+   tracked range (before the very first snapshot, or still in the
+   future). Only ✓ cells are clickable. */
+.snapshot-calendar-head{display:flex; align-items:center; gap:12px; margin-bottom:10px;}
+.snapshot-calendar-label{font-family:var(--serif); font-size:15px; min-width:110px; text-align:center;}
+.snapshot-calendar-grid{display:grid; grid-template-columns:repeat(7, 1fr); gap:5px; max-width:480px;}
+.snapshot-calendar-dow{font-size:10px; font-weight:600; color:var(--ink-muted); text-align:center; padding-bottom:2px; text-transform:uppercase;}
+.snapshot-calendar-cell{
+  border:1px solid var(--border); border-radius:6px; padding:5px 2px; min-height:44px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:11px; color:var(--ink);
+}
+.snapshot-calendar-cell.empty{border-color:transparent;}
+.snapshot-calendar-cell.ok{cursor:pointer; border-color:var(--green-ink); background:var(--green-bg);}
+.snapshot-calendar-cell.ok:hover{opacity:0.8;}
+.snapshot-calendar-cell.ok.selected{outline:2px solid var(--accent-ink); outline-offset:-1px;}
+.snapshot-calendar-cell.missing{background:var(--red-bg); border-color:var(--red-ink);}
+.snapshot-calendar-cell.neutral{color:var(--ink-faint);}
+.snapshot-calendar-daynum{font-weight:600;}
+.snapshot-calendar-icon{font-size:13px; font-weight:700; line-height:1;}
+.snapshot-calendar-cell.ok .snapshot-calendar-icon{color:var(--green-ink);}
+.snapshot-calendar-cell.missing .snapshot-calendar-icon{color:var(--red-ink);}
 
 /* ---- Bảng danh sách: every task, every column, user picks which columns
    show (persisted in localStorage — see _tableVisibleColumns) — the
@@ -1183,7 +1227,7 @@ input.subtask-input:disabled, select.subtask-input:disabled{opacity:0.6; cursor:
    width the task's own Nghiệp vụ column renders at elsewhere in this
    table (.data-table-cell-wrap's min-width:220px). */
 .subtask-tree-item{
-  display:grid; grid-template-columns:22px minmax(160px, 260px) 90px 66px 66px 84px; align-items:center;
+  display:grid; grid-template-columns:22px minmax(160px, 260px) 90px 92px 92px 84px; align-items:center;
   column-gap:10px; min-height:28px; font-size:11.5px; color:var(--ink);
 }
 .subtask-tree-connector{position:relative; align-self:stretch;}
@@ -1194,10 +1238,20 @@ input.subtask-input:disabled, select.subtask-input:disabled{opacity:0.6; cursor:
 .subtask-tree-connector::after{
   content:''; position:absolute; left:9px; top:50%; width:9px; height:2px; background:var(--ink-faint);
 }
-.subtask-tree-name-box{
-  display:inline-block; max-width:100%; padding:3px 4px; color:var(--ink);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+/* Name/Start/Due/PIC are editable right in the tree (see
+   wireSubtaskFieldAutosave) — same flush look as .subtask-input in the
+   drawer's own subtask table: no visible box until hovered/focused, own
+   padding cancelled by an equal negative margin so it doesn't add a
+   second inset on top of the tree item's own layout. */
+.subtask-tree-input{
+  font-family:var(--sans); font-size:11.5px; color:var(--ink); background:transparent;
+  border:1px solid transparent; border-radius:4px; padding:3px 4px; margin:-3px -4px; width:100%; box-sizing:border-box;
 }
+.subtask-tree-input:hover{border-color:var(--border);}
+.subtask-tree-input:focus{border-color:var(--accent-ink); background:var(--canvas); outline:none;}
+.subtask-tree-input:disabled{opacity:0.6; cursor:not-allowed;}
+select.subtask-tree-input{-webkit-appearance:none; -moz-appearance:none; appearance:none; background-image:none;}
+.subtask-tree-name-box{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .subtask-tree-item .subtask-tree-date, .subtask-tree-item .subtask-tree-pic{color:var(--ink-muted); white-space:nowrap;}
 .subtask-tree-status{display:flex; align-items:center; gap:4px;}
 .subtask-tree-status .status-advance-btn{width:18px; height:18px; font-size:10px;}

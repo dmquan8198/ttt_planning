@@ -258,3 +258,37 @@ CREATE TABLE IF NOT EXISTS daily_snapshots (
   sprint_next JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Quy trình vận hành (Operations/Ticket/Marketing SOP playbook), imported
+-- from "[TTT] Operation.xlsx" (3 sheets: Vận hành, Xử lý ticket, Marketing
+-- Overall) and kept editable here going forward. Deliberately flat/plain
+-- text columns, not a normalized taxonomy with its own lookup tables —
+-- group_name/category/pic are freeform (same "+ Thêm ... mới" convention
+-- as tasks.category), and context/steps/stakeholders/reference are long
+-- free text (the source sheet's cells are multi-paragraph, often with
+-- embedded step numbering and links). steps is the column meant to matter
+-- most for a future "AI suggests the right process" or chatbot feature —
+-- kept as plain readable text rather than some structured step format, so
+-- it can be handed to an LLM as-is with no lossy conversion needed.
+CREATE TABLE IF NOT EXISTS sops (
+  id SERIAL PRIMARY KEY,
+  group_name TEXT NOT NULL,
+  category TEXT,
+  title TEXT NOT NULL,
+  context TEXT,
+  steps TEXT,
+  next_action TEXT,
+  timing TEXT,
+  stakeholders TEXT,
+  reference TEXT,
+  pic TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sops_group ON sops(group_name);
+
+-- timing started out as one free-text field mixing "how often" and "how
+-- long it takes" (that's literally how the source Excel's Timing column
+-- was written — e.g. "Quarterly" + "5-7 business days" in the same cell).
+-- Split so each has its own column; timing keeps the frequency meaning.
+ALTER TABLE sops ADD COLUMN IF NOT EXISTS duration TEXT;
