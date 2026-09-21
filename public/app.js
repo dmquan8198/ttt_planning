@@ -2827,6 +2827,10 @@ function dayAfter(d){ return new Date(d.getTime() + ONE_DAY_MS); }
 
 // ---- group-by chips: which dimension clusters the Gantt's rows ----
 var _timelineGroupBy = 'sprint';
+// which order tasks appear in WITHIN each group — 'manual' preserves
+// stt/id order (and is the only mode drag-to-reorder-within-group edits);
+// 'startdate' sorts by each task's own effective start date, ascending.
+var _timelineSortBy = 'manual';
 // which task rows currently show their subtask sub-rows expanded — persists
 // across re-renders within the session, same convention as
 // _tableExpandedTaskIds in Bảng danh sách.
@@ -2882,6 +2886,16 @@ document.querySelectorAll('#groupByChips .chip').forEach(function(btn){
     document.querySelectorAll('#groupByChips .chip').forEach(function(b){ b.classList.remove('active'); });
     btn.classList.add('active');
     _timelineGroupBy = btn.dataset.groupby;
+    if (_lastTimelineTasks && _lastTimelineSprints && _lastTimelinePhases){
+      renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+    }
+  });
+});
+document.querySelectorAll('#timelineSortChips .chip').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('#timelineSortChips .chip').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    _timelineSortBy = btn.dataset.sortby;
     if (_lastTimelineTasks && _lastTimelineSprints && _lastTimelinePhases){
       renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
     }
@@ -3191,22 +3205,37 @@ function updateTaskGroup(task, groupKey, sprints){
   });
 }
 
-// swaps two tasks' stt (manual sort position) — a simple, low-risk way to
-// let a drag-to-reorder-within-group swap two rows' positions without
-// having to renumber every other task's stt to make room for an insert.
-// Falls back to appending past the current max stt for whichever side (or
-// both) doesn't have one yet, so tasks created without an stt can still be
-// dragged into a meaningful order.
-function reorderTimelineTask(draggedTask, targetTask){
+// moves draggedTask OUT of its current slot and INSERTS it at targetTask's
+// slot — every task between the two positions shifts down/up by one, same
+// as a normal drag-reorder list, rather than the two dropped-on tasks
+// simply swapping places with each other and everyone else staying put.
+// stt values are reassigned by reusing the SAME set of slots this group's
+// tasks already occupy (sorted ascending) and remapping them onto the new
+// order — that way only tasks actually in this group ever get a PUT, and
+// every other group's stt values are left completely untouched. A task
+// with no stt yet is given a fresh one past the current global max before
+// slots are built, so it still participates in the reorder meaningfully.
+function reorderTimelineTask(draggedTask, targetTask, groupTasks){
   if (draggedTask.id === targetTask.id) return;
-  var maxStt = _lastTimelineTasks.reduce(function(max, t){ return Math.max(max, t.stt || 0); }, 0);
-  var draggedStt = draggedTask.stt != null ? draggedTask.stt : ++maxStt;
-  var targetStt = targetTask.stt != null ? targetTask.stt : ++maxStt;
-  if (draggedStt === targetStt) return;
+  var ordered = groupTasks.slice();
+  var fromIdx = ordered.findIndex(function(t){ return t.id === draggedTask.id; });
+  if (fromIdx === -1) return;
+  var moved = ordered.splice(fromIdx, 1)[0];
+  var toIdx = ordered.findIndex(function(t){ return t.id === targetTask.id; });
+  if (toIdx === -1) return;
+  ordered.splice(toIdx, 0, moved);
+
+  var nextFreeStt = _lastTimelineTasks.reduce(function(max, t){ return Math.max(max, t.stt || 0); }, 0);
+  var slots = groupTasks
+    .map(function(t){ return t.stt != null ? t.stt : ++nextFreeStt; })
+    .sort(function(a, b){ return a - b; });
 
   var updates = [];
-  if (draggedTask.stt !== targetStt) updates.push({ task: draggedTask, newStt: targetStt });
-  if (targetTask.stt !== draggedStt) updates.push({ task: targetTask, newStt: draggedStt });
+  ordered.forEach(function(t, i){
+    var newStt = slots[i];
+    if (t.stt !== newStt) updates.push({ task: t, newStt: newStt });
+  });
+  if (updates.length === 0) return;
 
   Promise.all(updates.map(function(u){
     var body = {
@@ -3550,6 +3579,22 @@ function renderGantt(tasks, sprints, phases){
   groups.forEach(function(g){
     var groupTasks = tasks.filter(function(t){ return taskGroupKey(t) === g.key; });
     if (groupTasks.length === 0) return;
+    // 'manual' keeps whatever order the API already returned (stt/id) —
+    // untouched, so drag-to-reorder (which edits stt directly) round-trips
+    // correctly. 'startdate' re-sorts by each task's own effective start
+    // date, then by name A-Z for tasks sharing the same start date; tasks
+    // with no effective range (shouldn't normally happen here, since
+    // they're skipped from rendering below anyway) sort last.
+    if (_timelineSortBy === 'startdate'){
+      groupTasks = groupTasks.slice().sort(function(a, b){
+        var ra = effectiveRange(a), rb = effectiveRange(b);
+        if (!ra && !rb) return (a.name || '').localeCompare(b.name || '', 'vi');
+        if (!ra) return 1;
+        if (!rb) return -1;
+        if (ra.start - rb.start !== 0) return ra.start - rb.start;
+        return (a.name || '').localeCompare(b.name || '', 'vi');
+      });
+    }
 
     var group = document.createElement('div'); group.className = 'cat-group';
     var divider = document.createElement('div'); divider.className = 'cat-divider';
@@ -3647,7 +3692,13 @@ function renderGantt(tasks, sprints, phases){
       // doesn't also fire. Dropping on a row from a DIFFERENT group is left
       // to bubble up to that handler instead, since there's no "position"
       // for it to land on once its grouping field itself is changing.
+      // same-group reordering only makes sense in manual sort mode — in
+      // "Ngày bắt đầu" mode the row order is computed from dates, so a
+      // manual drop here has nothing meaningful to do (left unhandled, it
+      // just bubbles to the group-level handler above, which itself no-ops
+      // since the task's group isn't actually changing).
       row.addEventListener('dragover', function(e){
+        if (_timelineSortBy !== 'manual') return;
         var draggedId = _draggingTimelineTaskId;
         var draggedTask = draggedId != null ? _lastTimelineTasks.filter(function(x){ return x.id === draggedId; })[0] : null;
         if (draggedTask && draggedTask.id !== t.id && taskGroupKey(draggedTask) === g.key){
@@ -3660,13 +3711,14 @@ function renderGantt(tasks, sprints, phases){
         row.classList.remove('row-drop-target');
       });
       row.addEventListener('drop', function(e){
+        if (_timelineSortBy !== 'manual') return;
         var draggedId = _draggingTimelineTaskId;
         var draggedTask = draggedId != null ? _lastTimelineTasks.filter(function(x){ return x.id === draggedId; })[0] : null;
         row.classList.remove('row-drop-target');
         if (!draggedTask || draggedTask.id === t.id || taskGroupKey(draggedTask) !== g.key) return;
         e.preventDefault();
         e.stopPropagation();
-        reorderTimelineTask(draggedTask, t);
+        reorderTimelineTask(draggedTask, t, groupTasks);
       });
 
       var track = document.createElement('div'); track.className = 'task-track';
