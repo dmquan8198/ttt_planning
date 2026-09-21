@@ -524,7 +524,13 @@ body{
   padding:0 12px; font-size:11px; color:var(--canvas); font-family:var(--mono);
   position:sticky; left:0; z-index:4; background:var(--ink);
 }
-.gantt-day-ruler{flex:1; position:relative; height:100%;}
+/* flex:none, not flex:1 — its width is set explicitly from JS (matching
+   .gantt-track-overlay's width exactly, scrollbar deduction included) so
+   the header's date ticks land on the same pixels as the body's gridlines
+   and bars below them. flex:1 would instead size it off .gantt-header's
+   own width, which has no scrollbar of its own to correct for, drifting
+   the ticks out of sync with the body by however wide that scrollbar is. */
+.gantt-day-ruler{flex:none; position:relative; height:100%;}
 .day-tick-label{position:absolute; top:50%; left:0; transform:translate(3px, -50%); font-family:var(--mono); font-size:9px; color:var(--canvas); white-space:nowrap;}
 .day-tick-label.align-end{transform:translate(calc(-100% - 3px), -50%);}
 .gantt-body{position:relative; max-height:calc(100vh - 340px); overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; scrollbar-color:var(--ink-faint) transparent;}

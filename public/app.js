@@ -2840,6 +2840,12 @@ var GANTT_LABEL_MIN = 120, GANTT_LABEL_MAX = 420;
 // drag handler (wired once, outside renderGantt) can recompute the
 // header/body's total scrollable width live without a full re-render.
 var _lastGanttTrackPxWidth = 0;
+// same idea, for the overlay/ruler's own scrollbar-corrected width formula
+// (see renderGantt's bodyScrollbarWidth) — without this, live-dragging the
+// column handle would move the overlay/ruler's LEFT but leave their WIDTH
+// stuck at the pre-drag label width, drifting the grid out of sync with
+// the header/bars as the column gets wider or narrower.
+var _lastGanttBodyScrollbarWidth = 0;
 
 function groupsForMode(tasks, sprints, phases){
   if (_timelineGroupBy === 'sprint'){
@@ -2909,13 +2915,27 @@ document.getElementById('ganttExpandAllBtn').addEventListener('click', function(
       var newWidth = Math.max(GANTT_LABEL_MIN, Math.min(GANTT_LABEL_MAX, startWidth + (ev.clientX - startX)));
       _ganttLabelWidth = newWidth;
       document.querySelectorAll('.task-label, .gantt-corner').forEach(function(el){ el.style.width = newWidth + 'px'; });
-      var overlay = document.querySelector('.gantt-track-overlay');
-      if (overlay) overlay.style.left = newWidth + 'px';
       var headerEl = document.querySelector('.gantt-header');
       var bodyEl = document.getElementById('ganttBody');
       var totalW = 'max(100%, ' + (newWidth + _lastGanttTrackPxWidth) + 'px)';
       if (headerEl) headerEl.style.width = totalW;
       if (bodyEl) bodyEl.style.width = totalW;
+      // overlay/ruler's WIDTH (not just their left offset) depends on
+      // newWidth too — see renderGantt's identical formula. Skipping this
+      // is exactly what left the grid drifting out of sync while dragging.
+      var overlayWidthCss = 'calc(100% - ' + (newWidth + _lastGanttBodyScrollbarWidth) + 'px)';
+      var overlayMinWidth = (_lastGanttTrackPxWidth - _lastGanttBodyScrollbarWidth) + 'px';
+      var overlay = document.querySelector('.gantt-track-overlay');
+      if (overlay){
+        overlay.style.left = newWidth + 'px';
+        overlay.style.width = overlayWidthCss;
+        overlay.style.minWidth = overlayMinWidth;
+      }
+      var rulerEl = document.getElementById('dayRuler');
+      if (rulerEl){
+        rulerEl.style.width = overlayWidthCss;
+        rulerEl.style.minWidth = overlayMinWidth;
+      }
     }
     function onUp(){
       document.removeEventListener('mousemove', onMove);
@@ -3738,6 +3758,7 @@ function renderGantt(tasks, sprints, phases){
   // just falls back to no correction — harmless, since nothing is visible
   // to misalign in that case anyway.
   var bodyScrollbarWidth = body.offsetWidth - body.clientWidth;
+  _lastGanttBodyScrollbarWidth = bodyScrollbarWidth;
   var overlayEl = document.createElement('div');
   overlayEl.className = 'gantt-track-overlay';
   overlayEl.style.left = _ganttLabelWidth + 'px';
@@ -3748,6 +3769,13 @@ function renderGantt(tasks, sprints, phases){
   // .task-track really is, the same misalignment the calc() fixed for wide
   // windows.
   overlayEl.style.minWidth = (trackPxWidth - bodyScrollbarWidth) + 'px';
+  // the header's day ruler needs this exact same width — its own parent
+  // (.gantt-header) has no scrollbar of its own to correct for, so left at
+  // flex:1 its date ticks render scrollbarWidth px too far right of where
+  // the gridlines/bars they're labeling actually sit in the body below.
+  var rulerEl = document.getElementById('dayRuler');
+  rulerEl.style.width = 'calc(100% - ' + (_ganttLabelWidth + bodyScrollbarWidth) + 'px)';
+  rulerEl.style.minWidth = (trackPxWidth - bodyScrollbarWidth) + 'px';
   // axisStart/axisEnd are already clean UTC-midnight instants (see
   // renderDayRuler) — no setHours() reset here either, for the same reason.
   var gd = new Date(axisStart);
