@@ -16,7 +16,8 @@ const snapshotsRouter = require('./routes/snapshots');
 const sopsRouter = require('./routes/sops');
 const chatbotRouter = require('./routes/chatbot');
 const { verifyGoogleToken } = require('./lib/googleAuth');
-const { generateText } = require('./lib/geminiClient');
+const { generateText, supportsTools, chatWithTools } = require('./lib/llmClient');
+const { basicAuth } = require('./lib/basicAuth');
 
 function decodeActorHeader(raw) {
   if (!raw) return null;
@@ -27,9 +28,10 @@ function decodeActorHeader(raw) {
   }
 }
 
-function createApp(pool, googleTokenVerifier, geminiGenerateFn) {
+function createApp(pool, googleTokenVerifier, llmGenerateFn, llmChatWithToolsFn) {
   const app = express();
   app.disable('x-powered-by');
+  app.use(basicAuth);
   app.use(express.json());
 
   // whoever is signed in on the client sends two headers on every mutating
@@ -71,15 +73,22 @@ function createApp(pool, googleTokenVerifier, geminiGenerateFn) {
 
   app.use('/api/sops', sopsRouter(pool));
 
-  app.use('/api/chatbot', chatbotRouter(pool, geminiGenerateFn || generateText));
+  // undefined (arg omitted, the normal case outside tests) falls back to
+  // whatever the live LLM_PROVIDER supports right now; tests instead pass
+  // a fake function (or null) directly to pin the path they're exercising,
+  // same DI reasoning as llmGenerateFn.
+  const chatToolsFn = llmChatWithToolsFn !== undefined
+    ? llmChatWithToolsFn
+    : (supportsTools() ? chatWithTools : null);
+  app.use('/api/chatbot', chatbotRouter(pool, llmGenerateFn || generateText, chatToolsFn));
 
   app.use('/api/logs', allLogsRouter(pool));
 
   app.use('/api/users', usersRouter(pool));
 
-  app.use('/api/ai-assessments', aiAssessmentsRouter(pool, geminiGenerateFn || generateText));
+  app.use('/api/ai-assessments', aiAssessmentsRouter(pool, llmGenerateFn || generateText));
 
-  app.use('/api/ai-suggestions', aiSuggestionsRouter(geminiGenerateFn || generateText));
+  app.use('/api/ai-suggestions', aiSuggestionsRouter(llmGenerateFn || generateText));
 
   app.use('/api/tasks', tasksRouter(pool));
 

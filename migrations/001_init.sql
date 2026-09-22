@@ -292,3 +292,39 @@ CREATE INDEX IF NOT EXISTS idx_sops_group ON sops(group_name);
 -- was written — e.g. "Quarterly" + "5-7 business days" in the same cell).
 -- Split so each has its own column; timing keeps the frequency meaning.
 ALTER TABLE sops ADD COLUMN IF NOT EXISTS duration TEXT;
+
+-- one row per chatbot exchange (see src/routes/chatbot.js) — exists so
+-- "what does the team actually ask" and "how well did the model answer"
+-- are visible without re-reading LLM_DEBUG=1 terminal output, which
+-- doesn't persist. actor_email/name are whatever the request carried
+-- (same soft, unverified identity as everywhere else in this app — see
+-- src/app.js's decodeActorHeader), nullable since the chatbot route itself
+-- has no role gate. rating starts NULL (no feedback given yet, not
+-- "neutral") and is filled in later by PATCH /api/chatbot/:id/rating from
+-- the 👍/👎 under each reply in the widget — the cheap human-judged signal
+-- this project uses instead of an LLM-graded eval loop, appropriate at a
+-- 2-3-person internal-tool scale.
+CREATE TABLE IF NOT EXISTS chatbot_logs (
+  id SERIAL PRIMARY KEY,
+  actor_email TEXT,
+  actor_name TEXT,
+  message TEXT NOT NULL,
+  reply TEXT NOT NULL,
+  prompt_chars INTEGER,
+  latency_ms INTEGER,
+  model TEXT,
+  rating SMALLINT CHECK (rating IS NULL OR rating IN (-1, 1)),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_chatbot_logs_created_at ON chatbot_logs(created_at);
+
+-- mode/tool_calls record HOW the reply was produced (see
+-- src/routes/chatbot.js): 'tools' means the model looked data up via
+-- chatbotTools.js's SQL-backed functions (accurate counts/filters, small
+-- prompt); 'context_dump' means the older fallback that stuffs the whole
+-- phase/sprint/task/SOP table into the prompt (still what Gemini uses,
+-- since only Ollama has tool-calling wired up — see
+-- llmClient.supportsTools). tool_calls is NULL for context_dump rows.
+-- Both nullable so rows logged before this migration still read fine.
+ALTER TABLE chatbot_logs ADD COLUMN IF NOT EXISTS mode TEXT;
+ALTER TABLE chatbot_logs ADD COLUMN IF NOT EXISTS tool_calls JSONB;

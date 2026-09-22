@@ -1384,18 +1384,31 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
 
 /* ===== AI chatbot mascot widget — floating on every view ===== */
 .chatbot-widget{position:fixed; right:24px; bottom:24px; z-index:60; display:flex; flex-direction:column; align-items:flex-end;}
-@keyframes chatbot-float{0%, 100%{transform:translateY(0);} 50%{transform:translateY(-8px);}}
-@keyframes chatbot-wiggle{0%, 100%{transform:rotate(0deg);} 25%{transform:rotate(-4deg);} 75%{transform:rotate(4deg);}}
+
+/* assets/mascot.webp is now a real animated WEBP (genuine per-frame motion
+   from a rendered video, background chroma-keyed out — see git history/
+   scripts used to produce it) with a true alpha channel, not the flat
+   white-square single-frame image this used to be. That real transparency
+   is exactly what removes the need for everything the old version needed
+   to fake it: no more circular badge/ring/white backing to hide square
+   corners, no more CSS squash-stretch keyframes to fake a jump (the video
+   already dances), no more synced ground-shadow ellipse (drop-shadow
+   below follows the actual per-frame silhouette instead of guessing at
+   it). The character floats directly on the app background, exactly as
+   asked ("bỏ background tròn phía sau, chỉ có nhân vật"). */
+.chatbot-launcher-wrap{position:relative; width:117px; height:117px; flex:none;}
 .chatbot-launcher{
-  width:64px; height:64px; flex:none; border-radius:50%; border:none; background:var(--surface); padding:6px;
-  box-shadow:0 8px 24px rgba(0,0,0,0.22); cursor:pointer; display:flex; align-items:center; justify-content:center;
-  animation:chatbot-float 3s ease-in-out infinite;
+  width:100%; height:100%; border:none; background:none; padding:0; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; transition:transform .15s ease;
 }
-.chatbot-launcher:hover{animation:none; transform:scale(1.08) translateY(-4px);}
-.chatbot-mascot-img{width:100%; height:100%; object-fit:contain; animation:chatbot-wiggle 4.5s ease-in-out infinite;}
-.chatbot-widget.is-open .chatbot-launcher{box-shadow:0 4px 14px rgba(0,0,0,0.18);}
+.chatbot-launcher:hover{transform:scale(1.06);}
+.chatbot-mascot-img{
+  width:100%; height:100%; object-fit:contain;
+  filter:drop-shadow(0 6px 10px rgba(0,0,0,0.35));
+}
+.chatbot-widget.is-open .chatbot-launcher{transform:scale(0.9); opacity:0.85;}
 .chatbot-panel{
-  position:absolute; right:0; bottom:76px; width:360px; max-width:calc(100vw - 48px); height:520px; max-height:70vh;
+  position:absolute; right:0; bottom:114px; width:360px; max-width:calc(100vw - 48px); height:520px; max-height:70vh;
   background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:0 20px 56px rgba(0,0,0,0.26);
   display:flex; flex-direction:column; overflow:hidden;
   opacity:0; pointer-events:none; transform:translateY(14px) scale(0.97); transform-origin:bottom right;
@@ -1403,7 +1416,7 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
 }
 .chatbot-widget.is-open .chatbot-panel{opacity:1; pointer-events:auto; transform:translateY(0) scale(1);}
 .chatbot-panel-head{display:flex; align-items:center; gap:10px; padding:14px 14px 14px 16px; border-bottom:1px solid var(--border); background:var(--surface-2); flex:none;}
-.chatbot-panel-avatar{width:36px; height:36px; object-fit:contain; flex:none;}
+.chatbot-panel-avatar{width:40px; height:40px; object-fit:contain; flex:none;}
 .chatbot-panel-head-text{flex:1; min-width:0;}
 .chatbot-panel-title{font-family:var(--serif); font-size:15px; font-weight:600; color:var(--ink);}
 .chatbot-panel-sub{font-size:11px; color:var(--ink-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
@@ -1417,6 +1430,14 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
 .chatbot-msg.is-user{align-self:flex-end; background:var(--accent-ink); color:var(--canvas); border-bottom-right-radius:4px;}
 .chatbot-msg.is-assistant{align-self:flex-start; background:var(--surface-2); color:var(--ink); border-bottom-left-radius:4px;}
 .chatbot-msg.is-error{align-self:flex-start; background:var(--red-bg); color:var(--red-ink); border-bottom-left-radius:4px;}
+.chatbot-feedback{align-self:flex-start; display:flex; gap:4px; margin-top:-6px;}
+.chatbot-fb-btn{
+  border:1px solid var(--border); background:var(--canvas); border-radius:8px; cursor:pointer;
+  font-size:12px; line-height:1; padding:3px 7px; opacity:0.55; transition:opacity 0.15s;
+}
+.chatbot-fb-btn:hover:not(:disabled){opacity:1;}
+.chatbot-fb-btn:disabled{cursor:default;}
+.chatbot-fb-btn.is-selected{opacity:1; border-color:var(--accent-ink);}
 .chatbot-typing{align-self:flex-start; display:flex; gap:4px; padding:11px 13px; background:var(--surface-2); border-radius:14px; border-bottom-left-radius:4px;}
 .chatbot-typing span{width:6px; height:6px; border-radius:50%; background:var(--ink-faint); animation:chatbot-typing-bounce 1.2s ease-in-out infinite;}
 .chatbot-typing span:nth-child(2){animation-delay:0.15s;}

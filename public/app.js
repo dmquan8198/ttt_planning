@@ -682,6 +682,13 @@ function renderSubtaskItem(taskId, st, pics, canEdit){
       });
     }
     addInput.addEventListener('keydown', function(e){
+      // isComposing/229 guards every Enter-to-commit handler below — with a
+      // Vietnamese IME (Telex/VNI), Enter is what the IME itself uses to
+      // finalize the syllable being composed; without this check that Enter
+      // both commits the IME AND fires this handler, submitting the text
+      // before the last syllable landed in .value and leaving it stranded
+      // behind after the field clears.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter'){ e.preventDefault(); commit(); }
       else if (e.key === 'Escape'){ committed = true; fetchAndRenderSubtasks(taskId); }
     });
@@ -731,6 +738,7 @@ function commitNewSubtask(){
   });
 }
 document.getElementById('subtaskNameNew').addEventListener('keydown', function(e){
+  if (e.isComposing || e.keyCode === 229) return; // let a Vietnamese IME finish composing first
   if (e.key === 'Enter'){ e.preventDefault(); commitNewSubtask(); }
 });
 document.getElementById('subtaskNameNew').addEventListener('blur', commitNewSubtask);
@@ -6207,6 +6215,7 @@ function renderPicManageRow(picRow, canEdit, canDelete){
       });
     }
     input.addEventListener('keydown', function(e){
+      if (e.isComposing || e.keyCode === 229) return; // let a Vietnamese IME finish composing first
       if (e.key === 'Enter') commit();
       else if (e.key === 'Escape') renderDisplayMode();
     });
@@ -6368,6 +6377,7 @@ function renderResourceRoleHeaderCell(roleRow, canEdit, canDelete){
       });
     }
     input.addEventListener('keydown', function(e){
+      if (e.isComposing || e.keyCode === 229) return; // let a Vietnamese IME finish composing first
       if (e.key === 'Enter') commit();
       else if (e.key === 'Escape') renderDisplayMode();
     });
@@ -6834,6 +6844,7 @@ document.getElementById('f-cat').addEventListener('change', function(){
   }
 });
 document.getElementById('f-cat-new').addEventListener('keydown', function(e){
+  if (e.isComposing || e.keyCode === 229) return; // let a Vietnamese IME finish composing first
   if (e.key === 'Enter'){ e.preventDefault(); commitNewCategory(); }
 });
 document.getElementById('f-cat-new').addEventListener('blur', commitNewCategory);
@@ -7205,6 +7216,7 @@ function wireSopsAddNewSelect(selectId, newInputId, fallbackValue, onCommit){
     }
   });
   newInput.addEventListener('keydown', function(e){
+    if (e.isComposing || e.keyCode === 229) return; // let a Vietnamese IME finish composing first
     if (e.key === 'Enter'){ e.preventDefault(); commit(); }
   });
   newInput.addEventListener('blur', commit);
@@ -7486,6 +7498,47 @@ function chatbotAppendMessage(role, text, extraClass){
   return el;
 }
 
+// same as chatbotAppendMessage('assistant', text) but with a 👍/👎 row
+// underneath, tied to that reply's chatbot_logs.id (see PATCH
+// /api/chatbot/:id/rating) — the human-judged signal the team reads later
+// to see what the model actually got wrong. Only for real API replies
+// (logId set); the static greeting shown on panel-open has nothing to
+// rate and keeps using the plain chatbotAppendMessage above.
+function chatbotAppendAssistantReply(text, logId){
+  var el = chatbotAppendMessage('assistant', text);
+  if (logId == null) return el;
+
+  var fb = document.createElement('div');
+  fb.className = 'chatbot-feedback';
+  fb.innerHTML =
+    '<button type="button" class="chatbot-fb-btn" data-rating="1" title="Câu trả lời hữu ích">👍</button>' +
+    '<button type="button" class="chatbot-fb-btn" data-rating="-1" title="Câu trả lời chưa tốt">👎</button>';
+  Array.prototype.forEach.call(fb.querySelectorAll('.chatbot-fb-btn'), function(btn){
+    btn.addEventListener('click', function(){
+      chatbotRate(logId, Number(btn.getAttribute('data-rating')), fb);
+    });
+  });
+  el.insertAdjacentElement('afterend', fb);
+
+  var messages = document.getElementById('chatbotMessages');
+  messages.scrollTop = messages.scrollHeight;
+  return el;
+}
+
+function chatbotRate(logId, rating, containerEl){
+  Array.prototype.forEach.call(containerEl.querySelectorAll('.chatbot-fb-btn'), function(btn){
+    btn.disabled = true;
+    btn.classList.toggle('is-selected', Number(btn.getAttribute('data-rating')) === rating);
+  });
+  authFetch('/api/chatbot/' + logId + '/rating', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating: rating })
+  }).catch(function(err){
+    console.error('Không gửi được đánh giá chatbot', err);
+  });
+}
+
 function chatbotShowTyping(){
   var messages = document.getElementById('chatbotMessages');
   var el = document.createElement('div');
@@ -7543,7 +7596,7 @@ function chatbotSend(){
     });
   }).then(function(body){
     chatbotHideTyping();
-    chatbotAppendMessage('assistant', body.reply);
+    chatbotAppendAssistantReply(body.reply, body.logId);
     _chatbotHistory.push({ role: 'assistant', text: body.reply });
   }).catch(function(err){
     console.error('Chatbot request failed', err);
@@ -7557,6 +7610,12 @@ function chatbotSend(){
 
 document.getElementById('chatbotSend').addEventListener('click', chatbotSend);
 document.getElementById('chatbotInput').addEventListener('keydown', function(e){
+  // with a Vietnamese IME (Telex/VNI), Enter is also what commits the
+  // syllable being composed — without this guard, that same Enter both
+  // finalizes the IME AND fires chatbotSend(), sending before the last
+  // syllable lands in .value and leaving it stranded in the box after
+  // send clears it (the bug this was reported as: "để lại chữ cuối cùng").
+  if (e.isComposing || e.keyCode === 229) return;
   if (e.key === 'Enter' && !e.shiftKey){
     e.preventDefault();
     chatbotSend();
