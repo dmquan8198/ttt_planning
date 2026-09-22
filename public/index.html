@@ -697,6 +697,31 @@
   </div>
 </div>
 
+<!-- floating AI chatbot mascot — visible on every view, answers only from
+     this app's own data (see src/routes/chatbot.js's system instruction) -->
+<div class="chatbot-widget" id="chatbotWidget">
+  <div class="chatbot-panel" id="chatbotPanel">
+    <div class="chatbot-panel-head">
+      <img src="assets/mascot.webp" alt="" class="chatbot-panel-avatar">
+      <div class="chatbot-panel-head-text">
+        <div class="chatbot-panel-title">Túi Thần Tài</div>
+        <div class="chatbot-panel-sub">Hỏi mình về task, sprint, quy trình vận hành...</div>
+      </div>
+      <button type="button" class="chatbot-close" id="chatbotClose" aria-label="Đóng">&#10005;</button>
+    </div>
+    <div class="chatbot-messages" id="chatbotMessages"></div>
+    <div class="chatbot-input-row">
+      <textarea id="chatbotInput" placeholder="Nhập câu hỏi..." rows="1"></textarea>
+      <button type="button" class="chatbot-send" id="chatbotSend" aria-label="Gửi">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10h13M11 5l5 5-5 5"/></svg>
+      </button>
+    </div>
+  </div>
+  <button type="button" class="chatbot-launcher" id="chatbotLauncher" title="Hỏi trợ lý Túi Thần Tài" aria-label="Mở trợ lý AI">
+    <img src="assets/mascot.webp" alt="Túi Thần Tài" class="chatbot-mascot-img">
+  </button>
+</div>
+
 <script src="vendor/xlsx.mini.min.js"></script>
 <script src="app.js"></script>
 </body>

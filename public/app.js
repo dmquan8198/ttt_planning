@@ -7469,3 +7469,101 @@ document.getElementById('sopsDeleteBtn').addEventListener('click', function(){
 });
 
 loadSopsView();
+
+// ---- AI chatbot mascot widget — floating on every view, backend is
+// grounded ONLY in this app's own data (see src/routes/chatbot.js) ----
+var _chatbotHistory = []; // [{role:'user'|'assistant', text}], sent back on every request for follow-up context
+var _chatbotOpen = false;
+var _chatbotBusy = false;
+
+function chatbotAppendMessage(role, text, extraClass){
+  var messages = document.getElementById('chatbotMessages');
+  var el = document.createElement('div');
+  el.className = 'chatbot-msg is-' + role + (extraClass ? ' ' + extraClass : '');
+  el.textContent = text;
+  messages.appendChild(el);
+  messages.scrollTop = messages.scrollHeight;
+  return el;
+}
+
+function chatbotShowTyping(){
+  var messages = document.getElementById('chatbotMessages');
+  var el = document.createElement('div');
+  el.className = 'chatbot-typing';
+  el.id = 'chatbotTypingIndicator';
+  el.innerHTML = '<span></span><span></span><span></span>';
+  messages.appendChild(el);
+  messages.scrollTop = messages.scrollHeight;
+}
+function chatbotHideTyping(){
+  var el = document.getElementById('chatbotTypingIndicator');
+  if (el) el.remove();
+}
+
+function chatbotOpenPanel(){
+  document.getElementById('chatbotWidget').classList.add('is-open');
+  _chatbotOpen = true;
+  if (_chatbotHistory.length === 0){
+    chatbotAppendMessage('assistant', 'Chào bạn! Mình là Túi Thần Tài 🧧 — hỏi mình về nghiệp vụ, sprint, phase, hoặc quy trình vận hành trong hệ thống này nhé.');
+  }
+  document.getElementById('chatbotInput').focus();
+}
+function chatbotClosePanel(){
+  document.getElementById('chatbotWidget').classList.remove('is-open');
+  _chatbotOpen = false;
+}
+
+document.getElementById('chatbotLauncher').addEventListener('click', function(){
+  if (_chatbotOpen) chatbotClosePanel(); else chatbotOpenPanel();
+});
+document.getElementById('chatbotClose').addEventListener('click', chatbotClosePanel);
+
+function chatbotSend(){
+  if (_chatbotBusy) return;
+  var input = document.getElementById('chatbotInput');
+  var message = input.value.trim();
+  if (!message) return;
+  chatbotAppendMessage('user', message);
+  var historyToSend = _chatbotHistory.slice(-10);
+  _chatbotHistory.push({ role: 'user', text: message });
+  input.value = '';
+  input.style.height = 'auto';
+  _chatbotBusy = true;
+  document.getElementById('chatbotSend').disabled = true;
+  chatbotShowTyping();
+
+  authFetch('/api/chatbot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: message, history: historyToSend })
+  }).then(function(res){
+    return res.json().catch(function(){ return {}; }).then(function(body){
+      if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+      return body;
+    });
+  }).then(function(body){
+    chatbotHideTyping();
+    chatbotAppendMessage('assistant', body.reply);
+    _chatbotHistory.push({ role: 'assistant', text: body.reply });
+  }).catch(function(err){
+    console.error('Chatbot request failed', err);
+    chatbotHideTyping();
+    chatbotAppendMessage('assistant', 'Xin lỗi, mình gặp lỗi khi trả lời: ' + err.message, 'is-error');
+  }).finally(function(){
+    _chatbotBusy = false;
+    document.getElementById('chatbotSend').disabled = false;
+  });
+}
+
+document.getElementById('chatbotSend').addEventListener('click', chatbotSend);
+document.getElementById('chatbotInput').addEventListener('keydown', function(e){
+  if (e.key === 'Enter' && !e.shiftKey){
+    e.preventDefault();
+    chatbotSend();
+  }
+});
+// auto-grow the textarea with typed content, capped at the CSS max-height
+document.getElementById('chatbotInput').addEventListener('input', function(){
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+});

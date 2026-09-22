@@ -14,6 +14,7 @@ const subtasksRouter = require('./routes/subtasks');
 const picsRouter = require('./routes/pics');
 const snapshotsRouter = require('./routes/snapshots');
 const sopsRouter = require('./routes/sops');
+const chatbotRouter = require('./routes/chatbot');
 const { verifyGoogleToken } = require('./lib/googleAuth');
 const { generateText } = require('./lib/geminiClient');
 
@@ -69,6 +70,8 @@ function createApp(pool, googleTokenVerifier, geminiGenerateFn) {
   app.use('/api/snapshots', snapshotsRouter(pool));
 
   app.use('/api/sops', sopsRouter(pool));
+
+  app.use('/api/chatbot', chatbotRouter(pool, geminiGenerateFn || generateText));
 
   app.use('/api/logs', allLogsRouter(pool));
 
