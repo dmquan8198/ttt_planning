@@ -1383,7 +1383,14 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
 .phase-summary-value:hover{background:var(--surface-2); color:var(--accent-ink);}
 
 /* ===== AI chatbot mascot widget — floating on every view ===== */
-.chatbot-widget{position:fixed; right:24px; bottom:24px; z-index:60; display:flex; flex-direction:column; align-items:flex-end;}
+/* left/top (not right/bottom) because app.js's drag handler computes and
+   persists position as a pixel offset from the top-left — mixing both
+   coordinate systems would fight itself once JS starts setting inline
+   left/top. JS sets the actual position on load (from localStorage, or a
+   bottom-right default) and on every drag; the values here are only what
+   paints for the first frame before that JS runs. */
+.chatbot-widget{position:fixed; left:calc(100vw - 141px); top:calc(100vh - 141px); z-index:60;}
+.chatbot-widget.is-dragging{transition:none;}
 
 /* assets/mascot.webp is now a real animated WEBP (genuine per-frame motion
    from a rendered video, background chroma-keyed out — see git history/
@@ -1398,20 +1405,30 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
    asked ("bỏ background tròn phía sau, chỉ có nhân vật"). */
 .chatbot-launcher-wrap{position:relative; width:117px; height:117px; flex:none;}
 .chatbot-launcher{
-  width:100%; height:100%; border:none; background:none; padding:0; cursor:pointer;
+  width:100%; height:100%; border:none; background:none; padding:0; cursor:grab;
   display:flex; align-items:center; justify-content:center; transition:transform .15s ease;
+  touch-action:none; /* dragged via pointer events (app.js) — this stops the
+    browser's own touch-scroll/pan from competing with that on mobile */
 }
+.chatbot-widget.is-dragging .chatbot-launcher{cursor:grabbing; transition:none;}
 .chatbot-launcher:hover{transform:scale(1.06);}
 .chatbot-mascot-img{
   width:100%; height:100%; object-fit:contain;
   filter:drop-shadow(0 6px 10px rgba(0,0,0,0.35));
 }
 .chatbot-widget.is-open .chatbot-launcher{transform:scale(0.9); opacity:0.85;}
+/* position:fixed + JS-computed top/left/transform-origin (app.js's
+   positionChatPanel), not anchored to .chatbot-widget via absolute
+   positioning — the mascot can be dragged anywhere on screen now, so which
+   corner the panel opens from (above/below, left/right of the launcher)
+   has to be recomputed against the launcher's current position and the
+   viewport each time, or the panel could open off-screen or right on top
+   of wherever the user dragged the mascot specifically to see past. */
 .chatbot-panel{
-  position:absolute; right:0; bottom:114px; width:360px; max-width:calc(100vw - 48px); height:520px; max-height:70vh;
+  position:fixed; width:360px; max-width:calc(100vw - 24px); height:520px; max-height:70vh;
   background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:0 20px 56px rgba(0,0,0,0.26);
   display:flex; flex-direction:column; overflow:hidden;
-  opacity:0; pointer-events:none; transform:translateY(14px) scale(0.97); transform-origin:bottom right;
+  opacity:0; pointer-events:none; transform:translateY(var(--panel-slide-y, 14px)) scale(0.97);
   transition:opacity .16s ease, transform .16s ease;
 }
 .chatbot-widget.is-open .chatbot-panel{opacity:1; pointer-events:auto; transform:translateY(0) scale(1);}
@@ -1456,6 +1473,5 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
 .chatbot-send:hover{filter:brightness(1.08);}
 .chatbot-send:disabled{opacity:0.5; cursor:not-allowed;}
 @media (max-width:480px){
-  .chatbot-widget{right:14px; bottom:14px;}
   .chatbot-panel{width:calc(100vw - 28px); height:calc(100vh - 140px);}
 }

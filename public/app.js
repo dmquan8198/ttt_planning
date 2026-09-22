@@ -7553,7 +7553,41 @@ function chatbotHideTyping(){
   if (el) el.remove();
 }
 
+// the mascot can be dragged anywhere (see the drag IIFE below), so which
+// corner the panel opens into has to be recomputed against wherever the
+// launcher currently sits, every time — a fixed "always above-left of the
+// launcher" (the old assumption, back when the widget only ever lived in
+// the bottom-right corner) would routinely push the panel off-screen once
+// dragging made other corners reachable.
+function positionChatPanel(){
+  var panel = document.getElementById('chatbotPanel');
+  var launcher = document.getElementById('chatbotLauncher');
+  var lr = launcher.getBoundingClientRect();
+  var margin = 12;
+  var vw = window.innerWidth, vh = window.innerHeight;
+  var panelW = panel.offsetWidth, panelH = panel.offsetHeight;
+
+  var spaceBelow = vh - lr.bottom, spaceAbove = lr.top;
+  var openBelow = spaceBelow >= panelH + margin || spaceBelow >= spaceAbove;
+  var top = openBelow ? lr.bottom + margin : lr.top - panelH - margin;
+  top = Math.max(margin, Math.min(top, vh - panelH - margin));
+
+  var spaceRight = vw - lr.left, spaceLeft = lr.right;
+  var alignLeft = spaceRight >= panelW + margin || spaceRight >= spaceLeft;
+  var left = alignLeft ? lr.left : lr.right - panelW;
+  left = Math.max(margin, Math.min(left, vw - panelW - margin));
+
+  panel.style.top = top + 'px';
+  panel.style.left = left + 'px';
+  // slide-in direction matches which side it opened on, and transform-origin
+  // anchors the scale animation to the launcher's corner instead of always
+  // the panel's own bottom-right (dead wrong once the panel opens above/left)
+  panel.style.setProperty('--panel-slide-y', (openBelow ? -14 : 14) + 'px');
+  panel.style.transformOrigin = (openBelow ? 'top' : 'bottom') + ' ' + (alignLeft ? 'left' : 'right');
+}
+
 function chatbotOpenPanel(){
+  positionChatPanel();
   document.getElementById('chatbotWidget').classList.add('is-open');
   _chatbotOpen = true;
   if (_chatbotHistory.length === 0){
@@ -7566,7 +7600,99 @@ function chatbotClosePanel(){
   _chatbotOpen = false;
 }
 
+// drag-to-reposition: the mascot sometimes sits over text the person
+// actually needs to read, so it (and the panel it opens) can be dragged
+// anywhere on screen instead of being stuck in the bottom-right corner.
+// Position persists in localStorage — a per-browser convenience, not data
+// that needs to sync anywhere, so localStorage (not a server round trip)
+// is the right place for it.
+(function(){
+  var widget = document.getElementById('chatbotWidget');
+  var launcher = document.getElementById('chatbotLauncher');
+  var STORAGE_KEY = 'chatbotWidgetPos';
+  var EDGE_MARGIN = 8;
+  var DRAG_THRESHOLD = 6;
+  var dragging = false, moved = false, startX, startY, startLeft, startTop;
+
+  function clamp(pos, size, viewportSize){
+    return Math.max(EDGE_MARGIN, Math.min(pos, viewportSize - size - EDGE_MARGIN));
+  }
+
+  function applyPosition(left, top){
+    var w = widget.offsetWidth, h = widget.offsetHeight;
+    left = clamp(left, w, window.innerWidth);
+    top = clamp(top, h, window.innerHeight);
+    widget.style.left = left + 'px';
+    widget.style.top = top + 'px';
+    return { left: left, top: top };
+  }
+
+  function loadSavedPosition(){
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      var pos = JSON.parse(raw);
+      if (typeof pos.left === 'number' && typeof pos.top === 'number') return pos;
+    } catch (err) { /* ignore — falls through to the default position */ }
+    return null;
+  }
+  function savePosition(left, top){
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ left: left, top: top })); } catch (err) { /* private mode etc — fine to just not persist */ }
+  }
+
+  var saved = loadSavedPosition();
+  if (saved) {
+    applyPosition(saved.left, saved.top);
+  } else {
+    applyPosition(window.innerWidth - widget.offsetWidth - 24, window.innerHeight - widget.offsetHeight - 24);
+  }
+
+  launcher.addEventListener('pointerdown', function(e){
+    if (e.button !== undefined && e.button !== 0) return;
+    dragging = true; moved = false;
+    var rect = widget.getBoundingClientRect();
+    startX = e.clientX; startY = e.clientY;
+    startLeft = rect.left; startTop = rect.top;
+    launcher.setPointerCapture(e.pointerId);
+  });
+  launcher.addEventListener('pointermove', function(e){
+    if (!dragging) return;
+    var dx = e.clientX - startX, dy = e.clientY - startY;
+    if (!moved && Math.hypot(dx, dy) > DRAG_THRESHOLD) {
+      moved = true;
+      widget.classList.add('is-dragging');
+    }
+    if (moved) {
+      applyPosition(startLeft + dx, startTop + dy);
+      if (_chatbotOpen) positionChatPanel();
+    }
+  });
+  function endDrag(){
+    if (!dragging) return;
+    dragging = false;
+    widget.classList.remove('is-dragging');
+    if (moved) {
+      var rect = widget.getBoundingClientRect();
+      savePosition(rect.left, rect.top);
+    }
+  }
+  launcher.addEventListener('pointerup', endDrag);
+  launcher.addEventListener('pointercancel', endDrag);
+
+  // re-clamp on resize so a saved position from a wider window can't leave
+  // the widget stranded off-screen after e.g. rotating a tablet
+  window.addEventListener('resize', function(){
+    var rect = widget.getBoundingClientRect();
+    var pos = applyPosition(rect.left, rect.top);
+    savePosition(pos.left, pos.top);
+    if (_chatbotOpen) positionChatPanel();
+  });
+
+  window._chatbotWasDragged = function(){ return moved; };
+})();
+
 document.getElementById('chatbotLauncher').addEventListener('click', function(){
+  if (window._chatbotWasDragged && window._chatbotWasDragged()) return;
   if (_chatbotOpen) chatbotClosePanel(); else chatbotOpenPanel();
 });
 document.getElementById('chatbotClose').addEventListener('click', chatbotClosePanel);

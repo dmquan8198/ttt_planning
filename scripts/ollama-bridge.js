@@ -51,6 +51,13 @@ function proxyToOllama(path) {
   };
 }
 
+// unauthenticated on purpose (no bridge secret) — just "is this process up
+// and listening", nothing about Ollama itself or the model. Used by
+// scripts/watchdog.sh so it doesn't need the secret to do its own liveness
+// check on the bridge; the real "is Ollama actually working" check the
+// watchdog does is a bounded-timeout generate call straight to Ollama.
+app.get('/api/health', (req, res) => res.json({ ok: true }));
+
 app.post('/api/generate', proxyToOllama('/api/generate'));
 app.post('/api/chat', proxyToOllama('/api/chat'));
 

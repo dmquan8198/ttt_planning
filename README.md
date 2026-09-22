@@ -39,6 +39,17 @@ Ollama không có xác thực gì cả, nên **không expose thẳng port Ollama
 
 Máy nhà cần luôn bật (tắt sleep) + `ollama serve` + `npm run bridge` + `tailscaled` (funnel) chạy nền liên tục để AI hoạt động; nếu một trong các tiến trình đó tắt, chatbot/đánh giá AI sẽ báo lỗi nhưng phần còn lại của web trên Render không bị ảnh hưởng.
 
+#### Giữ máy nhà chạy ổn định (launchd + watchdog)
+
+`tailscaled` và `scripts/ollama-bridge.js` nên chạy qua `launchd` (không phải `nohup ... &` tay) để tự khởi động lại nếu crash hoặc khi máy khởi động lại. Cả hai cũng có 1 lỗi biết trước: **Ollama đôi khi bị "kẹt"** (`ollama ps` báo trạng thái `Stopping...` mãi, mọi request treo) mà `brew services`/launchd không phát hiện được vì tiến trình vẫn "sống" — chỉ có gọi generate thật với timeout mới lộ ra. `scripts/watchdog.sh` làm đúng việc đó, chạy định kỳ qua 1 LaunchAgent riêng.
+
+Setup (chỉ cần làm 1 lần trên máy nhà, ví dụ đường dẫn `dmquan8198`):
+
+1. Tạo 3 file plist trong `~/Library/LaunchAgents/`: `com.tttplanning.tailscaled.plist`, `com.tttplanning.ollama-bridge.plist` (cả 2 `KeepAlive=true` + `RunAtLoad=true`), và `com.tttplanning.watchdog.plist` (chạy `scripts/watchdog.sh` mỗi 180s qua `StartInterval`).
+2. `launchctl load -w ~/Library/LaunchAgents/com.tttplanning.*.plist`
+
+**Quan trọng:** watchdog KHÔNG được tự `pkill`/`nohup` lại tailscaled hay bridge — 2 process đó đã có LaunchAgent riêng lo việc restart-khi-crash rồi, watchdog chỉ được ép khởi động lại qua `launchctl kickstart -k gui/<uid>/<label>` để không dẫm chân lên launchd (tự pkill sẽ đua với launchd's KeepAlive và làm process chết hẳn — đã gặp lỗi này khi build watchdog). Ollama không có LaunchAgent riêng (đã được `brew services` quản lý sẵn) nên watchdog gọi thẳng `brew services restart ollama` khi phát hiện kẹt.
+
 ## Test
 
 `npm test` — chạy toàn bộ unit test (logic thuần) và integration test (API, dùng `pg-mem`, không cần DB thật).
