@@ -7653,9 +7653,17 @@ function chatbotClosePanel(){
     var rect = widget.getBoundingClientRect();
     startX = e.clientX; startY = e.clientY;
     startLeft = rect.left; startTop = rect.top;
-    launcher.setPointerCapture(e.pointerId);
   });
-  launcher.addEventListener('pointermove', function(e){
+  // pointermove/up/cancel are on window, not the 117x117px launcher — a
+  // real drag covers far more distance than that in the first few pixels
+  // of movement, and without capture a browser only keeps delivering
+  // pointermove to whatever element is currently UNDER the pointer, so
+  // listening on the launcher alone stops receiving events the moment the
+  // cursor leaves its small bounds (drag looks "stuck" after a fraction of
+  // a second — this was the actual bug reported, not a caching issue).
+  // window-level listeners track the drag anywhere on the page regardless
+  // of what's under the cursor.
+  window.addEventListener('pointermove', function(e){
     if (!dragging) return;
     var dx = e.clientX - startX, dy = e.clientY - startY;
     if (!moved && Math.hypot(dx, dy) > DRAG_THRESHOLD) {
@@ -7676,8 +7684,8 @@ function chatbotClosePanel(){
       savePosition(rect.left, rect.top);
     }
   }
-  launcher.addEventListener('pointerup', endDrag);
-  launcher.addEventListener('pointercancel', endDrag);
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
 
   // re-clamp on resize so a saved position from a wider window can't leave
   // the widget stranded off-screen after e.g. rotating a tablet
