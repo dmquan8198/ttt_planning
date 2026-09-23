@@ -7647,12 +7647,23 @@ function chatbotClosePanel(){
     applyPosition(window.innerWidth - widget.offsetWidth - 24, window.innerHeight - widget.offsetHeight - 24);
   }
 
+  // belt-and-suspenders against the actual bug this whole feature had:
+  // <img> starts the browser's own "drag this image out of the page"
+  // gesture on mousedown+move, which competes with — and can fully
+  // pre-empt — this pointer-based drag. CSS (-webkit-user-drag:none on
+  // .chatbot-mascot-img) and the img's draggable="false" attribute cover
+  // Chrome/Firefox/Safari between them, but suppressing native dragstart
+  // directly here means the custom drag still works even somewhere those
+  // don't take effect.
+  launcher.addEventListener('dragstart', function(e){ e.preventDefault(); });
+
   launcher.addEventListener('pointerdown', function(e){
     if (e.button !== undefined && e.button !== 0) return;
     dragging = true; moved = false;
     var rect = widget.getBoundingClientRect();
     startX = e.clientX; startY = e.clientY;
     startLeft = rect.left; startTop = rect.top;
+    e.preventDefault();
   });
   // pointermove/up/cancel are on window, not the 117x117px launcher — a
   // real drag covers far more distance than that in the first few pixels
