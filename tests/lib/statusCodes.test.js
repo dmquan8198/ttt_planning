@@ -2,9 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { STATUS_CODES, STATUS_LABELS, STATUS_TIMESTAMP_COLUMN, mapExcelStatus } = require('../../src/lib/statusCodes');
 
-test('STATUS_CODES has the 6 workflow stages in order', () => {
+test('STATUS_CODES has the 7 workflow stages in order', () => {
   assert.deepEqual(STATUS_CODES, [
-    '0.backlog', '1.in_analyst', '2.ready_for_dev', '3.in_test', '4.ready_for_staging', '5.done'
+    '0.backlog', '1.in_analyst', '2.ready_for_dev', '3.in_test', '4.in_test_uat', '5.ready_for_staging', '6.done'
   ]);
 });
 
@@ -20,8 +20,9 @@ test('STATUS_TIMESTAMP_COLUMN maps every non-Backlog status to an *_at column', 
     '1.in_analyst': 'in_analyst_at',
     '2.ready_for_dev': 'ready_for_dev_at',
     '3.in_test': 'in_test_at',
-    '4.ready_for_staging': 'ready_for_staging_at',
-    '5.done': 'done_at'
+    '4.in_test_uat': 'in_test_uat_at',
+    '5.ready_for_staging': 'ready_for_staging_at',
+    '6.done': 'done_at'
   });
 });
 
@@ -29,8 +30,8 @@ test('mapExcelStatus maps the exact strings used in the sheet', () => {
   assert.equal(mapExcelStatus('0. backlog'), '0.backlog');
   assert.equal(mapExcelStatus('1. Ready for Dev'), '2.ready_for_dev');
   assert.equal(mapExcelStatus('2. inTest'), '3.in_test');
-  assert.equal(mapExcelStatus('3. Ready for Staging'), '4.ready_for_staging');
-  assert.equal(mapExcelStatus('4. Done'), '5.done');
+  assert.equal(mapExcelStatus('3. Ready for Staging'), '5.ready_for_staging');
+  assert.equal(mapExcelStatus('4. Done'), '6.done');
 });
 
 test('mapExcelStatus falls back to backlog for unknown/blank values', () => {

@@ -38,7 +38,7 @@ async function seedProject(pool) {
   const { rows: [sprint] } = await pool.query("SELECT id FROM sprints WHERE code='S18'");
   await pool.query(
     `INSERT INTO tasks (category, name, platform, phase_id, sprint_id, status, start_date, due_date, stt)
-     VALUES ('Product Foundation', 'Task A', 'Web', $1, $2, '5.done', $3, $4, 1)`,
+     VALUES ('Product Foundation', 'Task A', 'Web', $1, $2, '6.done', $3, $4, 1)`,
     [phase.id, sprint.id, sprintStart, shiftDate(sprintStart, 2)]
   );
   await pool.query(
@@ -89,7 +89,7 @@ test('dem_task counts exactly, filtered by sprint_code', async () => {
 test('dem_task filtered by status accepts either the raw code or the Vietnamese label', async () => {
   const pool = makeTestPool();
   await seedProject(pool);
-  const byCode = await executeTool(pool, 'dem_task', { status: '5.done' });
+  const byCode = await executeTool(pool, 'dem_task', { status: '6.done' });
   const byLabel = await executeTool(pool, 'dem_task', { status: 'Done' });
   assert.equal(byCode.so_luong, 1);
   assert.equal(byLabel.so_luong, 1);
@@ -167,7 +167,7 @@ test('tim_sop rejects an empty keyword instead of matching everything', async ()
 // the SAME number GET /api/phases would (both call computePhaseRollup).
 test('thong_tin_phase returns the real completion % (same computation as GET /api/phases), not something dem_task could ever derive', async () => {
   const pool = makeTestPool();
-  await seedProject(pool); // phase P1: Task A '5.done', Task B '0.backlog' -> 1/2 reached Done UAT+
+  await seedProject(pool); // phase P1: Task A '6.done', Task B '0.backlog' -> 1/2 reached Done UAT+
   const result = await executeTool(pool, 'thong_tin_phase', { phase_code: 'P1' });
   assert.equal(result.phases.length, 1);
   assert.equal(result.phases[0].ma, 'P1');
@@ -213,7 +213,7 @@ test('task_qua_han finds only tasks whose due_date is before today and not Done 
   // a Done task past its due_date must NOT count as overdue
   await pool.query(
     `INSERT INTO tasks (category, name, platform, phase_id, sprint_id, status, start_date, due_date)
-     VALUES ('Product Foundation', 'Task done late', 'Web', $1, $2, '5.done', $3, $4)`,
+     VALUES ('Product Foundation', 'Task done late', 'Web', $1, $2, '6.done', $3, $4)`,
     [phase.id, sprint.id, shiftDate(today, -5), shiftDate(today, -1)]
   );
 
@@ -221,7 +221,7 @@ test('task_qua_han finds only tasks whose due_date is before today and not Done 
   assert.equal(result.tong_so_task_qua_han, 1);
   assert.equal(result.tasks[0].ten, 'Task overdue');
   assert.equal(result.tasks[0].so_ngay_qua_han, 2);
-  // Task A ('5.done', due in the future per seedProject) and Task B
+  // Task A ('6.done', due in the future per seedProject) and Task B
   // ('0.backlog', due in the future) must both be absent.
   assert.equal(result.tasks.some((t) => t.ten === 'Task A'), false);
   assert.equal(result.tasks.some((t) => t.ten === 'Task B'), false);

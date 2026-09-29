@@ -27,14 +27,15 @@ document.querySelectorAll('.nav-item').forEach(function(el){
 
 // ---- drawer: shared by "create" and "edit" ----
 var overlay = document.getElementById('overlay'), drawer = document.getElementById('drawer');
-var statusLabel = {0:'0. Backlog', 1:'1. In Analyst', 2:'2. Ready for Dev', 3:'3. In Dev', 4:'4. Done UAT', 5:'5. Done'};
+var statusLabel = {0:'0. Backlog', 1:'1. In Analyst', 2:'2. Ready for Dev', 3:'3. In Dev', 4:'4. inTest UAT', 5:'5. Done UAT', 6:'6. Done'};
 
 // dotted status string (from the real API) -> numeric suffix used by the
 // existing .pill.st-N / .bar.st-N CSS classes and the statusLabel map above.
-// 'in_analyst' sits between backlog and ready_for_dev — every code from
-// ready_for_dev on is shifted up one from what it used to be (see
-// migrations/001_init.sql for the constraint/data migration).
-var STATUS_ORDER = ['0.backlog', '1.in_analyst', '2.ready_for_dev', '3.in_test', '4.ready_for_staging', '5.done'];
+// 'in_analyst' sits between backlog and ready_for_dev, 'in_test_uat' sits
+// between in_test and ready_for_staging — every code from ready_for_dev (and
+// later ready_for_staging) on is shifted up one from what it used to be (see
+// migrations/001_init.sql for the constraint/data migrations).
+var STATUS_ORDER = ['0.backlog', '1.in_analyst', '2.ready_for_dev', '3.in_test', '4.in_test_uat', '5.ready_for_staging', '6.done'];
 function statusDotToNum(status){ return STATUS_ORDER.indexOf(status); }
 
 // a small "→" button placed right after a status <select> (the drawer's
@@ -1745,7 +1746,7 @@ function enterPhaseDateEdit(card, phase){
 // Done UAT (Backlog/In Analyst/Ready for Dev/In Dev) — "what's still not
 // done dev/QC for this phase", one click from the roadmap card that flags it.
 function goToTimelineNotYetDoneDevQc(phase){
-  var notYetDoneDevQc = STATUS_ORDER.slice(0, STATUS_ORDER.indexOf('4.ready_for_staging'));
+  var notYetDoneDevQc = STATUS_ORDER.slice(0, STATUS_ORDER.indexOf('5.ready_for_staging'));
   _timelineFilterPhase.length = 0; _timelineFilterPhase.push(String(phase.id));
   _timelineFilterStatus.length = 0; notYetDoneDevQc.forEach(function(s){ _timelineFilterStatus.push(s); });
   _timelineFilterCategory.length = 0;
@@ -2032,12 +2033,12 @@ function renderSprintPanel(sprint, isCurrent, carryOverTasks, latestLogByTaskId)
 }
 
 // "effectively complete" threshold for progress headlines — same threshold
-// the Roadmap's own default % uses: literal '5.done' lags behind a formal
+// the Roadmap's own default % uses: literal '6.done' lags behind a formal
 // golive event and stays near-zero for most of a sprint's life, which would
 // make an in-progress sprint look falsely empty in front of an audience.
 // Done UAT is the point work is realistically finished. Shared by the
 // Table view's phase-summary "Hoàn thành" column.
-function isEffectivelyDone(t){ return statusDotToNum(t.status) >= 4; }
+function isEffectivelyDone(t){ return statusDotToNum(t.status) >= 5; }
 
 // canonical category order first (matches the Sprint Overview's own
 // grouping), any other value sorted alphabetically after — same fallback
@@ -2123,7 +2124,7 @@ function renderSprintOverviewTable(sprints, tasks, currentSprintId, nextSprintId
 
   sprints.forEach(function(s){
     var sprintTasks = tasks.filter(function(t){ return t.sprint_id === s.id; });
-    var doneCount = sprintTasks.filter(function(t){ return t.status === '5.done'; }).length;
+    var doneCount = sprintTasks.filter(function(t){ return t.status === '6.done'; }).length;
     var isCurrent = s.id === currentSprintId, isNext = s.id === nextSprintId;
 
     var row = document.createElement('div');
@@ -2276,8 +2277,9 @@ var SPRINT_STATUS_TO_EXPORT_CODE = {
   '1.in_analyst': 'in-analyst',
   '2.ready_for_dev': 'ready-dev',
   '3.in_test': 'in-test',
-  '4.ready_for_staging': 'ready-stg',
-  '5.done': 'done'
+  '4.in_test_uat': 'in-test-uat',
+  '5.ready_for_staging': 'ready-stg',
+  '6.done': 'done'
 };
 function buildDeliveryPlanExport(tasksSubset, sprintsSubset, scopeLabel, allLogs){
   var sprintCodeById = {};
@@ -4060,6 +4062,7 @@ var TABLE_COLUMNS = [
   { key: 'in_analyst_at', label: 'Mốc In Analyst' },
   { key: 'ready_for_dev_at', label: 'Mốc Ready Dev' },
   { key: 'in_test_at', label: 'Mốc In Dev' },
+  { key: 'in_test_uat_at', label: 'Mốc inTest UAT' },
   { key: 'ready_for_staging_at', label: 'Mốc Done UAT' },
   { key: 'done_at', label: 'Mốc Done' },
   { key: 'start', label: 'Start' },
@@ -4248,7 +4251,7 @@ function tableCellHtml(col, t){
     case 'done_dev': return t.done_dev ? '✓' : '';
     case 'done_uat': return t.done_uat ? '✓' : '';
     case 'done_staging': return t.done_staging ? '✓' : '';
-    case 'in_analyst_at': case 'ready_for_dev_at': case 'in_test_at':
+    case 'in_analyst_at': case 'ready_for_dev_at': case 'in_test_at': case 'in_test_uat_at':
     case 'ready_for_staging_at': case 'done_at':
       return escapeHtml(fmtStamp(t[col.key]));
     case 'latest_note': {
@@ -4889,7 +4892,7 @@ function phaseSummaryPctText(doneCount, total){
 // statuses "Hoàn thành" counts as done — same >= Done UAT threshold
 // isEffectivelyDone itself uses, so a click on that column filters to
 // exactly the same set of tasks the percentage was computed from.
-var PHASE_SUMMARY_DONE_STATUSES = STATUS_ORDER.filter(function(s){ return statusDotToNum(s) >= 4; });
+var PHASE_SUMMARY_DONE_STATUSES = STATUS_ORDER.filter(function(s){ return statusDotToNum(s) >= 5; });
 
 // every count cell doubles as a filter shortcut into the table below —
 // data-cat/data-status ("" means "every category"/"every status") plus
@@ -5019,8 +5022,8 @@ document.getElementById('tableClearFiltersBtn').addEventListener('click', clearA
 var SPRINT_SUMMARY_DEFS = [
   {
     label: 'Sprint này', pick: 'current',
-    statuses: ['3.in_test', '4.ready_for_staging', '5.done'],
-    ratioStatuses: ['4.ready_for_staging', '5.done'], ratioLabel: 'Hoàn thành',
+    statuses: ['3.in_test', '4.in_test_uat', '5.ready_for_staging', '6.done'],
+    ratioStatuses: ['5.ready_for_staging', '6.done'], ratioLabel: 'Hoàn thành',
     carryOver: true
   },
   {
@@ -5029,7 +5032,7 @@ var SPRINT_SUMMARY_DEFS = [
     ratioStatuses: ['2.ready_for_dev'], ratioLabel: 'Sẵn sàng'
   }
 ];
-var SPRINT_CARRY_DONE_STATUSES = ['4.ready_for_staging', '5.done'];
+var SPRINT_CARRY_DONE_STATUSES = ['5.ready_for_staging', '6.done'];
 // same rule as src/lib/pickCurrentAndNextSprint.js: the sprint whose range
 // covers today is "current" and the next one by start_date is "next"; if
 // today sits in a gap between cycles, current is null and next is the
@@ -5042,16 +5045,16 @@ function pickTableCurrentNextSprint(){
   return { current: sorted[ci], next: sorted[ci + 1] || null };
 }
 // is `t` carry-over into the sprint that started on `startIso`, given the
-// ids of every sprint that ended before then? Still In Dev (dev work that
-// slipped), OR reached Done UAT/Done but only entered that status during
-// this sprint (the *_at stamp, set server-side on the status change, is
-// the precise "when it moved" — updated_at would also catch unrelated
-// edits).
+// ids of every sprint that ended before then? Still In Dev or inTest UAT
+// (work that slipped, not finished yet), OR reached Done UAT/Done but only
+// entered that status during this sprint (the *_at stamp, set server-side
+// on the status change, is the precise "when it moved" — updated_at would
+// also catch unrelated edits).
 function isSprintCarryOver(t, carrySprintIds, startIso){
   if (t.sprint_id == null || carrySprintIds.indexOf(t.sprint_id) === -1) return false;
-  if (t.status === '3.in_test') return true;
-  if (t.status === '4.ready_for_staging') return !!t.ready_for_staging_at && t.ready_for_staging_at >= startIso;
-  if (t.status === '5.done') return !!t.done_at && t.done_at >= startIso;
+  if (t.status === '3.in_test' || t.status === '4.in_test_uat') return true;
+  if (t.status === '5.ready_for_staging') return !!t.ready_for_staging_at && t.ready_for_staging_at >= startIso;
+  if (t.status === '6.done') return !!t.done_at && t.done_at >= startIso;
   return false;
 }
 // data-* an element needs for the click handler to rebuild its exact task
@@ -5104,7 +5107,7 @@ function renderSprintSummary(){
     // carry-over into still-in-dev vs finished-this-sprint.
     var compHtml = '';
     if (carryTasks.length){
-      var carryInDev = carryTasks.filter(function(t){ return t.status === '3.in_test'; }).length;
+      var carryInDev = carryTasks.filter(function(t){ return t.status === '3.in_test' || t.status === '4.in_test_uat'; }).length;
       var carryDone = carryTasks.length - carryInDev;
       compHtml = '<div class="sprint-summary-box-comp">Gồm: ' +
         '<span class="sprint-summary-stat" ' + attrs('own', null) + '>sprint này <b>' + ownTasks.length + '</b></span> + ' +
@@ -5175,7 +5178,7 @@ function tableCellPlainText(col, t){
     case 'done_dev': return t.done_dev ? 'Có' : '';
     case 'done_uat': return t.done_uat ? 'Có' : '';
     case 'done_staging': return t.done_staging ? 'Có' : '';
-    case 'in_analyst_at': case 'ready_for_dev_at': case 'in_test_at':
+    case 'in_analyst_at': case 'ready_for_dev_at': case 'in_test_at': case 'in_test_uat_at':
     case 'ready_for_staging_at': case 'done_at':
       return fmtStamp(t[col.key]);
     case 'latest_note': { var log = _tableLatestLogByTaskId[t.id]; return log ? stripActorSuffix(log.note) : ''; }

@@ -50,9 +50,9 @@ test('POST /api/snapshots/run with the right secret computes and stores today\'s
 
   const pool = makeTestPool();
   const app = createApp(pool);
-  await seedTask(pool, { category: 'A', status: '5.done' });
+  await seedTask(pool, { category: 'A', status: '6.done' });
   await seedTask(pool, { category: 'A', status: '0.backlog' });
-  await seedTask(pool, { category: 'B', status: '5.done' });
+  await seedTask(pool, { category: 'B', status: '6.done' });
 
   const res = await request(app).post('/api/snapshots/run').set('X-Cron-Secret', 'test-secret');
   assert.equal(res.status, 201);
@@ -60,7 +60,7 @@ test('POST /api/snapshots/run with the right secret computes and stores today\'s
   assert.equal(res.body.total_tasks, 3);
   assert.equal(res.body.completed_tasks, 2);
   assert.equal(res.body.completion_rate, 66.67);
-  assert.equal(res.body.by_status['5.done'], 2);
+  assert.equal(res.body.by_status['6.done'], 2);
   assert.equal(res.body.by_status['1.in_analyst'], 0);
   assert.deepEqual(res.body.by_category, { A: 2, B: 1 });
 
@@ -80,7 +80,7 @@ test('POST /api/snapshots/run twice the same day overwrites instead of duplicati
   const first = await request(app).post('/api/snapshots/run').set('X-Cron-Secret', 'test-secret');
   assert.equal(first.body.total_tasks, 1);
 
-  await seedTask(pool, { category: 'A', status: '5.done' });
+  await seedTask(pool, { category: 'A', status: '6.done' });
   const second = await request(app).post('/api/snapshots/run').set('X-Cron-Secret', 'test-secret');
   assert.equal(second.body.total_tasks, 2);
 

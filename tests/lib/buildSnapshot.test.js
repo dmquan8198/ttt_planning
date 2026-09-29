@@ -5,8 +5,8 @@ const { buildSnapshot, summarizeTasks } = require('../../src/lib/buildSnapshot')
 test('summarizeTasks counts every status code, including ones with zero tasks', () => {
   const tasks = [
     { status: '0.backlog', category: 'A' },
-    { status: '5.done', category: 'A' },
-    { status: '5.done', category: 'B' }
+    { status: '6.done', category: 'A' },
+    { status: '6.done', category: 'B' }
   ];
   const s = summarizeTasks(tasks);
   assert.equal(s.total_tasks, 3);
@@ -14,7 +14,7 @@ test('summarizeTasks counts every status code, including ones with zero tasks', 
   assert.equal(s.completion_rate, 66.67);
   assert.equal(s.by_status['0.backlog'], 1);
   assert.equal(s.by_status['1.in_analyst'], 0);
-  assert.equal(s.by_status['5.done'], 2);
+  assert.equal(s.by_status['6.done'], 2);
   assert.deepEqual(s.by_category, { A: 2, B: 1 });
 });
 
@@ -30,7 +30,7 @@ test('buildSnapshot scopes sprint_now/sprint_next to that sprint\'s own tasks', 
     { id: 2, code: 'S2', start_date: '2026-01-15', end_date: '2026-01-28' }
   ];
   const tasks = [
-    { status: '5.done', category: 'A', sprint_id: 1 },
+    { status: '6.done', category: 'A', sprint_id: 1 },
     { status: '0.backlog', category: 'A', sprint_id: 1 },
     { status: '0.backlog', category: 'B', sprint_id: 2 }
   ];

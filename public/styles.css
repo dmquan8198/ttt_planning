@@ -9,15 +9,17 @@
   --status-blue-bg:#E1F3FE; --status-blue-ink:#1F6C9F;
   --status-orange-bg:#FDECD9; --status-orange-ink:#A0501C;
   --status-purple-bg:#F1E9FB; --status-purple-ink:#7B4FA0;
+  --status-teal-bg:#DFF3F0; --status-teal-ink:#1B7A6E;
   /* status pipeline, per-status fixed hue (not a gradient):
      Backlog=gray, In Analyst=purple, Ready for Dev=blue, In Dev=yellow,
-     Done UAT=orange, Done=green. */
+     inTest UAT=orange, Done UAT=teal, Done=green. */
   --status-0-bg:var(--neutral-bg); --status-0-ink:var(--neutral-ink);
   --status-1-bg:var(--status-purple-bg); --status-1-ink:var(--status-purple-ink);
   --status-2-bg:var(--status-blue-bg); --status-2-ink:var(--status-blue-ink);
   --status-3-bg:var(--yellow-bg); --status-3-ink:var(--yellow-ink);
   --status-4-bg:var(--status-orange-bg); --status-4-ink:var(--status-orange-ink);
-  --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
+  --status-5-bg:var(--status-teal-bg); --status-5-ink:var(--status-teal-ink);
+  --status-6-bg:var(--green-bg); --status-6-ink:var(--green-ink);
   --milestone-ink:#A6295C;
   --shadow: 0 1px 2px rgba(32,31,27,0.03);
   --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237A776E' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
@@ -37,12 +39,14 @@
     --status-blue-bg:#1F2E38; --status-blue-ink:#8FC4EA;
     --status-orange-bg:#3A2A18; --status-orange-ink:#E8A85E;
     --status-purple-bg:#2E2438; --status-purple-ink:#C9A6E8;
+    --status-teal-bg:#1C302C; --status-teal-ink:#7FCFC0;
     --status-0-bg:var(--neutral-bg); --status-0-ink:var(--neutral-ink);
     --status-1-bg:var(--status-purple-bg); --status-1-ink:var(--status-purple-ink);
     --status-2-bg:var(--status-blue-bg); --status-2-ink:var(--status-blue-ink);
     --status-3-bg:var(--yellow-bg); --status-3-ink:var(--yellow-ink);
     --status-4-bg:var(--status-orange-bg); --status-4-ink:var(--status-orange-ink);
-    --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
+    --status-5-bg:var(--status-teal-bg); --status-5-ink:var(--status-teal-ink);
+    --status-6-bg:var(--green-bg); --status-6-ink:var(--green-ink);
     --milestone-ink:#E39BC0;
     --shadow: 0 1px 3px rgba(0,0,0,0.3);
     --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239B988E' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
@@ -59,12 +63,14 @@
   --status-blue-bg:#1F2E38; --status-blue-ink:#8FC4EA;
   --status-orange-bg:#3A2A18; --status-orange-ink:#E8A85E;
   --status-purple-bg:#2E2438; --status-purple-ink:#C9A6E8;
+  --status-teal-bg:#1C302C; --status-teal-ink:#7FCFC0;
   --status-0-bg:var(--neutral-bg); --status-0-ink:var(--neutral-ink);
   --status-1-bg:var(--status-purple-bg); --status-1-ink:var(--status-purple-ink);
   --status-2-bg:var(--status-blue-bg); --status-2-ink:var(--status-blue-ink);
   --status-3-bg:var(--yellow-bg); --status-3-ink:var(--yellow-ink);
   --status-4-bg:var(--status-orange-bg); --status-4-ink:var(--status-orange-ink);
-  --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
+  --status-5-bg:var(--status-teal-bg); --status-5-ink:var(--status-teal-ink);
+  --status-6-bg:var(--green-bg); --status-6-ink:var(--green-ink);
   --milestone-ink:#E39BC0;
   --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239B988E' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
@@ -84,12 +90,14 @@
   --status-blue-bg:#E1F3FE; --status-blue-ink:#1F6C9F;
   --status-orange-bg:#FDECD9; --status-orange-ink:#A0501C;
   --status-purple-bg:#F1E9FB; --status-purple-ink:#7B4FA0;
+  --status-teal-bg:#DFF3F0; --status-teal-ink:#1B7A6E;
   --status-0-bg:var(--neutral-bg); --status-0-ink:var(--neutral-ink);
   --status-1-bg:var(--status-purple-bg); --status-1-ink:var(--status-purple-ink);
   --status-2-bg:var(--status-blue-bg); --status-2-ink:var(--status-blue-ink);
   --status-3-bg:var(--yellow-bg); --status-3-ink:var(--yellow-ink);
   --status-4-bg:var(--status-orange-bg); --status-4-ink:var(--status-orange-ink);
-  --status-5-bg:var(--green-bg); --status-5-ink:var(--green-ink);
+  --status-5-bg:var(--status-teal-bg); --status-5-ink:var(--status-teal-ink);
+  --status-6-bg:var(--green-bg); --status-6-ink:var(--green-ink);
   --milestone-ink:#A6295C;
   --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237A776E' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
@@ -239,6 +247,7 @@ body{
 .pill.st-3{background:var(--status-3-bg); color:var(--status-3-ink);}
 .pill.st-4{background:var(--status-4-bg); color:var(--status-4-ink);}
 .pill.st-5{background:var(--status-5-bg); color:var(--status-5-ink);}
+.pill.st-6{background:var(--status-6-bg); color:var(--status-6-ink);}
 
 /* ===== FEATURE INTRO (Roadmap page) ===== */
 .feature-intro{
@@ -506,6 +515,7 @@ body{
 .legend-swatch.st-3{background:var(--status-3-bg); border:1px solid var(--status-3-ink);}
 .legend-swatch.st-4{background:var(--status-4-bg); border:1px solid var(--status-4-ink);}
 .legend-swatch.st-5{background:var(--status-5-bg); border:1px solid var(--status-5-ink);}
+.legend-swatch.st-6{background:var(--status-6-bg); border:1px solid var(--status-6-ink);}
 /* stronger than the real .gantt-weekend-band wash (opacity:0.05, too faint
    to read at swatch size) — just needs to look like "a shaded square" here. */
 .legend-swatch-weekend{background:var(--surface-2); border:1px solid var(--border);}
@@ -697,6 +707,7 @@ body{
 .gt-task-card.st-3{border-left-color:var(--status-3-ink);}
 .gt-task-card.st-4{border-left-color:var(--status-4-ink);}
 .gt-task-card.st-5{border-left-color:var(--status-5-ink);}
+.gt-task-card.st-6{border-left-color:var(--status-6-ink);}
 .gt-task-card-title{font-size:12px; font-weight:700; color:var(--ink); white-space:normal; overflow-wrap:break-word; line-height:1.3;}
 .gt-task-card-dates{font-size:10.5px; color:var(--ink-muted); margin-top:2px; white-space:normal; overflow-wrap:break-word; line-height:1.3;}
 
@@ -715,6 +726,7 @@ body{
 .gt-cluster-card.st-3{border-left-color:var(--status-3-ink);}
 .gt-cluster-card.st-4{border-left-color:var(--status-4-ink);}
 .gt-cluster-card.st-5{border-left-color:var(--status-5-ink);}
+.gt-cluster-card.st-6{border-left-color:var(--status-6-ink);}
 .gt-cluster-card-meta{
   font-size:10px; color:var(--ink-muted); font-weight:600; white-space:nowrap; overflow:hidden;
   text-overflow:ellipsis; flex:none; min-width:0; margin-bottom:3px;
@@ -750,6 +762,7 @@ body{
 .bar.st-3{background:var(--status-3-bg); color:var(--status-3-ink);}
 .bar.st-4{background:var(--status-4-bg); color:var(--status-4-ink);}
 .bar.st-5{background:var(--status-5-bg); color:var(--status-5-ink);}
+.bar.st-6{background:var(--status-6-bg); color:var(--status-6-ink);}
 
 .tag{font-family:var(--mono); font-size:10px; color:var(--ink-muted); background:var(--surface-2); border:1px solid var(--border); border-radius:4px; padding:1.5px 5px;}
 .tag-sprint{color:var(--accent-ink); background:var(--accent-soft); border-color:var(--accent-ink); font-weight:600;}
@@ -789,6 +802,7 @@ body{
 .sprint-overview-task-chip.st-3{background:var(--status-3-bg); color:var(--status-3-ink);}
 .sprint-overview-task-chip.st-4{background:var(--status-4-bg); color:var(--status-4-ink);}
 .sprint-overview-task-chip.st-5{background:var(--status-5-bg); color:var(--status-5-ink);}
+.sprint-overview-task-chip.st-6{background:var(--status-6-bg); color:var(--status-6-ink);}
 .sprint-columns{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
 .sprint-panel{border:1px solid var(--border); border-radius:8px; background:var(--surface); padding:14px 14px 6px;}
 .sprint-panel.is-current{border-color:var(--accent-ink);}

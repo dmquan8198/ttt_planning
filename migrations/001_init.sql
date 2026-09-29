@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   phase_id INTEGER REFERENCES phases(id) ON DELETE SET NULL,
   sprint_id INTEGER REFERENCES sprints(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT '0.backlog'
-    CHECK (status IN ('0.backlog','1.in_analyst','2.ready_for_dev','3.in_test','4.ready_for_staging','5.done')),
+    CHECK (status IN ('0.backlog','1.in_analyst','2.ready_for_dev','3.in_test','4.in_test_uat','5.ready_for_staging','6.done')),
   done_analyst BOOLEAN NOT NULL DEFAULT FALSE,
   done_dev BOOLEAN NOT NULL DEFAULT FALSE,
   done_uat BOOLEAN NOT NULL DEFAULT FALSE,
@@ -328,3 +328,23 @@ CREATE INDEX IF NOT EXISTS idx_chatbot_logs_created_at ON chatbot_logs(created_a
 -- Both nullable so rows logged before this migration still read fine.
 ALTER TABLE chatbot_logs ADD COLUMN IF NOT EXISTS mode TEXT;
 ALTER TABLE chatbot_logs ADD COLUMN IF NOT EXISTS tool_calls JSONB;
+
+-- 'inTest UAT' inserted as its own Kanban stage between In Dev and Done UAT
+-- (dedicated "currently under UAT testing" stage, distinct from Done UAT
+-- which means UAT already passed) — Done UAT and Done shift up by one each,
+-- same as the in_analyst insertion above. Same drop-before-renumber-then-
+-- readd approach, and the UPDATE's CASE targets are non-overlapping old
+-- values so it's a no-op once already applied, safe to re-run.
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
+
+UPDATE tasks SET status = CASE status
+  WHEN '5.done' THEN '6.done'
+  WHEN '4.ready_for_staging' THEN '5.ready_for_staging'
+  ELSE status
+END
+WHERE status IN ('5.done', '4.ready_for_staging');
+
+ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
+  CHECK (status IN ('0.backlog','1.in_analyst','2.ready_for_dev','3.in_test','4.in_test_uat','5.ready_for_staging','6.done'));
+
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS in_test_uat_at TIMESTAMPTZ;

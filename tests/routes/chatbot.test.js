@@ -128,7 +128,7 @@ test('POST /api/chatbot with a tool-calling fn runs the loop: model asks for dem
   const { rows: [sprint] } = await pool.query("SELECT id FROM sprints WHERE code='S18'");
   await pool.query(
     `INSERT INTO tasks (category, name, platform, sprint_id, status, start_date, due_date)
-     VALUES ('Product Foundation', 'Task A', 'Web', $1, '5.done', '2026-09-14', '2026-09-16')`,
+     VALUES ('Product Foundation', 'Task A', 'Web', $1, '6.done', '2026-09-14', '2026-09-16')`,
     [sprint.id]
   );
   await pool.query(

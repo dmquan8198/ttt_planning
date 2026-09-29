@@ -18,7 +18,7 @@ function summarizeTasks(tasks) {
   });
 
   const total_tasks = tasks.length;
-  const completed_tasks = by_status['5.done'] || 0;
+  const completed_tasks = by_status['6.done'] || 0;
   const completion_rate = total_tasks ? round2((completed_tasks / total_tasks) * 100) : 0;
 
   return { total_tasks, completed_tasks, completion_rate, by_status, by_category };

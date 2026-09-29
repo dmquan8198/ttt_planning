@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { computePhaseRollup } = require('../../src/lib/phaseRollup');
 
 // each count is cumulative by status, not an independent flag: a task at
-// '5.done' counts toward done_analyst and done_dev_qc too, same as it would
+// '6.done' counts toward done_analyst and done_dev_qc too, same as it would
 // have under the old done_analyst/done_dev/done_uat boolean flags (each
 // stayed true once set, regardless of later Kanban status).
 function makeTasksByStatus(counts) {
@@ -18,7 +18,7 @@ test('P1 rollup: cumulative funnel counts and headline % (Done UAT / total)', ()
   const phase = { code: 'P1', name: 'Lived', target_date: '2026-08-10' };
   // 39 fully done, 4 at Done UAT, 0 earlier — everyone has at least
   // reached Ready for Dev and Done UAT, only 39/43 have gone all the way live.
-  const tasks = makeTasksByStatus({ '4.ready_for_staging': 4, '5.done': 39 });
+  const tasks = makeTasksByStatus({ '5.ready_for_staging': 4, '6.done': 39 });
   const rollup = computePhaseRollup(phase, tasks, '2026-08-06');
   assert.equal(rollup.total, 43);
   assert.equal(rollup.done_analyst, 43);
@@ -35,8 +35,8 @@ test('P2 rollup: a mixed spread across every status', () => {
     '0.backlog': 10,
     '2.ready_for_dev': 8,
     '3.in_test': 8,
-    '4.ready_for_staging': 8,
-    '5.done': 2
+    '5.ready_for_staging': 8,
+    '6.done': 2
   });
   const rollup = computePhaseRollup(phase, tasks, '2026-08-06');
   assert.equal(rollup.total, 36);

@@ -62,11 +62,11 @@ test('full CRUD lifecycle: create, list, update, delete', async () => {
 
   const updated = await asAdmin(request(app).put(`/api/tasks/${id}`))
     .send({
-      name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '5.done',
+      name: 'Sửa thông tin TCPH', category: 'Product Foundation', platform: 'Web', status: '6.done',
       start_date: '2026-08-05', due_date: '2026-08-10'
     });
   assert.equal(updated.status, 200);
-  assert.equal(updated.body.status, '5.done');
+  assert.equal(updated.body.status, '6.done');
 
   const deleted = await asAdmin(request(app).delete(`/api/tasks/${id}`));
   assert.equal(deleted.status, 204);
@@ -438,7 +438,7 @@ test('PUT stamps the new status on a change and leaves other status stamps alone
 
   await asAdmin(request(app).put(`/api/tasks/${id}`))
     .send({
-      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '5.done',
+      name: 'Task A', category: 'Product Foundation', platform: 'Web', status: '6.done',
       start_date: '2026-07-06', due_date: '2026-07-17'
     });
 

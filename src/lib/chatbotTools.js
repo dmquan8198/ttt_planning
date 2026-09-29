@@ -272,7 +272,7 @@ async function toolTaskQuaHan(pool, args) {
 
   const today = getTodayVN();
   const params = [today];
-  const conditions = [`t.due_date < $1`, `t.status != '5.done'`];
+  const conditions = [`t.due_date < $1`, `t.status != '6.done'`];
   if (sprint.id) { params.push(sprint.id); conditions.push(`t.sprint_id = $${params.length}`); }
   if (phase.id) { params.push(phase.id); conditions.push(`t.phase_id = $${params.length}`); }
   const where = `WHERE ${conditions.join(' AND ')}`;
