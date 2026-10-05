@@ -255,13 +255,13 @@ function showToast(type, title, message){
   var toast = document.createElement('div');
   toast.className = 'toast is-' + type;
   toast.innerHTML =
-    '<span class="toast-icon">' + (type === 'success' ? '✓' : '✕') + '</span>' +
+    '<span class="toast-icon">' + (type === 'success' ? '✓' : type === 'info' ? 'i' : '✕') + '</span>' +
     '<span class="toast-body">' +
       '<div class="toast-title">' + escapeHtml(title) + '</div>' +
       (message ? '<div class="toast-message">' + escapeHtml(message) + '</div>' : '') +
     '</span>';
   container.appendChild(toast);
-  var timer = setTimeout(remove, type === 'error' ? 6000 : 3000);
+  var timer = setTimeout(remove, type === 'success' ? 3000 : 6000);
   toast.addEventListener('click', remove);
   function remove(){
     clearTimeout(timer);
@@ -272,6 +272,9 @@ function showToast(type, title, message){
 }
 function toastSuccess(message){ showToast('success', 'Thành công', message); }
 function toastError(message){ showToast('error', 'Thất bại', message); }
+// neutral heads-up that isn't the result of the user's own action (e.g. a
+// teammate just edited a task) — title is the news itself, not a status word
+function toastInfo(title, message){ showToast('info', title, message); }
 
 // ---- FLIP animation: call before a container's contents get rebuilt (drag
 // reorder/regroup, status change, resort, etc.), keep the returned function,
@@ -279,33 +282,100 @@ function toastError(message){ showToast('error', 'Thất bại', message); }
 // e.g. a task id) slide from their old position to the new one instead of
 // just jumping, so swaps/moves between rows or blocks read as motion rather
 // than a hard cut. Elements with no earlier position (newly appeared) are
-// left alone; elements that didn't move are left alone too. ----
-function captureFlipPositions(container, keyAttr){
+// left alone; elements that didn't move are left alone too.
+// Uses the Web Animations API (not an inline transform + CSS transition):
+// there's no style left behind to clean up, a re-render that lands mid-
+// animation just cancels it with the replaced element instead of leaving a
+// stuck transform, and the deceleration curve is a proper ease-out rather
+// than the default `ease`. IMPORTANT for callers: restore any scroll
+// position that the rebuild reset BEFORE calling the returned function —
+// both rects are viewport coordinates, so a scroll jump between capture and
+// play shows up as bogus (and very visible) slide distances. ----
+var FLIP_DURATION_MS = 380;
+var FLIP_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
+function prefersReducedMotion(){
+  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+// `selector` narrows which elements carry the key when the attribute is also
+// stamped on things that shouldn't animate (Bảng danh sách puts data-task-id
+// on every input/select in a row as well as on the <tr>; matching all of
+// them mapped one element's old position onto another's and started hundreds
+// of bogus slides).
+function captureFlipPositions(container, keyAttr, selector){
+  var sel = selector || ('[' + keyAttr + ']');
   var positions = {};
-  Array.from(container.querySelectorAll('[' + keyAttr + ']')).forEach(function(el){
+  Array.from(container.querySelectorAll(sel)).forEach(function(el){
     positions[el.getAttribute(keyAttr)] = el.getBoundingClientRect();
   });
   return function playFlip(){
-    Array.from(container.querySelectorAll('[' + keyAttr + ']')).forEach(function(el){
+    if (prefersReducedMotion()) return;
+    Array.from(container.querySelectorAll(sel)).forEach(function(el){
       var oldRect = positions[el.getAttribute(keyAttr)];
-      if (!oldRect) return;
+      if (!oldRect || !el.animate) return;
       var newRect = el.getBoundingClientRect();
       var dx = oldRect.left - newRect.left;
       var dy = oldRect.top - newRect.top;
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
-      el.style.transition = 'none';
-      el.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
-      requestAnimationFrame(function(){
-        el.style.transition = 'transform .25s ease';
-        el.style.transform = '';
-        el.addEventListener('transitionend', function handler(e){
-          if (e.propertyName !== 'transform') return;
-          el.style.transition = '';
-          el.removeEventListener('transitionend', handler);
-        });
-      });
+      el.animate(
+        [{ transform: 'translate(' + dx + 'px, ' + dy + 'px)' }, { transform: 'translate(0, 0)' }],
+        { duration: FLIP_DURATION_MS, easing: FLIP_EASING }
+      );
     });
   };
+}
+
+// ---- "which row did I just touch" flash: a row (task or subtask) briefly
+// glows after an edit/drop so the eye can find it again after the view
+// re-renders. Time-based, not tied to one particular DOM build: every render
+// inside the window re-applies the class with a NEGATIVE animation-delay equal
+// to the time already elapsed, so a second render (the refetch that follows an
+// optimistic one) CONTINUES the glow instead of restarting it from the top —
+// without that the row would flash twice. scope: 'table' (Bảng danh sách) or
+// 'gantt' (Timeline); key: the same value the row's data-task-id carries. ----
+var ROW_FLASH_MS = 2400;
+// scope -> { key: startedAt } — several rows can glow at once (a teammate's
+// refresh can bring in more than one edited task)
+var _rowFlash = { table: {}, gantt: {} };
+// quiet: glow only — don't scroll the list to the row. Used for a teammate's
+// edit arriving while this user is browsing elsewhere in the list; their own
+// edit is different (they want to see where it landed).
+function markRowFlash(scope, key, quiet){
+  _rowFlash[scope][String(key)] = { at: Date.now(), quiet: !!quiet };
+}
+// the keys still inside their window, newest first (expired ones are dropped)
+function rowFlashKeys(scope){
+  var map = _rowFlash[scope], now = Date.now(), keys = [];
+  Object.keys(map).forEach(function(k){
+    if (now - map[k].at >= ROW_FLASH_MS) delete map[k];
+    else keys.push(k);
+  });
+  return keys.sort(function(a, b){ return map[b].at - map[a].at; });
+}
+function rowFlashActive(scope){
+  return rowFlashKeys(scope).length > 0;
+}
+function rowFlashIsQuiet(scope, key){
+  var f = _rowFlash[scope][String(key)];
+  return !!(f && f.quiet);
+}
+// adds the flash class to `el` if `key` is currently flagged for `scope`;
+// returns whether it did.
+function applyRowFlash(el, scope, key){
+  var f = _rowFlash[scope][String(key)];
+  if (!f || Date.now() - f.at >= ROW_FLASH_MS) return false;
+  el.classList.add('row-flash');
+  el.style.setProperty('--flash-delay', (-(Date.now() - f.at)) + 'ms');
+  return true;
+}
+// eases a row back into view inside its own scroll container when the
+// update moved it (e.g. a status change re-grouped it) out of sight — only
+// scrolls when it's actually clipped, never when it's already visible.
+function nudgeRowIntoView(row, scroller, stickyTopPx){
+  if (!row || !scroller) return;
+  var r = row.getBoundingClientRect(), s = scroller.getBoundingClientRect();
+  var top = s.top + (stickyTopPx || 0) + 8, bottom = s.bottom - 8;
+  if (r.top < top) scroller.scrollBy({ top: r.top - top, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  else if (r.bottom > bottom) scroller.scrollBy({ top: r.bottom - bottom, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
 }
 
 // id of the task currently being edited, or null when the drawer is in "create" mode
@@ -452,6 +522,7 @@ function fetchAndRenderLogs(taskId){
 var SUBTASK_STATUS_ORDER = ['todo', 'wip', 'done'];
 var SUBTASK_STATUS_LABELS = { todo: 'TODO', wip: 'WIP', done: 'Done' };
 var _drawerSubtasks = []; // last-fetched list for the currently-open task
+var _draggingDrawerSubtaskId = null; // subtask grip being dragged in the drawer table, or null
 
 function fetchAndRenderSubtasks(taskId){
   var wrap = document.getElementById('subtaskList');
@@ -524,7 +595,8 @@ function renderSubtaskList(taskId, subtasks, pics){
     emptyRow.appendChild(emptyTd);
     wrap.appendChild(emptyRow);
   } else {
-    subtasks.forEach(function(st){ wrap.appendChild(renderSubtaskItem(taskId, st, pics, canEdit)); });
+    var canReorder = canEdit && subtasks.length > 1;
+    subtasks.forEach(function(st){ wrap.appendChild(renderSubtaskItem(taskId, st, pics, canEdit, canReorder)); });
   }
   document.getElementById('addSubtaskBtn').style.display = canEdit ? '' : 'none';
   document.getElementById('cloneSubtasksBtn').style.display = canEdit ? '' : 'none';
@@ -581,14 +653,52 @@ function wireSubtaskFieldAutosave(taskId, st, fields){
 // subtask, Status, Start, Due, PIC, xoá) — each cell its own
 // independently autosaving input/select, same fields/logic as before,
 // just laid out as a table row instead of a stacked card.
-function renderSubtaskItem(taskId, st, pics, canEdit){
+function renderSubtaskItem(taskId, st, pics, canEdit, canReorder){
   var row = document.createElement('tr');
+  row.setAttribute('data-subtask-id', st.id);
 
   var nameTd = document.createElement('td');
   var nameInput = document.createElement('input');
   nameInput.type = 'text'; nameInput.className = 'subtask-input'; nameInput.value = st.name; nameInput.disabled = !canEdit;
   nameInput.dataset.original = st.name;
   nameTd.appendChild(nameInput);
+  if (canReorder){
+    // only this grip is draggable (not the whole row) so the inputs inside
+    // keep normal text selection; the row itself is the drop target
+    nameTd.classList.add('subtask-name-cell');
+    var handle = document.createElement('span');
+    handle.className = 'subtask-drag-handle'; handle.textContent = '⋮⋮';
+    handle.title = 'Kéo để đổi thứ tự subtask'; handle.draggable = true;
+    handle.addEventListener('dragstart', function(e){
+      _draggingDrawerSubtaskId = st.id;
+      row.classList.add('row-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'subtask-' + st.id);
+      if (e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(row, 16, 16);
+    });
+    handle.addEventListener('dragend', function(){
+      row.classList.remove('row-dragging');
+      _draggingDrawerSubtaskId = null;
+      setDropTargetRow(null);
+    });
+    nameTd.appendChild(handle);
+    row.addEventListener('dragover', function(e){
+      if (_draggingDrawerSubtaskId == null || _draggingDrawerSubtaskId === st.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      var rowsNow = Array.from(row.parentNode.querySelectorAll('tr[data-subtask-id]'));
+      var fromPos = rowsNow.findIndex(function(r){ return Number(r.dataset.subtaskId) === _draggingDrawerSubtaskId; });
+      setDropTargetRow(row, fromPos < rowsNow.indexOf(row) ? 'after' : 'before');
+    });
+    row.addEventListener('drop', function(e){
+      if (_draggingDrawerSubtaskId == null) return;
+      e.preventDefault();
+      var fromId = _draggingDrawerSubtaskId;
+      _draggingDrawerSubtaskId = null;
+      setDropTargetRow(null);
+      if (fromId !== st.id) reorderDrawerSubtask(taskId, fromId, st.id);
+    });
+  }
   row.appendChild(nameTd);
 
   // flex lives on an inner <span>, not the <td> itself — see
@@ -1595,6 +1705,37 @@ function fmtStamp(iso){
   if (isNaN(d.getTime())) return '';
   var p = function(n){ return String(n).padStart(2, '0'); };
   return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+// ---- "who edited what, when": relative times + the server's clock ----
+// "5 phút trước" has to be measured against the clock that WROTE the
+// timestamp, not this machine's — a laptop a few minutes fast or slow would
+// otherwise show every fresh edit as "in the future"/"10 minutes ago". The
+// offset is learned from the database's own now() on each /recent-edits poll.
+var _serverClockOffsetMs = 0;
+function serverNowMs(){ return Date.now() + _serverClockOffsetMs; }
+// a row counts as "vừa cập nhật" (tinted, with an accent bar) for this long
+var FRESH_EDIT_MS = 10 * 60 * 1000;
+function editAgeMs(iso){
+  if (!iso) return null;
+  var then = new Date(iso).getTime();
+  return isNaN(then) ? null : Math.max(0, serverNowMs() - then);
+}
+function isFreshEdit(iso){
+  var age = editAgeMs(iso);
+  return age !== null && age < FRESH_EDIT_MS;
+}
+function fmtRelativeTime(iso){
+  var age = editAgeMs(iso);
+  if (age === null) return '';
+  var minutes = Math.floor(age / 60000);
+  if (minutes < 1) return 'vừa xong';
+  if (minutes < 60) return minutes + ' phút trước';
+  var hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + ' giờ trước';
+  var days = Math.floor(hours / 24);
+  if (days < 7) return days + ' ngày trước';
+  return fmtStamp(iso).slice(0, 10);
 }
 
 // ---- roadmap: phase cards + master axis (fetched from /api/phases) ----
@@ -3239,15 +3380,69 @@ function updateTaskGroup(task, groupKey, sprints){
 // every other group's stt values are left completely untouched. A task
 // with no stt yet is given a fresh one past the current global max before
 // slots are built, so it still participates in the reorder meaningfully.
+// returns a copy of `list` with the item `fromId` moved onto the slot `toId`
+// currently occupies — dragged down it lands AFTER the target, dragged up it
+// lands BEFORE it, and everything in between shifts by one, the way any
+// sortable list behaves (so the last row is reachable too: dropping on it
+// used to insert one slot short). null when nothing would change.
+function moveItemToTargetSlot(list, fromId, toId, idOf){
+  var fromIdx = -1, toIdx = -1;
+  list.forEach(function(x, i){
+    if (idOf(x) === fromId) fromIdx = i;
+    if (idOf(x) === toId) toIdx = i;
+  });
+  if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return null;
+  var out = list.slice();
+  var moved = out.splice(fromIdx, 1)[0];
+  out.splice(toIdx, 0, moved);
+  return out;
+}
+
+// the single "this is where it will land" marker while dragging a row over
+// others — an accent line on the target's top edge (dragging up) or bottom
+// edge (dragging down). Tracked in one variable and only touched when the
+// target actually changes, rather than add/remove on every dragover/dragleave
+// pair, which flickered as the pointer crossed a row's child elements.
+var _dropTargetRowEl = null;
+function setDropTargetRow(el, pos){
+  if (_dropTargetRowEl && _dropTargetRowEl !== el){
+    _dropTargetRowEl.classList.remove('row-drop-target');
+    _dropTargetRowEl.removeAttribute('data-drop-pos');
+  }
+  _dropTargetRowEl = el || null;
+  if (el){
+    el.classList.add('row-drop-target');
+    el.setAttribute('data-drop-pos', pos || 'before');
+  }
+}
+document.addEventListener('dragend', function(){
+  setDropTargetRow(null);
+  _draggingTimelineTaskId = null;
+  _draggingTimelineSubtask = null;
+  _draggingDrawerSubtaskId = null;
+});
+
+// ORDER BY stt NULLS LAST, id — the same order GET /api/tasks returns, so a
+// locally re-sorted cache matches what the server will hand back.
+function compareTasksManualOrder(a, b){
+  var aNull = a.stt == null ? 1 : 0, bNull = b.stt == null ? 1 : 0;
+  if (aNull !== bNull) return aNull - bNull;
+  if (a.stt !== b.stt && a.stt != null) return a.stt - b.stt;
+  return a.id - b.id;
+}
+
+// runs `fn` once the FLIP slide that began at `startedAt` has finished —
+// refreshAllViews() re-renders the Timeline, and doing that mid-slide would
+// cancel the animation with the elements it was moving.
+function afterFlipSettles(startedAt, fn){
+  var wait = prefersReducedMotion() ? 0 : Math.max(0, FLIP_DURATION_MS + 60 - (Date.now() - startedAt));
+  setTimeout(fn, wait);
+}
+
 function reorderTimelineTask(draggedTask, targetTask, groupTasks){
   if (draggedTask.id === targetTask.id) return;
-  var ordered = groupTasks.slice();
-  var fromIdx = ordered.findIndex(function(t){ return t.id === draggedTask.id; });
-  if (fromIdx === -1) return;
-  var moved = ordered.splice(fromIdx, 1)[0];
-  var toIdx = ordered.findIndex(function(t){ return t.id === targetTask.id; });
-  if (toIdx === -1) return;
-  ordered.splice(toIdx, 0, moved);
+  var ordered = moveItemToTargetSlot(groupTasks, draggedTask.id, targetTask.id, function(t){ return t.id; });
+  if (!ordered) return;
 
   var nextFreeStt = _lastTimelineTasks.reduce(function(max, t){ return Math.max(max, t.stt || 0); }, 0);
   var slots = groupTasks
@@ -3261,18 +3456,37 @@ function reorderTimelineTask(draggedTask, targetTask, groupTasks){
   });
   if (updates.length === 0) return;
 
-  Promise.all(updates.map(function(u){
-    var body = {
-      category: u.task.category, name: u.task.name, why: u.task.why, resource_roles: u.task.resource_roles,
-      platform: u.task.platform, status: u.task.status,
-      phase_id: u.task.phase_id, sprint_id: u.task.sprint_id, stt: u.newStt,
-      done_analyst: u.task.done_analyst, done_dev: u.task.done_dev, done_uat: u.task.done_uat, done_staging: u.task.done_staging,
-      start_date: u.task.start_date, due_date: u.task.due_date, date_overridden: u.task.date_overridden
+  var requests = updates.map(function(u){
+    return {
+      id: u.task.id,
+      body: {
+        category: u.task.category, name: u.task.name, why: u.task.why, resource_roles: u.task.resource_roles,
+        platform: u.task.platform, status: u.task.status,
+        phase_id: u.task.phase_id, sprint_id: u.task.sprint_id, stt: u.newStt,
+        done_analyst: u.task.done_analyst, done_dev: u.task.done_dev, done_uat: u.task.done_uat, done_staging: u.task.done_staging,
+        start_date: u.task.start_date, due_date: u.task.due_date, date_overridden: u.task.date_overridden
+      }
     };
-    return authFetch('/api/tasks/' + u.task.id, {
+  });
+
+  // optimistic: write the new positions into the cached tasks, re-sort the
+  // cache exactly the way the server will (stt, NULLs last, id) and
+  // re-render NOW — the FLIP slides the rows into place and the dropped one
+  // glows — while the PUTs run behind it. Waiting for every PUT plus a full
+  // refetch before anything moved was most of why this felt unsmooth. A
+  // failure falls back to refreshAllViews(), which snaps/slides everything
+  // back to what the server actually has.
+  updates.forEach(function(u){ u.task.stt = u.newStt; });
+  _lastTimelineTasks.sort(compareTasksManualOrder);
+  markRowFlash('gantt', draggedTask.id);
+  var startedAt = Date.now();
+  renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+
+  Promise.all(requests.map(function(r){
+    return authFetch('/api/tasks/' + r.id, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(r.body)
     }).then(function(res){
       if (!res.ok){
         return res.json().catch(function(){ return {}; }).then(function(errBody){
@@ -3281,12 +3495,92 @@ function reorderTimelineTask(draggedTask, targetTask, groupTasks){
       }
     });
   })).then(function(){
-    refreshAllViews();
-    toastSuccess('Đã đổi vị trí');
+    toastSuccess('Đã đổi vị trí "' + draggedTask.name + '"');
+    afterFlipSettles(startedAt, refreshAllViews);
   }).catch(function(err){
     console.error('Đổi vị trí trên Timeline thất bại', err);
     toastError('Không đổi được vị trí: ' + err.message);
+    refreshAllViews();
   });
+}
+
+// ---- subtask order: persisted per task (subtasks.sort_order), shared by
+// the Timeline's drag-to-reorder and the task drawer's subtask table ----
+function saveSubtaskOrder(taskId, ids){
+  return authFetch('/api/tasks/' + taskId + '/subtasks/order', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: ids })
+  }).then(function(res){
+    if (!res.ok){
+      return res.json().catch(function(){ return {}; }).then(function(errBody){
+        throw new Error(errBody.error || ('HTTP ' + res.status));
+      });
+    }
+    return res.json();
+  });
+}
+
+// which subtask label is being dragged on the Timeline: { taskId, id } or
+// null. A subtask can only be dropped among its OWN task's other subtasks.
+var _draggingTimelineSubtask = null;
+
+// drawer table version: moves the existing <tr> in the DOM (so every row's
+// autosave listeners, open dropdowns etc. survive) with the same FLIP slide,
+// then persists. A failed save re-fetches the list, which snaps back to the
+// server's order.
+function reorderDrawerSubtask(taskId, fromId, toId){
+  var wrap = document.getElementById('subtaskList');
+  var rowById = {};
+  var ids = [];
+  Array.from(wrap.querySelectorAll('tr[data-subtask-id]')).forEach(function(r){
+    var id = Number(r.dataset.subtaskId);
+    rowById[id] = r; ids.push(id);
+  });
+  var ordered = moveItemToTargetSlot(ids, fromId, toId, function(id){ return id; });
+  if (!ordered) return;
+  var playFlip = captureFlipPositions(wrap, 'data-subtask-id');
+  ordered.forEach(function(id){ wrap.appendChild(rowById[id]); });
+  playFlip();
+  var byId = {};
+  _drawerSubtasks.forEach(function(s){ byId[s.id] = s; });
+  _drawerSubtasks = ordered.map(function(id){ return byId[id]; }).filter(Boolean);
+  saveSubtaskOrder(taskId, ordered)
+    .then(function(){
+      toastSuccess('Đã đổi thứ tự subtask.');
+      // the Timeline / Danh sách nghiệp vụ read the same order — bring them in line
+      refreshAllViews();
+    })
+    .catch(function(err){
+      console.error('Đổi thứ tự subtask trong drawer thất bại', err);
+      toastError('Không đổi được thứ tự subtask: ' + err.message);
+      fetchAndRenderSubtasks(taskId);
+    });
+}
+
+function reorderTimelineSubtask(task, fromId, toId){
+  var ordered = moveItemToTargetSlot(task.subtasks, fromId, toId, function(s){ return s.id; });
+  if (!ordered) return;
+  var previous = task.subtasks;
+  var moved = ordered.filter(function(s){ return s.id === fromId; })[0];
+  // same optimistic flow as reorderTimelineTask: show the new order at once
+  // (sub-rows slide, the dropped one glows), persist behind it, and fall
+  // back to the server's order if the save fails
+  task.subtasks = ordered;
+  markRowFlash('gantt', task.id + '-sub-' + fromId);
+  var startedAt = Date.now();
+  renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+  saveSubtaskOrder(task.id, ordered.map(function(s){ return s.id; }))
+    .then(function(){
+      toastSuccess('Đã đổi thứ tự subtask "' + moved.name + '"');
+      afterFlipSettles(startedAt, refreshAllViews);
+    })
+    .catch(function(err){
+      console.error('Đổi thứ tự subtask trên Timeline thất bại', err);
+      task.subtasks = previous;
+      toastError('Không đổi được thứ tự subtask: ' + err.message);
+      refreshAllViews();
+    });
 }
 
 // PUTs only start_date/due_date for one subtask — same endpoint
@@ -3393,6 +3687,48 @@ function renderSubtaskGanttRow(t, st, pctPos, axisSpan){
   label.appendChild(labelText);
   label.title = 'Bấm để mở "' + t.name + '"';
   label.addEventListener('click', function(){ openDrawer('edit', t); });
+
+  // drag the label (not the bar — that already drags dates) to reorder this
+  // task's subtasks. Only among its OWN siblings, and only for editors with
+  // something to reorder against; the order is persisted per task.
+  var siblings = t.subtasks || [];
+  if (hasRole('editor') && siblings.length > 1){
+    var grip = document.createElement('span');
+    grip.className = 'subtask-grip'; grip.textContent = '⋮⋮'; grip.setAttribute('aria-hidden', 'true');
+    label.insertBefore(grip, labelText);
+    label.classList.add('is-reorderable');
+    label.draggable = true;
+    label.title = 'Bấm để mở "' + t.name + '" · Kéo để đổi thứ tự subtask';
+    label.addEventListener('dragstart', function(e){
+      _draggingTimelineSubtask = { taskId: t.id, id: st.id };
+      row.classList.add('row-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'subtask-' + st.id);
+    });
+    label.addEventListener('dragend', function(){
+      row.classList.remove('row-dragging');
+      _draggingTimelineSubtask = null;
+    });
+    row.addEventListener('dragover', function(e){
+      var dragged = _draggingTimelineSubtask;
+      if (!dragged || dragged.taskId !== t.id || dragged.id === st.id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      var fromPos = siblings.findIndex(function(x){ return x.id === dragged.id; });
+      var toPos = siblings.findIndex(function(x){ return x.id === st.id; });
+      setDropTargetRow(row, fromPos < toPos ? 'after' : 'before');
+    });
+    row.addEventListener('drop', function(e){
+      var dragged = _draggingTimelineSubtask;
+      setDropTargetRow(null);
+      if (!dragged || dragged.taskId !== t.id || dragged.id === st.id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      reorderTimelineSubtask(t, dragged.id, st.id);
+    });
+  }
+
   var track = document.createElement('div'); track.className = 'task-track';
   if (st.start_date && st.due_date){
     var startDate = new Date(st.start_date), dueDate = new Date(st.due_date);
@@ -3451,6 +3787,11 @@ function renderSubtaskGanttRow(t, st, pctPos, axisSpan){
 function renderGantt(tasks, sprints, phases){
   var body = document.getElementById('ganttBody');
   var playFlip = captureFlipPositions(body, 'data-task-id');
+  // #ganttBody is the vertical scroller: emptying it resets scrollTop to 0.
+  // That jumped the list to the top after every drop/edit AND corrupted the
+  // FLIP below (old rects were measured scrolled, new ones at scrollTop 0,
+  // so rows "slid" by the scroll distance instead of by their real move).
+  var prevBodyScrollTop = body.scrollTop;
   body.innerHTML = '';
   var oldOverlay = document.querySelector('.gantt-track-overlay');
   if (oldOverlay) oldOverlay.parentNode.removeChild(oldOverlay);
@@ -3626,6 +3967,12 @@ function renderGantt(tasks, sprints, phases){
     group.appendChild(divider);
 
     group.addEventListener('dragover', function(e){
+      // a subtask being reordered has nothing to do with changing a task's
+      // group — not a drop target here, and no group highlight either
+      if (_draggingTimelineSubtask) return;
+      // reaching here means no row claimed this dragover (rows stop it when
+      // they're a valid insertion point), so any row marker is now stale
+      setDropTargetRow(null);
       e.preventDefault();
       group.classList.add('group-drag-over');
     });
@@ -3728,17 +4075,18 @@ function renderGantt(tasks, sprints, phases){
         if (draggedTask && draggedTask.id !== t.id && taskGroupKey(draggedTask) === g.key){
           e.preventDefault();
           e.stopPropagation();
-          row.classList.add('row-drop-target');
+          e.dataTransfer.dropEffect = 'move';
+          // dragging down lands AFTER this row, dragging up lands BEFORE it
+          var fromPos = groupTasks.findIndex(function(x){ return x.id === draggedTask.id; });
+          var toPos = groupTasks.findIndex(function(x){ return x.id === t.id; });
+          setDropTargetRow(row, fromPos < toPos ? 'after' : 'before');
         }
-      });
-      row.addEventListener('dragleave', function(){
-        row.classList.remove('row-drop-target');
       });
       row.addEventListener('drop', function(e){
         if (_timelineSortBy !== 'manual') return;
         var draggedId = _draggingTimelineTaskId;
         var draggedTask = draggedId != null ? _lastTimelineTasks.filter(function(x){ return x.id === draggedId; })[0] : null;
-        row.classList.remove('row-drop-target');
+        setDropTargetRow(null);
         if (!draggedTask || draggedTask.id === t.id || taskGroupKey(draggedTask) !== g.key) return;
         e.preventDefault();
         e.stopPropagation();
@@ -3801,6 +4149,7 @@ function renderGantt(tasks, sprints, phases){
     });
     body.appendChild(group);
   });
+  body.scrollTop = prevBodyScrollTop;
 
   // overlay: day gridlines (every day, bolder on Mondays) plus the today
   // line (real current date, only if it falls within the axis range). Mounted
@@ -3908,6 +4257,17 @@ function renderGantt(tasks, sprints, phases){
   ganttEl.style.position = 'relative';
   ganttEl.appendChild(overlayEl);
   playFlip();
+
+  // the row just dropped/edited glows briefly (see markRowFlash) and, if
+  // the change left it clipped outside the scrolled list, eases back into view
+  var firstFlashRow = null;
+  rowFlashKeys('gantt').forEach(function(key){
+    var flashRow = body.querySelector('.task-row[data-task-id="' + key + '"]');
+    if (!flashRow) return;
+    applyRowFlash(flashRow, 'gantt', key);
+    if (!firstFlashRow && !rowFlashIsQuiet('gantt', key)) firstFlashRow = flashRow;
+  });
+  if (firstFlashRow) nudgeRowIntoView(firstFlashRow, body, 0);
 }
 
 function renderStatusLegend(elementId){
@@ -4086,21 +4446,40 @@ var TABLE_COLUMNS = [
   { key: 'done_dev', label: 'Done Dev' },
   { key: 'done_uat', label: 'Done UAT' },
   { key: 'done_staging', label: 'Done Staging' },
-  { key: 'latest_note', label: 'Cập nhật mới nhất' }
+  { key: 'latest_note', label: 'Cập nhật mới nhất' },
+  // kept last on purpose: column order follows this list, and "who touched
+  // it, when" reads best as the final column of the row
+  { key: 'last_edited', label: 'Sửa lần cuối' }
 ];
-var TABLE_DEFAULT_VISIBLE = ['stt', 'name', 'category', 'platform', 'phase', 'sprint', 'status', 'start', 'due'];
+var TABLE_DEFAULT_VISIBLE = ['stt', 'name', 'category', 'platform', 'phase', 'sprint', 'status', 'start', 'due', 'last_edited'];
 
+// bumped when a column is ADDED that everyone should see once: saved column
+// picks from before it have no way to include the new column, so they'd
+// never see it. On first load after the bump it's appended to a saved list
+// exactly once; if the person then hides it, it stays hidden (saving a
+// pick stamps the current version, see saveTableColumnPrefs).
+// v2: 'last_edited' ("Sửa lần cuối")
+var TABLE_COLUMNS_PREFS_VERSION = '2';
 function loadTableColumnPrefs(){
   try {
     var saved = JSON.parse(localStorage.getItem('ttt_table_columns') || 'null');
     if (Array.isArray(saved) && saved.length){
-      return saved.filter(function(k){ return TABLE_COLUMNS.some(function(c){ return c.key === k; }); });
+      var cols = saved.filter(function(k){ return TABLE_COLUMNS.some(function(c){ return c.key === k; }); });
+      if (localStorage.getItem('ttt_table_columns_ver') !== TABLE_COLUMNS_PREFS_VERSION){
+        if (cols.indexOf('last_edited') === -1) cols.push('last_edited');
+        localStorage.setItem('ttt_table_columns', JSON.stringify(cols));
+        localStorage.setItem('ttt_table_columns_ver', TABLE_COLUMNS_PREFS_VERSION);
+      }
+      return cols;
     }
   } catch (e) { /* corrupt/blocked storage — fall through to the default */ }
   return TABLE_DEFAULT_VISIBLE.slice();
 }
 function saveTableColumnPrefs(){
-  try { localStorage.setItem('ttt_table_columns', JSON.stringify(_tableVisibleColumns)); } catch (e) {}
+  try {
+    localStorage.setItem('ttt_table_columns', JSON.stringify(_tableVisibleColumns));
+    localStorage.setItem('ttt_table_columns_ver', TABLE_COLUMNS_PREFS_VERSION);
+  } catch (e) {}
 }
 
 var _tableVisibleColumns = loadTableColumnPrefs();
@@ -4252,6 +4631,17 @@ function tableCellHtml(col, t){
       var idx = statusDotToNum(t.status);
       return '<span class="pill st-' + idx + '">' + escapeHtml(statusLabel[idx].replace(/^\d+\.\s*/, '')) + '</span>';
     }
+    case 'last_edited': {
+      // who + when the task's content was last changed — see
+      // tasks.last_edited_at. data-edit-at lets refreshEditStamps() keep the
+      // relative time ("5 phút trước") current without re-rendering the table.
+      if (!t.last_edited_at) return '<span class="edit-stamp-none">—</span>';
+      var detail = fmtStamp(t.last_edited_at) + (t.last_edited_by ? ' — ' + t.last_edited_by : '');
+      return '<span class="edit-stamp' + (isFreshEdit(t.last_edited_at) ? ' is-fresh' : '') + '" data-edit-at="' +
+        escapeHtml(t.last_edited_at) + '" title="' + escapeHtml(detail) + '">' +
+        escapeHtml(fmtRelativeTime(t.last_edited_at)) + '</span>' +
+        (t.last_edited_by ? '<span class="edit-by" title="' + escapeHtml(detail) + '">' + escapeHtml(t.last_edited_by) + '</span>' : '');
+    }
     case 'start': {
       var r1 = effectiveRange(t);
       return r1 ? fmtDMY(toIsoDate(r1.start)) : (t.start_date ? fmtDMY(t.start_date) : '');
@@ -4338,10 +4728,21 @@ function autoGrowTableTextarea(ta){
 // view is ever switched to, e.g. on initial page load) can't avoid that by
 // itself, so nav-switching into this view re-runs the same pass — cheap
 // (a couple hundred rows at most) and a no-op if heights are already right.
+// Batched on purpose: reset every textarea, THEN read every scrollHeight,
+// THEN write every height. The obvious per-textarea "reset, read, write"
+// loop forces the browser to re-lay-out the whole table once PER textarea
+// (a read right after a write) — ~450ms of frozen UI for 97 textareas on
+// every table render, which was the biggest part of the "giựt" on each
+// save. Batched, it's a single layout. A height of 0 (the view is hidden)
+// is never written back, so it can't bake in a collapsed textarea.
 function autoGrowAllTableTextareas(){
   var wrap = document.getElementById('tableViewWrap');
   if (!wrap) return;
-  wrap.querySelectorAll('.table-cell-textarea').forEach(autoGrowTableTextarea);
+  var tas = Array.from(wrap.querySelectorAll('.table-cell-textarea'));
+  if (!tas.length) return;
+  tas.forEach(function(ta){ ta.style.height = 'auto'; });
+  var heights = tas.map(function(ta){ return ta.scrollHeight; });
+  tas.forEach(function(ta, i){ if (heights[i] > 0) ta.style.height = heights[i] + 'px'; });
 }
 function appendEditableSelect(td, field, task, options, selectedValue, emptyLabel){
   var select = document.createElement('select');
@@ -4412,13 +4813,18 @@ function appendStatusOnlyCell(td, t, canEdit){
   btn.title = btn.disabled ? 'Đã ở status cuối' : 'Chuyển nhanh sang status tiếp theo';
   btn.addEventListener('click', function(){
     if (idx === -1 || idx === STATUS_ORDER.length - 1) return;
+    var prevStatus = t.status, nextStatus = STATUS_ORDER[idx + 1];
     btn.disabled = true;
-    saveTaskInlineField(t, { status: STATUS_ORDER[idx + 1] }).then(function(){
-      toastSuccess('Đã lưu.');
+    // optimistic: the pill steps forward and the row glows immediately,
+    // instead of sitting there with a greyed-out arrow for the length of a
+    // save + refetch round trip and then changing all at once.
+    showTableTaskUpdated(t, { status: nextStatus });
+    saveTaskInlineField(t, { status: nextStatus }).then(function(){
+      toastSuccess('Đã chuyển "' + t.name + '" sang ' + statusLabel[idx + 1].replace(/^\d+\.\s*/, '') + '.');
       refreshAllViews();
     }).catch(function(err){
+      showTableTaskUpdated(t, { status: prevStatus });
       toastError('Không lưu được: ' + err.message);
-      btn.disabled = false;
     });
   });
   wrap.appendChild(btn);
@@ -4433,6 +4839,14 @@ function renderTableRow(t, visibleCols, canEdit, rowNum, isExpanded){
   var tr = document.createElement('tr');
   tr.className = 'data-table-row';
   tr.dataset.taskId = t.id;
+  // a task edited in the last few minutes — by ANYONE, not just this tab —
+  // stays tinted with an accent bar until the window runs out, so a teammate
+  // opening the list can see at a glance what just changed (refreshEditStamps
+  // drops the class when it expires, no re-render needed)
+  if (t.last_edited_at){
+    tr.dataset.editAt = t.last_edited_at;
+    if (isFreshEdit(t.last_edited_at)) tr.classList.add('row-fresh');
+  }
 
   var toggleTd = document.createElement('td');
   toggleTd.className = 'data-table-toggle-cell';
@@ -4586,6 +5000,27 @@ function saveTaskInlineField(task, overrides){
   });
 }
 
+// right after an inline edit in Bảng danh sách: write what was just saved
+// into the cached task, flag its row for the "vừa cập nhật" flash, and
+// re-render the table (plus the two summaries that count by status/sprint)
+// straight from cache — instant, no waiting on the refetch. The
+// refreshAllViews() every caller still does afterwards brings in server
+// truth; because the flash is time-based (see markRowFlash) that second
+// render continues the glow rather than replaying it.
+function showTableTaskUpdated(task, patch){
+  // stamp it as edited by me just now, same as the server just did — so the
+  // row is tinted and "Sửa lần cuối" reads "vừa xong · <my name>" at once
+  task.last_edited_at = new Date(serverNowMs()).toISOString();
+  task.last_edited_by = getActorName() || null;
+  if (patch) Object.keys(patch).forEach(function(k){ task[k] = patch[k]; });
+  markRowFlash('table', task.id);
+  if (_lastTableTasks){
+    renderTableView(applyTableFilters(_lastTableTasks));
+    renderPhaseSummary();
+    renderSprintSummary();
+  }
+}
+
 // due date changes go through the same mandatory-reason gate as every
 // other date change made outside the drawer (Timeline/Sprint Overview drag)
 // once the task's CURRENT due date is already due or overdue.
@@ -4594,7 +5029,11 @@ function handleInlineDueChange(task, newDue, input){
     input.disabled = true;
     saveTaskInlineField(task, { due_date: newDue, date_overridden: true })
       .then(function(){ if (reason) return postDateChangeReasonLog(task.id, reason); })
-      .then(function(){ toastSuccess('Đã lưu.'); refreshAllViews(); })
+      .then(function(){
+        showTableTaskUpdated(task, { due_date: newDue, date_overridden: true });
+        toastSuccess('Đã lưu "' + task.name + '".');
+        refreshAllViews();
+      })
       .catch(function(err){
         toastError('Không lưu được: ' + err.message);
         input.value = input.dataset.original;
@@ -4616,7 +5055,19 @@ function handleInlineSprintChange(task, newSprintIdStr, input){
     input.disabled = true;
     updateTaskSprint(task, newSprintId, _lastTableSprints || [])
       .then(function(){ if (reason) return postDateChangeReasonLog(task.id, reason); })
-      .then(function(){ toastSuccess('Đã đổi sprint cho "' + task.name + '"'); refreshAllViews(); })
+      .then(function(){
+        // same derivation updateTaskSprint just sent: the new sprint's own
+        // dates, date_overridden cleared (no sprint = keep the current dates)
+        var sprint = (_lastTableSprints || []).filter(function(s){ return s.id === newSprintId; })[0];
+        showTableTaskUpdated(task, {
+          sprint_id: newSprintId, sprint_code: sprint ? sprint.code : null,
+          start_date: sprint ? sprint.start_date : task.start_date,
+          due_date: sprint ? sprint.end_date : task.due_date,
+          date_overridden: false
+        });
+        toastSuccess('Đã đổi sprint cho "' + task.name + '"');
+        refreshAllViews();
+      })
       .catch(function(err){
         toastError('Không đổi được sprint: ' + err.message);
         input.value = input.dataset.original;
@@ -4659,7 +5110,8 @@ document.getElementById('tableViewWrap').addEventListener('change', function(e){
     if (field === 'due'){ handleInlineDueChange(task, iso, input); return; }
     input.disabled = true;
     saveTaskInlineField(task, { start_date: iso, date_overridden: true }).then(function(){
-      toastSuccess('Đã lưu.');
+      showTableTaskUpdated(task, { start_date: iso, date_overridden: true });
+      toastSuccess('Đã lưu "' + task.name + '".');
       refreshAllViews();
     }).catch(function(err){
       toastError('Không lưu được: ' + err.message);
@@ -4676,7 +5128,13 @@ document.getElementById('tableViewWrap').addEventListener('change', function(e){
   }
   input.disabled = true;
   saveTaskInlineField(task, overrides).then(function(){
-    toastSuccess('Đã lưu.');
+    var patch = Object.assign({}, overrides);
+    if (field === 'phase'){
+      var phase = (_lastTablePhases || []).filter(function(p){ return p.id === overrides.phase_id; })[0];
+      patch.phase_code = phase ? phase.code : null;
+    }
+    showTableTaskUpdated(task, patch);
+    toastSuccess('Đã lưu "' + (patch.name || task.name) + '".');
     refreshAllViews();
   }).catch(function(err){
     toastError('Không lưu được: ' + err.message);
@@ -4713,6 +5171,15 @@ function renderTableView(tasks){
     wrap.innerHTML = '<div class="view-sub" style="padding:16px;">Chưa chọn cột nào để hiển thị — bấm "Cột" ở trên.</div>';
     return;
   }
+
+  // wrap is itself the scroller (.data-table-scroll): replacing its contents
+  // resets scrollTop to 0, which was the "giựt" on every save — the table
+  // snapped back to the top. Remember it and put it back after the rebuild.
+  // When this render follows an edit (a row is flagged for the flash), also
+  // remember where every row sits so any that MOVED (re-grouped/re-sorted by
+  // the change) slide to their new spot instead of teleporting.
+  var prevScrollTop = wrap.scrollTop, prevScrollLeft = wrap.scrollLeft;
+  var playFlip = rowFlashActive('table') ? captureFlipPositions(wrap, 'data-task-id', 'tr.data-table-row[data-task-id]') : null;
 
   var table = document.createElement('table'); table.className = 'data-table';
   var thead = document.createElement('thead');
@@ -4763,19 +5230,139 @@ function renderTableView(tasks){
   table.appendChild(tbody);
   wrap.innerHTML = '';
   wrap.appendChild(table);
-  // scrollHeight is only reliably accurate once the browser has actually
-  // laid the table out — for a big rebuild (100+ rows at once) reading it
-  // synchronously right after appendChild measured stale (pre-layout)
-  // heights for some rows. requestAnimationFrame would be the usual fix,
-  // but rAF callbacks are suspended entirely on a backgrounded tab (a
-  // real scenario: switching tabs mid-load), so a textarea could be left
-  // permanently un-grown. setTimeout still fires on a hidden tab (only
-  // throttled, never suspended), so it defers past the same layout race
-  // without that risk. (If this view itself isn't the visible one right
-  // now, scrollHeight is 0 regardless of timing — see the nav-switch call
-  // to autoGrowAllTableTextareas() that covers that case.)
+  wrap.scrollTop = prevScrollTop; wrap.scrollLeft = prevScrollLeft;
+  // textarea cells (Tại sao cần làm, ghi chú) start at their default height
+  // and are grown to fit afterwards. Doing that only in a setTimeout meant
+  // the first paint showed them un-grown and the rows then jumped taller a
+  // beat later — a second visible "giựt" on top of the scroll reset. So grow
+  // them NOW, before the first paint (cheap now that it's batched — see
+  // autoGrowAllTableTextareas), and re-assert the scroll position since the
+  // rows just changed height. The setTimeout pass stays as the fallback it
+  // always was, for a table rendered while this view wasn't visible
+  // (scrollHeight is 0 for everything inside a hidden ancestor — see the
+  // nav-switch call to autoGrowAllTableTextareas() that covers that case).
+  autoGrowAllTableTextareas();
+  wrap.scrollTop = prevScrollTop;
   setTimeout(autoGrowAllTableTextareas, 0);
+
+  if (playFlip) playFlip();
+  var firstFlashRow = null;
+  rowFlashKeys('table').forEach(function(key){
+    var flashRow = tbody.querySelector('tr.data-table-row[data-task-id="' + key + '"]');
+    if (!flashRow) return;
+    applyRowFlash(flashRow, 'table', key);
+    if (!firstFlashRow && !rowFlashIsQuiet('table', key)) firstFlashRow = flashRow; // newest own edit first
+  });
+  if (firstFlashRow) nudgeRowIntoView(firstFlashRow, wrap, thead.offsetHeight);
 }
+
+// ---- keeping "Sửa lần cuối" / the fresh-row tint honest over time ----
+// "5 phút trước" and the 10-minute tint both age while the page just sits
+// there; walk the rendered rows and update them in place (no re-render, so
+// nothing the user is typing into is disturbed).
+function refreshEditStamps(){
+  var wrap = document.getElementById('tableViewWrap');
+  if (!wrap) return;
+  wrap.querySelectorAll('.edit-stamp[data-edit-at]').forEach(function(el){
+    var iso = el.getAttribute('data-edit-at');
+    el.textContent = fmtRelativeTime(iso);
+    el.classList.toggle('is-fresh', isFreshEdit(iso));
+  });
+  // both directions: a tint that ran out comes off, and one that the first
+  // render got wrong (it ran before the server's clock offset was known, on
+  // a machine whose own clock is off) goes on
+  wrap.querySelectorAll('tr[data-edit-at]').forEach(function(tr){
+    tr.classList.toggle('row-fresh', isFreshEdit(tr.getAttribute('data-edit-at')));
+  });
+}
+setInterval(refreshEditStamps, 30000);
+
+// ---- live: tell the user when SOMEONE ELSE edits a task ----
+// Polls the cheap GET /api/tasks/recent-edits (ids + editor + time only, not
+// the whole task list) every EDIT_POLL_MS while this tab is visible. When a
+// teammate's edit shows up: toast who/what, flash the row(s), and reload the
+// views so the new data (and the "Sửa lần cuối" stamp) is on screen. Edits
+// made by this user's own name are skipped — they already saw them happen.
+// Tradeoff: an open, visible tab now touches the DB every 30s, which keeps a
+// scale-to-zero Postgres (Neon) awake while someone has the app open.
+var EDIT_POLL_MS = 30000;
+var _editsCursor = null;      // ISO, DB clock: edits up to here have been handled
+var _handledEdits = {};       // task id -> last_edited_at already announced
+var _pollingEdits = false;
+
+// a refresh rebuilds the table/timeline DOM, so never do one while it would
+// eat something the user is in the middle of: an open drawer, a focused
+// field, an open filter panel, or a drag. The same edits simply come back
+// on the next poll (the cursor isn't advanced) and are applied once idle.
+function isUserBusyEditing(){
+  if (_drawerActionBusy) return true;
+  var drawerEl = document.getElementById('drawer'), sopsEl = document.getElementById('sopsDrawer');
+  if ((drawerEl && drawerEl.classList.contains('show')) || (sopsEl && sopsEl.classList.contains('show'))) return true;
+  if (_draggingTimelineTaskId != null || _draggingTimelineSubtask || _draggingDrawerSubtaskId != null) return true;
+  if (document.querySelector('.multiselect-panel[style*="display: flex"]')) return true;
+  var active = document.activeElement;
+  return !!(active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) && active.closest('.main'));
+}
+
+function quotedNames(names){
+  var shown = names.slice(0, 2).map(function(n){ return '"' + n + '"'; }).join(', ');
+  return names.length > 2 ? shown + ' và ' + (names.length - 2) + ' việc khác' : shown;
+}
+function announceRemoteEdits(edits){
+  var byEditor = {};
+  edits.forEach(function(e){
+    var who = e.last_edited_by || 'Một người dùng';
+    (byEditor[who] = byEditor[who] || []).push(e.name);
+  });
+  var editors = Object.keys(byEditor);
+  if (edits.length === 1){
+    toastInfo(editors[0] + ' vừa cập nhật', '"' + edits[0].name + '"');
+  } else {
+    toastInfo(edits.length + ' nghiệp vụ vừa được cập nhật',
+      editors.map(function(who){ return who + ': ' + quotedNames(byEditor[who]); }).join(' · '));
+  }
+}
+
+function pollRecentEdits(){
+  if (_pollingEdits) return Promise.resolve();
+  _pollingEdits = true;
+  // look back a few seconds past the cursor: now() is the moment a statement
+  // STARTED, so an edit stamped just before the last poll's now() can still
+  // have been uncommitted when that poll read — _handledEdits dedupes the overlap
+  var url = '/api/tasks/recent-edits' + (_editsCursor
+    ? '?since=' + encodeURIComponent(new Date(new Date(_editsCursor).getTime() - 5000).toISOString())
+    : '');
+  var requestedAt = Date.now();
+  return fetchJSON(url).then(function(data){
+    // the server stamped `now` somewhere between request and response —
+    // compare against the midpoint, not the arrival time
+    _serverClockOffsetMs = new Date(data.now).getTime() - (requestedAt + Date.now()) / 2;
+    refreshEditStamps(); // re-judge "fresh"/relative times against the corrected clock
+    if (!_editsCursor){ _editsCursor = data.now; return; } // first call just takes the baseline
+    var edits = (data.edits || []).filter(function(e){ return _handledEdits[e.id] !== e.last_edited_at; });
+    if (!edits.length){ _editsCursor = data.now; return; }
+    var me = getActorName();
+    var others = edits.filter(function(e){ return !(me && e.last_edited_by === me); });
+    if (others.length && isUserBusyEditing()) return;
+    edits.forEach(function(e){ _handledEdits[e.id] = e.last_edited_at; });
+    _editsCursor = data.now;
+    if (!others.length) return;
+    others.forEach(function(e){ markRowFlash('table', e.id, true); markRowFlash('gantt', e.id, true); });
+    announceRemoteEdits(others);
+    refreshAllViews();
+  }).catch(function(err){
+    console.warn('Không kiểm tra được cập nhật mới', err);
+  }).then(function(){
+    _pollingEdits = false;
+  });
+}
+setInterval(function(){
+  if (document.visibilityState === 'visible' && localStorage.getItem(LOGGED_IN_KEY)) pollRecentEdits();
+}, EDIT_POLL_MS);
+document.addEventListener('visibilitychange', function(){
+  if (document.visibilityState === 'visible' && localStorage.getItem(LOGGED_IN_KEY)) pollRecentEdits();
+});
+if (localStorage.getItem(LOGGED_IN_KEY)) pollRecentEdits();
 
 document.getElementById('tableViewWrap').addEventListener('click', function(e){
   var toggleBtn = e.target.closest('.table-row-toggle');
@@ -5212,6 +5799,7 @@ function tableCellPlainText(col, t){
     case 'phase': return t.phase_code || '';
     case 'sprint': return t.sprint_code || '';
     case 'status': return statusLabel[statusDotToNum(t.status)].replace(/^\d+\.\s*/, '');
+    case 'last_edited': return t.last_edited_at ? fmtStamp(t.last_edited_at) + (t.last_edited_by ? ' — ' + t.last_edited_by : '') : '';
     case 'start': { var r1 = effectiveRange(t); return r1 ? fmtDMY(toIsoDate(r1.start)) : (t.start_date ? fmtDMY(t.start_date) : ''); }
     case 'due': { var r2 = effectiveRange(t); return r2 ? fmtDMY(toIsoDate(r2.end)) : (t.due_date ? fmtDMY(t.due_date) : ''); }
     case 'resource_roles': return (t.resource_roles || []).join(', ');
@@ -7032,6 +7620,9 @@ document.getElementById('saveBtn').addEventListener('click', function(){
   // where only a developer would ever see it, while the user got told
   // everything worked.
   var noteSaveError = null;
+  // which task to flash once the views re-render (see markRowFlash) — known
+  // up front on edit, only learned from the response on create
+  var savedTaskId = editingTaskId;
 
   authFetch(url, {
     method: method,
@@ -7045,6 +7636,7 @@ document.getElementById('saveBtn').addEventListener('click', function(){
     }
     return res.json();
   }).then(function(savedTask){
+    if (savedTask && savedTask.id) savedTaskId = savedTask.id;
     // "Cập nhật tình trạng task" always saves as a real log entry alongside
     // the task itself when there's anything in it — on both create (the
     // old separate "Ghi chú" field was removed; this is now the one place
@@ -7065,6 +7657,7 @@ document.getElementById('saveBtn').addEventListener('click', function(){
     }
   }).then(function(){
     close();
+    if (savedTaskId){ markRowFlash('table', savedTaskId); markRowFlash('gantt', savedTaskId); }
     refreshAllViews();
     var taskSavedMsg = isCreate ? 'Đã tạo nghiệp vụ "' + name + '"' : 'Đã lưu thay đổi cho "' + name + '"';
     if (noteSaveError){

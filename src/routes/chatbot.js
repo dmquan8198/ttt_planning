@@ -90,7 +90,7 @@ async function loadChatbotInputs(pool) {
     return { ...p, pct_complete: computePhaseRollup(p, phaseTasks, todayIso).pct_complete };
   });
   const { rows: subtasksRaw } = await pool.query(
-    'SELECT id, task_id, name, status, pic, start_date, due_date FROM subtasks ORDER BY task_id, id'
+    'SELECT id, task_id, name, status, pic, start_date, due_date FROM subtasks ORDER BY task_id, sort_order, id'
   );
   const subtasksByTask = {};
   subtasksRaw.forEach((st) => {

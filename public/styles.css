@@ -573,9 +573,18 @@ body{
   color:var(--ink-muted); background:var(--surface-2); border-top:1px solid var(--border);
 }
 .cat-group:first-child .cat-divider{border-top:none;}
-.task-row{display:flex; align-items:stretch; border-top:1px solid var(--border);}
+.task-row{display:flex; align-items:stretch; border-top:1px solid var(--border); position:relative;}
 .task-row.row-dragging{opacity:0.4;}
-.task-row.row-drop-target{box-shadow:inset 0 2px 0 var(--accent-ink), inset 0 -2px 0 var(--accent-ink);}
+/* where a dragged row will land: an accent line on the target's top edge
+   (dragging up) or bottom edge (dragging down). A pseudo-element rather
+   than an inset box-shadow, which paints UNDER the opaque .task-label and so
+   only ever showed across the track half of the row. */
+.task-row.row-drop-target::after{
+  content:''; position:absolute; left:0; right:0; height:3px; z-index:5; pointer-events:none;
+  background:var(--accent-ink); border-radius:2px;
+}
+.task-row.row-drop-target[data-drop-pos="before"]::after{top:-2px;}
+.task-row.row-drop-target[data-drop-pos="after"]::after{bottom:-2px;}
 .task-label{
   width:186px; flex:none; border-right:1px solid var(--border); padding:8px 12px; font-size:12px;
   display:flex; align-items:center; cursor:grab;
@@ -858,6 +867,8 @@ body{
 .toast-title{font-size:12.5px; font-weight:700;}
 .toast.is-success .toast-title{color:var(--green-ink);}
 .toast.is-error .toast-title{color:var(--red-ink);}
+.toast.is-info .toast-icon{background:var(--accent-ink); color:var(--surface);}
+.toast.is-info .toast-title{color:var(--accent-ink);}
 .toast-message{font-size:11.5px; color:var(--ink-muted); margin-top:1px; word-break:break-word;}
 @keyframes toast-in{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
 @keyframes toast-out{ from{opacity:1; transform:translateY(0);} to{opacity:0; transform:translateX(12px);} }
@@ -1504,3 +1515,90 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
 @media (max-width:480px){
   .chatbot-panel{width:calc(100vw - 28px); height:calc(100vh - 140px);}
 }
+
+/* ===== "vừa cập nhật" row flash + reorder grips ===== */
+/* A row glows briefly after an edit/drop so the eye can find it again once
+   the view re-renders (see markRowFlash in app.js). The class is re-applied
+   with a negative --flash-delay on any re-render inside the window, so a
+   second render continues the glow instead of replaying it; fill-mode
+   `backwards` (not `both`) so once it ends the row goes back to its normal
+   background — including :hover — instead of being pinned to the last frame.
+   --flash-end is what that last frame fades TO: transparent for plain cells,
+   the opaque surface colour for the Timeline's sticky label. */
+:root{ --flash-bg: var(--accent-soft); }
+@supports (color: color-mix(in srgb, red, blue)){
+  :root{ --flash-bg: color-mix(in srgb, var(--accent-ink) 22%, transparent); }
+}
+@keyframes row-flash-bg{
+  0%, 45%{ background-color: var(--flash-bg); }
+  100%{ background-color: var(--flash-end, transparent); }
+}
+@keyframes row-flash-bar{
+  0%, 45%{ box-shadow: inset 3px 0 0 var(--accent-ink); }
+  100%{ box-shadow: inset 3px 0 0 var(--flash-bar-end, transparent); }
+}
+.data-table tbody tr.row-flash > td{
+  animation: row-flash-bg 2400ms ease-out var(--flash-delay, 0ms) backwards;
+}
+.data-table tbody tr.row-flash > td:first-child{
+  animation: row-flash-bg 2400ms ease-out var(--flash-delay, 0ms) backwards,
+             row-flash-bar 2400ms ease-out var(--flash-delay, 0ms) backwards;
+}
+.task-row.row-flash .task-track{
+  animation: row-flash-bg 2400ms ease-out var(--flash-delay, 0ms) backwards;
+}
+.task-row.row-flash .task-label{
+  --flash-end: var(--surface);
+  animation: row-flash-bg 2400ms ease-out var(--flash-delay, 0ms) backwards,
+             row-flash-bar 2400ms ease-out var(--flash-delay, 0ms) backwards;
+}
+
+/* Timeline: grip on a subtask's label, only shown on hover — the label is
+   draggable to reorder that task's subtasks (the bar itself still drags dates) */
+.task-row.is-subtask .task-label.is-reorderable{cursor:grab;}
+.task-row.is-subtask .task-label.is-reorderable:active{cursor:grabbing;}
+.subtask-grip{
+  flex:none; margin:0 4px 0 -17px; width:13px; text-align:center; font-size:11px; letter-spacing:-2px;
+  color:var(--ink-faint); opacity:0; transition:opacity .12s ease; user-select:none;
+}
+.task-row.is-subtask:hover .subtask-grip{opacity:1;}
+
+/* task drawer: subtask table row grip + drop markers */
+.subtask-table td.subtask-name-cell{position:relative; padding-left:20px;}
+.subtask-drag-handle{
+  position:absolute; left:4px; top:50%; transform:translateY(-50%); width:12px; text-align:center;
+  font-size:12px; line-height:1; letter-spacing:-2px; color:var(--ink-faint); cursor:grab;
+  user-select:none; opacity:0.6;
+}
+.subtask-table tbody tr:hover .subtask-drag-handle{opacity:1; color:var(--ink-muted);}
+.subtask-drag-handle:active{cursor:grabbing;}
+.subtask-table tbody tr.row-dragging{opacity:0.4;}
+.subtask-table tbody tr.row-drop-target[data-drop-pos="before"] > td{box-shadow:inset 0 3px 0 var(--accent-ink);}
+.subtask-table tbody tr.row-drop-target[data-drop-pos="after"] > td{box-shadow:inset 0 -3px 0 var(--accent-ink);}
+
+/* ===== Danh sách nghiệp vụ: "vừa cập nhật" (by anyone) + "Sửa lần cuối" ===== */
+/* A task edited in the last FRESH_EDIT_MS (10 min, see app.js) keeps a soft
+   tint and an accent bar on its first cell for EVERYONE who opens the list —
+   unlike .row-flash, which is only the 2.4s glow on the tab that made the
+   edit. The row-flash animation fades into this tint (not into nothing) so
+   the glow doesn't end with a visible pop. */
+:root{ --fresh-bg: var(--accent-soft); }
+@supports (color: color-mix(in srgb, red, blue)){
+  :root{ --fresh-bg: color-mix(in srgb, var(--accent-ink) 14%, transparent); }
+}
+.data-table tbody tr.row-fresh > td{ background-color: var(--fresh-bg); }
+.data-table tbody tr.row-fresh > td:first-child{ box-shadow: inset 3px 0 0 var(--accent-ink); }
+.data-table tbody tr.row-fresh.row-flash > td{ --flash-end: var(--fresh-bg); }
+.data-table tbody tr.row-fresh.row-flash > td:first-child{ --flash-bar-end: var(--accent-ink); }
+
+/* the "Sửa lần cuối" cell: relative time, with the editor's name under it */
+.edit-stamp{ display:block; font-size:12px; color:var(--ink-muted); font-variant-numeric:tabular-nums; }
+.edit-stamp.is-fresh{ color:var(--accent-ink); font-weight:600; }
+.edit-stamp.is-fresh::before{
+  content:''; display:inline-block; width:6px; height:6px; margin-right:6px; border-radius:50%;
+  background:var(--accent-ink); vertical-align:middle; animation:edit-dot-pulse 1.6s ease-in-out infinite;
+}
+@keyframes edit-dot-pulse{ 0%,100%{ opacity:1; } 50%{ opacity:0.3; } }
+.edit-by{ display:block; font-size:11px; color:var(--ink-faint); max-width:140px; overflow:hidden; text-overflow:ellipsis; }
+.edit-stamp-none{ color:var(--ink-faint); }
+@media (prefers-reduced-motion: reduce){ .edit-stamp.is-fresh::before{ animation:none; } }

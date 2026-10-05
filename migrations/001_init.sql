@@ -163,9 +163,15 @@ CREATE INDEX IF NOT EXISTS idx_task_resource_roles_role ON task_resource_roles(r
 -- table (CREATE TABLE IF NOT EXISTS above is a no-op there, so the
 -- ORIGINAL 5-value constraint is still the live one) — renumbering first
 -- would have every renamed row transiently violate that still-active old
--- constraint. Re-added after with the final 6-value list. The UPDATE's
--- CASE targets are each other's non-overlapping old values, so it's a
--- no-op (WHERE matches nothing) once already applied, and safe to re-run.
+-- constraint. The UPDATE's CASE targets are each other's non-overlapping
+-- old values, so it's a no-op (WHERE matches nothing) once already applied,
+-- and safe to re-run.
+-- The constraint is NOT re-added here: the 'inTest UAT' block further down
+-- renumbers once more and puts the final constraint back. Re-adding the
+-- intermediate 6-value constraint here (as this block originally did) made
+-- the whole file impossible to re-run once any row held a code from that
+-- later renumbering — the ADD validated existing rows against the old list
+-- and failed, rolling back the entire (single-transaction) migration.
 ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
 
 UPDATE tasks SET status = CASE status
@@ -176,10 +182,6 @@ UPDATE tasks SET status = CASE status
   ELSE status
 END
 WHERE status IN ('4.done', '3.ready_for_staging', '2.in_test', '1.ready_for_dev');
-
-ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
-ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
-  CHECK (status IN ('0.backlog','1.in_analyst','2.ready_for_dev','3.in_test','4.ready_for_staging','5.done'));
 
 -- per-status "entered at" stamps for the already-created prod table (the
 -- CREATE TABLE above is a no-op there). Backfill only the stamp matching
@@ -348,3 +350,26 @@ ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
   CHECK (status IN ('0.backlog','1.in_analyst','2.ready_for_dev','3.in_test','4.in_test_uat','5.ready_for_staging','6.done'));
 
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS in_test_uat_at TIMESTAMPTZ;
+
+-- manual order of a task's subtasks (drag-to-reorder in the task drawer and
+-- on the Timeline). Only the RELATIVE order within one task matters, so
+-- existing rows are backfilled with sort_order = id — exactly the
+-- creation order they were already shown in (the old ORDER BY id) — rather
+-- than renumbering 1..N per task, which would need a window function or a
+-- correlated UPDATE. New subtasks get MAX(sort_order)+1 for their task;
+-- a reorder rewrites the whole task's list as 1..N. The WHERE makes this
+-- a no-op once applied, safe to re-run.
+ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS sort_order INTEGER;
+UPDATE subtasks SET sort_order = id WHERE sort_order IS NULL;
+
+-- who last changed a task's CONTENT and when — what Danh sách nghiệp vụ
+-- shows as "Sửa lần cuối" and highlights as "vừa cập nhật" for everyone, not
+-- just the person who saved. Deliberately separate from updated_at, which
+-- bumps on EVERY PUT including the Timeline's drag-to-reorder (that PUTs
+-- each shifted task with only stt changed): reusing it would light up five
+-- rows as "updated" for one drag. Written only when a field other than stt
+-- actually changed (or a subtask / resource role did), by the routes — see
+-- src/lib/touchTask.js. NULL = not edited since this was added; no backfill,
+-- so nothing is falsely flagged as recent on first deploy.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS last_edited_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS last_edited_by TEXT;

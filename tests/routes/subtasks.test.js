@@ -258,3 +258,101 @@ test('POST .../subtasks/clone as viewer is rejected', async () => {
     .send({ target_task_id: targetId });
   assert.equal(res.status, 403);
 });
+
+async function addSubtasks(app, taskId, names) {
+  const created = [];
+  for (const name of names) {
+    const res = await asActor(request(app).post(`/api/tasks/${taskId}/subtasks`), EDITOR).send({ name });
+    created.push(res.body);
+  }
+  return created;
+}
+
+test('new subtasks are listed in creation order, each appended to the end', async () => {
+  const pool = makeTestPool();
+  const app = createApp(pool);
+  const taskId = await seedTask(pool);
+  const [a, b, c] = await addSubtasks(app, taskId, ['A', 'B', 'C']);
+  assert.ok(a.sort_order < b.sort_order && b.sort_order < c.sort_order);
+
+  const list = await request(app).get(`/api/tasks/${taskId}/subtasks`);
+  assert.deepEqual(list.body.map((s) => s.name), ['A', 'B', 'C']);
+});
+
+test('PUT .../subtasks/order rewrites the manual order, and GET + GET /api/tasks both reflect it', async () => {
+  const pool = makeTestPool();
+  const app = createApp(pool);
+  const taskId = await seedTask(pool);
+  const [a, b, c] = await addSubtasks(app, taskId, ['A', 'B', 'C']);
+
+  const res = await asActor(request(app).put(`/api/tasks/${taskId}/subtasks/order`), EDITOR)
+    .send({ ids: [c.id, a.id, b.id] });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.map((s) => s.name), ['C', 'A', 'B']);
+
+  const list = await request(app).get(`/api/tasks/${taskId}/subtasks`);
+  assert.deepEqual(list.body.map((s) => s.name), ['C', 'A', 'B']);
+  const tasks = await request(app).get('/api/tasks');
+  assert.deepEqual(tasks.body.find((t) => t.id === taskId).subtasks.map((s) => s.name), ['C', 'A', 'B']);
+});
+
+test('a subtask added AFTER a reorder still lands at the end', async () => {
+  const pool = makeTestPool();
+  const app = createApp(pool);
+  const taskId = await seedTask(pool);
+  const [a, b] = await addSubtasks(app, taskId, ['A', 'B']);
+  await asActor(request(app).put(`/api/tasks/${taskId}/subtasks/order`), EDITOR).send({ ids: [b.id, a.id] });
+  await addSubtasks(app, taskId, ['C']);
+
+  const list = await request(app).get(`/api/tasks/${taskId}/subtasks`);
+  assert.deepEqual(list.body.map((s) => s.name), ['B', 'A', 'C']);
+});
+
+test('reordering one task leaves another task\'s subtask order alone', async () => {
+  const pool = makeTestPool();
+  const app = createApp(pool);
+  const t1 = await seedTask(pool);
+  const t2 = await seedTask(pool);
+  const [a1, b1] = await addSubtasks(app, t1, ['A1', 'B1']);
+  await addSubtasks(app, t2, ['A2', 'B2']);
+  await asActor(request(app).put(`/api/tasks/${t1}/subtasks/order`), EDITOR).send({ ids: [b1.id, a1.id] });
+
+  const other = await request(app).get(`/api/tasks/${t2}/subtasks`);
+  assert.deepEqual(other.body.map((s) => s.name), ['A2', 'B2']);
+});
+
+test('PUT .../subtasks/order rejects a stale/partial/duplicate/foreign id list, and viewers', async () => {
+  const pool = makeTestPool();
+  const app = createApp(pool);
+  const t1 = await seedTask(pool);
+  const t2 = await seedTask(pool);
+  const [a, b] = await addSubtasks(app, t1, ['A', 'B']);
+  const [other] = await addSubtasks(app, t2, ['Other']);
+  const put = (body, actor = EDITOR) => asActor(request(app).put(`/api/tasks/${t1}/subtasks/order`), actor).send(body);
+
+  assert.equal((await put({ ids: [a.id] })).status, 400, 'partial list');
+  assert.equal((await put({ ids: [a.id, a.id] })).status, 400, 'duplicate id');
+  assert.equal((await put({ ids: [a.id, other.id] })).status, 400, 'id from another task');
+  assert.equal((await put({ ids: [] })).status, 400, 'empty list');
+  assert.equal((await put({})).status, 400, 'missing ids');
+  assert.equal((await put({ ids: [b.id, a.id] }, VIEWER_NAME)).status, 403, 'viewer');
+
+  const list = await request(app).get(`/api/tasks/${t1}/subtasks`);
+  assert.deepEqual(list.body.map((s) => s.name), ['A', 'B'], 'rejected requests changed nothing');
+});
+
+test('clone keeps the source\'s manual order, appended after the target\'s existing subtasks', async () => {
+  const pool = makeTestPool();
+  const app = createApp(pool);
+  const sourceId = await seedTask(pool);
+  const targetId = await seedTask(pool);
+  const [a, b, c] = await addSubtasks(app, sourceId, ['A', 'B', 'C']);
+  await asActor(request(app).put(`/api/tasks/${sourceId}/subtasks/order`), EDITOR).send({ ids: [c.id, a.id, b.id] });
+  await addSubtasks(app, targetId, ['Existing']);
+
+  const res = await asActor(request(app).post(`/api/tasks/${sourceId}/subtasks/clone`), EDITOR)
+    .send({ target_task_id: targetId });
+  assert.equal(res.status, 201);
+  const targetList = await request(app).get(`/api/tasks/${targetId}/subtasks`);
+  assert.deepEqual(targetList.body.map((s) => s.name), ['Existing', 'C', 'A', 'B']);
+});
