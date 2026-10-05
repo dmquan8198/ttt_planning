@@ -936,8 +936,10 @@ body{
 .status-advance-btn:disabled{opacity:0.35; cursor:not-allowed;}
 /* Danh sách nghiệp vụ's Status cell — a read-only pill plus the advance
    arrow (no dropdown, see appendStatusOnlyCell in app.js), laid out side
-   by side instead of the arrow falling onto its own line below the pill. */
-.data-table-status-cell{display:flex; align-items:center; gap:4px;}
+   by side instead of the arrow falling onto its own line below the pill.
+   inline-flex on this inner <span>, never on the <td> itself — see the
+   comment on appendStatusOnlyCell for why. */
+.data-table-status-cell{display:inline-flex; align-items:center; gap:4px;}
 .data-table-status-cell .status-advance-btn{width:20px; height:20px; font-size:11px;}
 .field-label-row{display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;}
 .field-label-row label{margin-bottom:0;}
@@ -1059,7 +1061,11 @@ body{
 .subtask-table tbody tr:last-child td{border-bottom:none;}
 .subtask-table th:first-child, .subtask-table td:first-child{width:auto;}
 .subtask-table th:nth-child(2), .subtask-table td:nth-child(2){width:108px;}
-.subtask-status-cell{display:flex; align-items:center; gap:2px;}
+/* inline-flex on this inner <span> wrapping the select+arrow, never on the
+   <td> itself (width:100% so it still fills the column like a block would)
+   — see appendStatusOnlyCell's comment in app.js for why a flex table-cell
+   stops centering correctly once a sibling row wraps taller. */
+.subtask-status-cell{display:inline-flex; align-items:center; gap:2px; width:100%; box-sizing:border-box;}
 .subtask-status-cell select.subtask-input{flex:1; width:auto;}
 .subtask-status-cell .status-advance-btn{width:18px; height:18px; font-size:10px; flex:none;}
 .subtask-table th:nth-child(3), .subtask-table td:nth-child(3),

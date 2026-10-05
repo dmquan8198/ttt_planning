@@ -582,15 +582,20 @@ function renderSubtaskItem(taskId, st, pics, canEdit){
   nameTd.appendChild(nameInput);
   row.appendChild(nameTd);
 
-  var statusTd = document.createElement('td'); statusTd.className = 'subtask-status-cell';
+  // flex lives on an inner <span>, not the <td> itself — see
+  // appendStatusOnlyCell's comment for why a flex table-cell stops
+  // centering correctly once a sibling cell's content wraps the row taller.
+  var statusTd = document.createElement('td');
+  var statusWrap = document.createElement('span'); statusWrap.className = 'subtask-status-cell';
   var statusSel = document.createElement('select'); statusSel.className = 'subtask-input'; statusSel.disabled = !canEdit;
   SUBTASK_STATUS_ORDER.forEach(function(s){
     var o = document.createElement('option'); o.value = s; o.textContent = SUBTASK_STATUS_LABELS[s];
     if (s === st.status) o.selected = true;
     statusSel.appendChild(o);
   });
-  statusTd.appendChild(statusSel);
+  statusWrap.appendChild(statusSel);
   if (canEdit) appendStatusAdvanceButton(statusSel, SUBTASK_STATUS_ORDER);
+  statusTd.appendChild(statusWrap);
   row.appendChild(statusTd);
 
   var startTd = document.createElement('td');
@@ -4380,10 +4385,17 @@ function appendEditableCell(td, col, t){
 // appendStatusAdvanceButton (which expects one to read/set .value on) —
 // it reads/writes t.status directly via saveTaskInlineField instead, the
 // same helper every other inline-edited cell in this table already uses.
+// The flex row (pill + arrow) lives on an inner <span>, never the <td>
+// itself — a table-cell with `display:flex` stops sizing/centering via the
+// table's own row-height + vertical-align machinery, so on a task whose
+// name wraps to 2+ lines (taller row) the flex td stayed content-sized and
+// floated near the top instead of centering, drifting out of line with the
+// other cells in that row.
 function appendStatusOnlyCell(td, t, canEdit){
-  td.innerHTML = tableCellHtml({ key: 'status' }, t);
-  if (!canEdit) return;
-  td.classList.add('data-table-status-cell');
+  if (!canEdit){ td.innerHTML = tableCellHtml({ key: 'status' }, t); return; }
+  var wrap = document.createElement('span');
+  wrap.className = 'data-table-status-cell';
+  wrap.innerHTML = tableCellHtml({ key: 'status' }, t);
   var idx = STATUS_ORDER.indexOf(t.status);
   var btn = document.createElement('button');
   btn.type = 'button'; btn.className = 'status-advance-btn'; btn.textContent = '→';
@@ -4400,7 +4412,8 @@ function appendStatusOnlyCell(td, t, canEdit){
       btn.disabled = false;
     });
   });
-  td.appendChild(btn);
+  wrap.appendChild(btn);
+  td.appendChild(wrap);
 }
 // appendEditableSelect's `options` take {key,label} — same shape
 // bucketsForGroupBy/renderMultiSelectDropdown already use elsewhere — so
