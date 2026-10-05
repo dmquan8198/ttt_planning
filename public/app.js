@@ -227,6 +227,15 @@ function renderMultiSelectDropdown(containerEl, buttonLabel, options, selected, 
   });
   panel.addEventListener('click', function(e){ e.stopPropagation(); });
 
+  // lets code that mutates `selected` from outside (another dropdown
+  // sharing the same array, a "Bỏ lọc" button, a summary-widget click)
+  // refresh this dropdown's checkboxes + count without tearing the whole
+  // thing down — a rebuild would close a panel the user has open.
+  containerEl._msSync = function(){
+    checkboxes.forEach(function(c){ c.cb.checked = selected.indexOf(c.key) !== -1; });
+    updateBtn();
+  };
+
   updateBtn();
   wrap.appendChild(btn);
   wrap.appendChild(panel);
@@ -4693,6 +4702,11 @@ function appendColumnHeaderFilter(th, colKey){
 function renderTableView(tasks){
   var wrap = document.getElementById('tableViewWrap');
   if (!wrap) return;
+  // the toolbar Status filter shares _tableFilterStatus with the Status
+  // column-header filter and the summary widgets' click shortcuts — keep its
+  // checkboxes/count in step with whichever of them last changed it.
+  var statusFilterHolder = document.getElementById('tableStatusFilterMs');
+  if (statusFilterHolder && statusFilterHolder._msSync) statusFilterHolder._msSync();
   var hiddenByGroup = TABLE_GROUPBY_COLUMN_KEY[_tableGroupBy];
   var visibleCols = TABLE_COLUMNS.filter(function(c){ return _tableVisibleColumns.indexOf(c.key) !== -1 && c.key !== hiddenByGroup; });
   if (visibleCols.length === 0){
@@ -4809,6 +4823,20 @@ document.getElementById('tableSearchBox').addEventListener('input', function(){
   _tableSearchWords = this.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
 });
+
+// toolbar Status filter: the status list is fixed (STATUS_ORDER), so it's
+// rendered once here too and kept in step via _msSync (see renderTableView)
+// instead of being rebuilt — rebuilding on every pick would close the panel
+// and force reopening it for each extra status. Same _tableFilterStatus
+// array as the Status column-header filter, so the two always agree, and
+// it still works when the Status column is hidden or the table is grouped
+// by Status (which drops that column's own header filter).
+renderMultiSelectDropdown(
+  document.getElementById('tableStatusFilterMs'), 'Status',
+  bucketsForGroupBy([], 'status'), _tableFilterStatus,
+  tableFilterOnChange,
+  false, { alignRight: true }
+);
 
 // column-visibility picker: static list (TABLE_COLUMNS never changes), so
 // wired once here rather than re-rendered on every loadTableView() — a
