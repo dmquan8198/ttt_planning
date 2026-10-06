@@ -1586,21 +1586,7 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
 .subtask-table tbody tr.row-drop-target[data-drop-pos="before"] > td{box-shadow:inset 0 3px 0 var(--accent-ink);}
 .subtask-table tbody tr.row-drop-target[data-drop-pos="after"] > td{box-shadow:inset 0 -3px 0 var(--accent-ink);}
 
-/* ===== Danh sách nghiệp vụ: "vừa cập nhật" (by anyone) + "Sửa lần cuối" ===== */
-/* A task edited in the last FRESH_EDIT_MS (10 min, see app.js) keeps a soft
-   tint and an accent bar on its first cell for EVERYONE who opens the list —
-   unlike .row-flash, which is only the 2.4s glow on the tab that made the
-   edit. The row-flash animation fades into this tint (not into nothing) so
-   the glow doesn't end with a visible pop. */
-:root{ --fresh-bg: var(--accent-soft); }
-@supports (color: color-mix(in srgb, red, blue)){
-  :root{ --fresh-bg: color-mix(in srgb, var(--accent-ink) 14%, transparent); }
-}
-.data-table tbody tr.row-fresh > td{ background-color: var(--fresh-bg); }
-.data-table tbody tr.row-fresh > td:first-child{ box-shadow: inset 3px 0 0 var(--accent-ink); }
-.data-table tbody tr.row-fresh.row-flash > td{ --flash-end: var(--fresh-bg); }
-.data-table tbody tr.row-fresh.row-flash > td:first-child{ --flash-bar-end: var(--accent-ink); }
-
+/* ===== Danh sách nghiệp vụ: "Sửa lần cuối" ===== */
 /* the "Sửa lần cuối" cell: relative time, with the editor's name under it */
 .edit-stamp{ display:block; font-size:12px; color:var(--ink-muted); font-variant-numeric:tabular-nums; }
 .edit-stamp.is-fresh{ color:var(--accent-ink); font-weight:600; }
@@ -1670,20 +1656,10 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
   .gantt-status-corner, .gantt-note-corner, .task-status, .task-note{display:none;}
 }
 
-/* a task edited in the last few minutes: the label, status and note cells take a
-   SOLID tint (they sit over the bars when scrolled sideways, so a
-   translucent one would let bars show through) plus the accent bar. */
-:root{ --fresh-solid: var(--accent-soft); }
-@supports (color: color-mix(in srgb, red, blue)){
-  :root{ --fresh-solid: color-mix(in srgb, var(--accent-ink) 14%, var(--surface)); }
-}
-.task-row.row-fresh .task-label, .task-row.row-fresh .task-status, .task-row.row-fresh .task-note{background:var(--fresh-solid);}
-.task-row.row-fresh .task-label{box-shadow:inset 3px 0 0 var(--accent-ink);}
-/* the 2.4s flash fades INTO that tint, not to the plain surface, so it
-   doesn't end with a visible pop */
+/* the row flash (see .row-flash above) also covers these two cells; they
+   are opaque (they sit over the bars when scrolled sideways), so the glow
+   fades back to the plain surface colour rather than to transparent */
 .task-row.row-flash .task-status, .task-row.row-flash .task-note{
   --flash-end: var(--surface);
   animation: row-flash-bg 2400ms ease-out var(--flash-delay, 0ms) backwards;
 }
-.task-row.row-fresh.row-flash .task-label, .task-row.row-fresh.row-flash .task-status, .task-row.row-fresh.row-flash .task-note{--flash-end:var(--fresh-solid);}
-.task-row.row-fresh.row-flash .task-label{--flash-bar-end:var(--accent-ink);}

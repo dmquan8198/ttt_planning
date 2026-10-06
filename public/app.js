@@ -1760,7 +1760,8 @@ function fmtStamp(iso){
 // offset is learned from the database's own now() on each /recent-edits poll.
 var _serverClockOffsetMs = 0;
 function serverNowMs(){ return Date.now() + _serverClockOffsetMs; }
-// a row counts as "vừa cập nhật" (tinted, with an accent bar) for this long
+// a "Sửa lần cuối" stamp counts as "vừa cập nhật" (accent colour + pulsing
+// dot) for this long
 var FRESH_EDIT_MS = 10 * 60 * 1000;
 function editAgeMs(iso){
   if (!iso) return null;
@@ -4343,13 +4344,6 @@ function renderGantt(tasks, sprints, phases){
       });
 
       track.appendChild(bar);
-      // edited in the last few minutes (by anyone) → tinted label + note
-      // cell with an accent bar, same cue as Danh sách nghiệp vụ; the
-      // ticker (refreshEditStamps) ages it out without a re-render
-      if (t.last_edited_at){
-        row.dataset.editAt = t.last_edited_at;
-        if (isFreshEdit(t.last_edited_at)) row.classList.add('row-fresh');
-      }
       row.appendChild(label);
       row.appendChild(buildGanttStatusCell(t, false));
       row.appendChild(buildGanttNoteCell(_timelineLatestLogByTaskId[t.id], false));
@@ -5052,14 +5046,6 @@ function renderTableRow(t, visibleCols, canEdit, rowNum, isExpanded){
   var tr = document.createElement('tr');
   tr.className = 'data-table-row';
   tr.dataset.taskId = t.id;
-  // a task edited in the last few minutes — by ANYONE, not just this tab —
-  // stays tinted with an accent bar until the window runs out, so a teammate
-  // opening the list can see at a glance what just changed (refreshEditStamps
-  // drops the class when it expires, no re-render needed)
-  if (t.last_edited_at){
-    tr.dataset.editAt = t.last_edited_at;
-    if (isFreshEdit(t.last_edited_at)) tr.classList.add('row-fresh');
-  }
 
   var toggleTd = document.createElement('td');
   toggleTd.className = 'data-table-toggle-cell';
@@ -5469,23 +5455,15 @@ function renderTableView(tasks){
   if (firstFlashRow) nudgeRowIntoView(firstFlashRow, wrap, thead.offsetHeight);
 }
 
-// ---- keeping "Sửa lần cuối" / the fresh-row tint honest over time ----
-// "5 phút trước" and the 10-minute tint both age while the page just sits
-// there; walk the rendered rows and update them in place (no re-render, so
-// nothing the user is typing into is disturbed).
+// ---- keeping "Sửa lần cuối" honest over time ----
+// "5 phút trước" ages while the page just sits there; walk the rendered
+// stamps and update them in place (no re-render, so nothing the user is typing
+// into is disturbed). Only Bảng danh sách carries this column.
 function refreshEditStamps(){
-  // only Bảng danh sách carries the "x phút trước" stamp; its rows (<tr>)
-  // and the Timeline's rows (.task-row) share the same fresh-tint rule below
   document.querySelectorAll('#tableViewWrap .edit-stamp[data-edit-at]').forEach(function(el){
     var iso = el.getAttribute('data-edit-at');
     el.textContent = fmtRelativeTime(iso);
     el.classList.toggle('is-fresh', isFreshEdit(iso));
-  });
-  // both directions: a tint that ran out comes off, and one that the first
-  // render got wrong (it ran before the server's clock offset was known, on
-  // a machine whose own clock is off) goes on
-  document.querySelectorAll('#tableViewWrap tr[data-edit-at], #ganttBody .task-row[data-edit-at]').forEach(function(row){
-    row.classList.toggle('row-fresh', isFreshEdit(row.getAttribute('data-edit-at')));
   });
 }
 setInterval(refreshEditStamps, 30000);
