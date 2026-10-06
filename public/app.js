@@ -114,6 +114,14 @@ function escapeHtml(str){
 // mới...") that appends a new option to `options` in place, selects it, and
 // re-renders — used by the drawer's "Resource cần" role picker so new
 // teams/roles are addable without a separate admin screen.
+// opts.rangeToEnd: for an ORDERED option list (sprints, oldest first). Every
+// row gets a small "→ hết" button that selects that option AND every option
+// after it, replacing whatever was selected — "from this one to the end" in a
+// single click instead of ticking each box. An option flagged `noRange` (e.g.
+// "Chưa gán sprint") is never swept into a range.
+// opts.rangeFromKey / opts.rangeFromLabel: optional extra shortcut in the
+// actions row that does the same thing starting from a fixed option (e.g.
+// "Từ sprint hiện tại →").
 function renderMultiSelectDropdown(containerEl, buttonLabel, options, selected, onChange, defaultSelectAll, opts){
   if (defaultSelectAll && !selected._msInitialized){
     selected._msInitialized = true;
@@ -143,9 +151,34 @@ function renderMultiSelectDropdown(containerEl, buttonLabel, options, selected, 
   var clearBtn = document.createElement('button');
   clearBtn.type = 'button'; clearBtn.className = 'multiselect-action-btn'; clearBtn.textContent = 'Bỏ chọn';
   actions.appendChild(selectAllBtn); actions.appendChild(clearBtn);
-  panel.appendChild(actions);
-
   var checkboxes = [];
+
+  // replaces the selection with `startKey` and everything after it (in the
+  // order the options were given), skipping `noRange` options
+  function selectFrom(startKey){
+    var from = options.findIndex(function(o){ return o.key === startKey; });
+    if (from === -1) return;
+    selected.length = 0;
+    options.forEach(function(o, i){ if (i >= from && !o.noRange) selected.push(o.key); });
+    checkboxes.forEach(function(c){ c.cb.checked = selected.indexOf(c.key) !== -1; });
+    updateBtn();
+    onChange(selected);
+  }
+
+  if (opts && opts.rangeFromKey && options.some(function(o){ return o.key === opts.rangeFromKey; })){
+    var fromBtn = document.createElement('button');
+    fromBtn.type = 'button'; fromBtn.className = 'multiselect-action-btn';
+    fromBtn.textContent = opts.rangeFromLabel || 'Từ mục này →';
+    fromBtn.addEventListener('click', function(){ selectFrom(opts.rangeFromKey); });
+    actions.appendChild(fromBtn);
+  }
+  panel.appendChild(actions);
+  if (opts && opts.rangeToEnd){
+    var hint = document.createElement('div'); hint.className = 'multiselect-hint';
+    hint.textContent = '→ hết: chọn mục đó và tất cả các mục sau nó';
+    panel.appendChild(hint);
+  }
+
   options.forEach(function(opt){
     var row = document.createElement('label'); row.className = 'multiselect-option';
     var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selected.indexOf(opt.key) !== -1;
@@ -158,6 +191,14 @@ function renderMultiSelectDropdown(containerEl, buttonLabel, options, selected, 
     });
     row.appendChild(cb);
     row.appendChild(document.createTextNode(opt.label));
+    if (opts && opts.rangeToEnd && !opt.noRange){
+      var rangeBtn = document.createElement('button');
+      rangeBtn.type = 'button'; rangeBtn.className = 'multiselect-range-btn'; rangeBtn.textContent = '→ hết';
+      rangeBtn.title = 'Chỉ chọn mục này và tất cả các mục sau nó (bỏ các lựa chọn khác)';
+      // inside a <label>: without preventDefault the click could also toggle the checkbox
+      rangeBtn.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); selectFrom(opt.key); });
+      row.appendChild(rangeBtn);
+    }
     panel.appendChild(row);
     checkboxes.push({ cb: cb, key: opt.key });
   });
@@ -1920,6 +1961,7 @@ function goToTimelineNotYetDoneDevQc(phase){
   var notYetDoneDevQc = STATUS_ORDER.slice(0, STATUS_ORDER.indexOf('5.ready_for_staging'));
   _timelineFilterPhase.length = 0; _timelineFilterPhase.push(String(phase.id));
   _timelineFilterStatus.length = 0; notYetDoneDevQc.forEach(function(s){ _timelineFilterStatus.push(s); });
+  _timelineFilterSprint.length = 0;
   _timelineFilterCategory.length = 0;
   _timelineFilterPlatform.length = 0;
   var navItem = document.querySelector('.nav-item[data-view="timeline"]');
@@ -6586,11 +6628,12 @@ document.querySelectorAll('#gtGroupByChips .chip').forEach(function(btn){
   });
 });
 
-// Timeline filters: multi-select dropdowns (Phase/Category/Platform/Status).
+// Timeline filters: multi-select dropdowns (Phase/Sprint/Category/Platform/Status).
 // Empty selection = no filter (show everything), same convention as every
 // other filter in this app. Arrays are read by reference from
 // renderMultiSelectDropdown, so an in-progress selection survives a rebuild.
 var _timelineFilterPhase = [];
+var _timelineFilterSprint = []; // sprint ids as strings, plus 'none' = no sprint assigned
 var _timelineFilterCategory = [];
 var _timelineFilterPlatform = [];
 var _timelineFilterStatus = [];
@@ -6601,13 +6644,41 @@ function timelineFilterOnChange(){
   }
 }
 
+// the sprint that contains today, or failing that the next one to start —
+// the anchor for the Sprint filter's "Từ sprint hiện tại →" shortcut.
+// `sprints` come oldest-first with 'YYYY-MM-DD' dates, so plain string
+// comparison orders them correctly. { sprint, isCurrent } or null when every
+// sprint is already over.
+function currentOrUpcomingSprint(sprints){
+  var today = todayIsoLocal();
+  var current = sprints.find(function(s){ return s.start_date <= today && today <= s.end_date; });
+  if (current) return { sprint: current, isCurrent: true };
+  var upcoming = sprints.find(function(s){ return s.start_date > today; });
+  return upcoming ? { sprint: upcoming, isCurrent: false } : null;
+}
+
 // rebuilt each time Timeline data loads, so option lists (phases especially)
 // stay in sync with real data.
 function renderTimelineFilterDropdowns(tasks, phases){
+  var sprints = _lastTimelineSprints || [];
+  var anchor = currentOrUpcomingSprint(sprints);
   renderMultiSelectDropdown(
     document.getElementById('filter-phase-ms'), 'Phase',
     phases.map(function(p){ return { key: String(p.id), label: p.code + ': ' + p.name }; }),
     _timelineFilterPhase, timelineFilterOnChange
+  );
+  // oldest sprint first, so a sprint's "→ hết" button sweeps up every LATER
+  // one; "Chưa gán sprint" sits last and is never part of such a range
+  renderMultiSelectDropdown(
+    document.getElementById('filter-sprint-ms'), 'Sprint',
+    sprints.map(function(s){
+      return { key: String(s.id), label: s.code + ' (' + fmtRange(s.start_date, s.end_date) + ')' +
+        (anchor && anchor.isCurrent && anchor.sprint.id === s.id ? ' — hiện tại' : '') };
+    }).concat([{ key: 'none', label: 'Chưa gán sprint', noRange: true }]),
+    _timelineFilterSprint, timelineFilterOnChange, false,
+    { rangeToEnd: true,
+      rangeFromKey: anchor ? String(anchor.sprint.id) : null,
+      rangeFromLabel: anchor && anchor.isCurrent ? 'Từ sprint hiện tại →' : 'Từ sprint sắp tới →' }
   );
   renderMultiSelectDropdown(
     document.getElementById('filter-category-ms'), 'Category',
@@ -6635,6 +6706,7 @@ var _lastTimelinePhases = null;
 function applyTimelineFilters(tasks){
   return tasks.filter(function(t){
     if (_timelineFilterPhase.length && _timelineFilterPhase.indexOf(String(t.phase_id)) === -1) return false;
+    if (_timelineFilterSprint.length && _timelineFilterSprint.indexOf(t.sprint_id == null ? 'none' : String(t.sprint_id)) === -1) return false;
     if (_timelineFilterCategory.length && _timelineFilterCategory.indexOf(t.category) === -1) return false;
     if (_timelineFilterPlatform.length && _timelineFilterPlatform.indexOf(t.platform) === -1) return false;
     if (_timelineFilterStatus.length && _timelineFilterStatus.indexOf(t.status) === -1) return false;
