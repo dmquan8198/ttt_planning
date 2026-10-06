@@ -8,11 +8,11 @@ test('returns null when neither date changed', () => {
   assert.equal(buildDateChangeNote(before, after), null);
 });
 
-test('a same-delta move on both ends reports a single "Dịch ngày" shift', () => {
+test('a same-delta move on both ends reports a single "Đổi ngày" shift', () => {
   const before = { start_date: '2026-07-06', due_date: '2026-07-17' };
   const after = { start_date: '2026-07-15', due_date: '2026-07-26' };
   const note = buildDateChangeNote(before, after);
-  assert.equal(note, 'Dịch ngày: 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
+  assert.equal(note, 'Đổi ngày: 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
 });
 
 test('resizing only the start date reports just that change', () => {
@@ -40,7 +40,7 @@ test('an actor name is inserted right after the prefix, before the trailing delt
   const before = { start_date: '2026-07-06', due_date: '2026-07-17' };
   const after = { start_date: '2026-07-15', due_date: '2026-07-26' };
   const note = buildDateChangeNote(before, after, 'Quân');
-  assert.equal(note, 'Dịch ngày (Quân): 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
+  assert.equal(note, 'Đổi ngày (Quân): 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
 });
 
 test('a resize with an actor name still keeps the "(+N ngày)" anchored at the end', () => {

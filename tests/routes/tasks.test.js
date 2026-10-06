@@ -341,7 +341,7 @@ test('PUT that changes start_date/due_date auto-records an activity log entry', 
 
   const logs = await request(app).get(`/api/tasks/${id}/logs`);
   assert.equal(logs.body.length, 1);
-  assert.equal(logs.body[0].note, 'Dịch ngày (quan.dang1): 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
+  assert.equal(logs.body[0].note, 'Đổi ngày (quan.dang1): 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
 });
 
 test('PUT with an X-Actor-Name header attributes the date-change log entry to that name', async () => {
@@ -371,7 +371,7 @@ test('PUT with an X-Actor-Name header attributes the date-change log entry to th
     });
 
   const logs = await request(app).get(`/api/tasks/${id}/logs`);
-  assert.equal(logs.body[0].note, 'Dịch ngày (Quân): 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
+  assert.equal(logs.body[0].note, 'Đổi ngày (Quân): 06/07/2026–17/07/2026 → 15/07/2026–26/07/2026 (+9 ngày)');
 });
 
 test('PUT that leaves dates unchanged does not record an activity log entry', async () => {

@@ -131,7 +131,7 @@ test('PUT rejects editing an auto-generated date-change note', async () => {
   });
   const logs = await request(app).get(`/api/tasks/${taskId}/logs`);
   const dateChangeLog = logs.body[0];
-  assert.match(dateChangeLog.note, /^Dịch ngày/);
+  assert.match(dateChangeLog.note, /^Đổi ngày/);
 
   const res = await asAdmin(request(app).put(`/api/tasks/${taskId}/logs/${dateChangeLog.id}`))
     .send({ note: 'Cố sửa log tự động' });

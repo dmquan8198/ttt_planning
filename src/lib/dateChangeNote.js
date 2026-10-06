@@ -18,9 +18,14 @@ function signed(n) {
 // or returns null when neither date actually changed — callers should skip
 // logging in that case rather than record a no-op note. actorName (who made
 // the change) is optional and, when given, is inserted right after the
-// "Dịch ngày"/"Đổi ngày" prefix — before the trailing "(+N ngày)" delta, so
-// that pattern stays anchored to the end of the string for callers that
-// parse it back out (see public/app.js's parseDateChangeNote).
+// "Đổi ngày" prefix — before the trailing "(+N ngày)" delta, so that pattern
+// stays anchored to the end of the string for callers that parse it back out
+// (see public/app.js's parseDateChangeNote). Every date change uses that one
+// label; the body alone tells a whole-range shift ("a–b → c–d (+N ngày)")
+// from a per-end change ("bắt đầu …, kết thúc …"). Rows written before that
+// was unified say "Dịch ngày" for a shift — the migration rewrites them, and
+// isDateChangeNote below accepts both either way.
+const PREFIX = 'Đổi ngày';
 function buildDateChangeNote(before, after, actorName) {
   const startChanged = before.start_date !== after.start_date;
   const dueChanged = before.due_date !== after.due_date;
@@ -32,7 +37,7 @@ function buildDateChangeNote(before, after, actorName) {
 
   // both ends moved by the same amount — a plain shift of the whole range
   if (startChanged && dueChanged && startDelta === dueDelta) {
-    return `Dịch ngày${who}: ${fmtDMY(before.start_date)}–${fmtDMY(before.due_date)} → ` +
+    return `${PREFIX}${who}: ${fmtDMY(before.start_date)}–${fmtDMY(before.due_date)} → ` +
       `${fmtDMY(after.start_date)}–${fmtDMY(after.due_date)} (${signed(startDelta)} ngày)`;
   }
 
@@ -43,12 +48,13 @@ function buildDateChangeNote(before, after, actorName) {
   if (dueChanged) {
     parts.push(`kết thúc ${fmtDMY(before.due_date)} → ${fmtDMY(after.due_date)} (${signed(dueDelta)} ngày)`);
   }
-  return `Đổi ngày${who}: ${parts.join(', ')}`;
+  return `${PREFIX}${who}: ${parts.join(', ')}`;
 }
 
 // mirrors public/app.js's own isDateChangeNote (no shared module system
 // between client/server here) — used server-side to keep the auto-generated
-// date-change audit trail immutable via the log-edit endpoint.
+// date-change audit trail immutable via the log-edit endpoint. Accepts the
+// legacy "Dịch ngày" label too, so un-migrated rows stay protected.
 function isDateChangeNote(note) {
   return /^(Dịch ngày|Đổi ngày)\b/.test(note);
 }

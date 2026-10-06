@@ -10,6 +10,8 @@ document.querySelectorAll('.nav-item').forEach(function(el){
     // (e.g. the very first render, on initial page load, before any nav
     // click) — redo it now that the view is actually visible.
     if (el.dataset.view === 'table' && typeof autoGrowAllTableTextareas === 'function') autoGrowAllTableTextareas();
+    // same story for the Timeline's scrollbar-width correction
+    if (el.dataset.view === 'timeline' && typeof syncGanttScrollbarCorrection === 'function') syncGanttScrollbarCorrection();
   });
 });
 
@@ -1210,6 +1212,9 @@ function suggestCloneName(baseName, allTasks){
 // BE and App/Auto folded into App (see migrations/001_init.sql) — Platform
 // is just these 2 now.
 var PLATFORM_OPTIONS = ['Web', 'App'];
+// what a NEW task starts as in the create drawer (editing an existing task
+// always shows its own platform)
+var DEFAULT_PLATFORM = 'App';
 function renderPlatformChips(containerEl, selectedValue, canEdit){
   containerEl.innerHTML = '';
   PLATFORM_OPTIONS.forEach(function(opt){
@@ -1388,7 +1393,7 @@ function openDrawer(mode, t){
         document.getElementById('f-why').value = '';
         document.getElementById('f-cat').value = 'TTT New - Product Foundation';
         document.getElementById('f-cat-new').style.display = 'none';
-        renderPlatformChips(document.getElementById('f-platform-chips'), PLATFORM_OPTIONS[0], canEdit);
+        renderPlatformChips(document.getElementById('f-platform-chips'), DEFAULT_PLATFORM, canEdit);
         document.getElementById('f-status').value = STATUS_ORDER[0];
         applyDefaultPhaseSprint();
         document.getElementById('logPreview').innerHTML = '';
@@ -1736,6 +1741,17 @@ function fmtRelativeTime(iso){
   var days = Math.floor(hours / 24);
   if (days < 7) return days + ' ngày trước';
   return fmtStamp(iso).slice(0, 10);
+}
+// "who + when" markup for Danh sách nghiệp vụ's "Sửa lần cuối" column
+// (tasks.last_edited_at/by — see the migration). data-edit-at lets refreshEditStamps() keep the relative
+// time ("5 phút trước") current without re-rendering. `by` may be empty:
+// older tasks (backfilled) and subtasks don't record who.
+function editStampHtml(iso, by){
+  if (!iso) return '<span class="edit-stamp-none">—</span>';
+  var detail = fmtStamp(iso) + (by ? ' — ' + by : '');
+  return '<span class="edit-stamp' + (isFreshEdit(iso) ? ' is-fresh' : '') + '" data-edit-at="' +
+    escapeHtml(iso) + '" title="' + escapeHtml(detail) + '">' + escapeHtml(fmtRelativeTime(iso)) + '</span>' +
+    (by ? '<span class="edit-by" title="' + escapeHtml(detail) + '">' + escapeHtml(by) + '</span>' : '');
 }
 
 // ---- roadmap: phase cards + master axis (fetched from /api/phases) ----
@@ -2533,10 +2549,7 @@ wireExportJsonButton('exportCurrentNextJsonBtn', function(){
 function buildSprintExcelRows(tasksSubset, sprintsSubset, allLogs){
   var sprintCodeById = {};
   sprintsSubset.forEach(function(s){ sprintCodeById[s.id] = s.code; });
-  var latestLogByTaskId = {};
-  allLogs.forEach(function(l){
-    if (!(l.task_id in latestLogByTaskId)) latestLogByTaskId[l.task_id] = l;
-  });
+  var latestLogByTaskId = latestNoteByTaskId(allLogs); // "Cập nhật mới nhất" skips date-change entries
   var header = ['STT', 'Category', 'Nghiệp vụ', 'Platform', 'Sprint', 'Trạng thái', 'Bắt đầu', 'Hạn chót', 'Lý do', 'Cập nhật mới nhất'];
   var rows = tasksSubset.slice().sort(function(a, b){
     var sprintDelta = (a.sprint_id || 0) - (b.sprint_id || 0);
@@ -3005,6 +3018,30 @@ var _timelineExpandedTaskIds = {};
 // session, same as the expand state above.
 var _ganttLabelWidth = 186;
 var GANTT_LABEL_MIN = 120, GANTT_LABEL_MAX = 420;
+// Two more frozen columns sit between the TASKS label and the chart, in this
+// order: "STATUS" (fixed width) and "CẬP NHẬT MỚI NHẤT" (resizable the same
+// way as TASKS — drag handle on its header's right edge — and remembered for
+// the session). Everything that positions the chart (header width, day
+// ruler, gridline overlay) offsets by the WHOLE left block, not just the
+// label — ganttLeftWidth(). The cells take their widths from the
+// --gantt-status-w / --gantt-note-w custom properties on .gantt (set in
+// renderGantt and while dragging), so a resize is one property write, not a
+// loop over rows.
+// On a phone-width screen the frozen label + these two columns alone would be
+// wider than the whole chart box and cover the bars entirely, so below this
+// width both are dropped (hidden in CSS by the same breakpoint, and counted
+// as 0px here so every offset follows).
+var GANTT_STATUS_W = 132;
+var _ganttNoteWidth = 220;
+var GANTT_NOTE_MIN = 140, GANTT_NOTE_MAX = 600;
+var _ganttNarrowMq = window.matchMedia('(max-width: 640px)');
+function ganttStatusWidth(){ return _ganttNarrowMq.matches ? 0 : GANTT_STATUS_W; }
+function ganttNoteWidth(){ return _ganttNarrowMq.matches ? 0 : _ganttNoteWidth; }
+function ganttLeftWidth(){ return _ganttLabelWidth + ganttStatusWidth() + ganttNoteWidth(); }
+// each task's newest manual note (date-change entries skipped — see
+// latestNoteByTaskId), same as the table's _tableLatestLogByTaskId; filled by
+// loadTimelineView
+var _timelineLatestLogByTaskId = {};
 // the current render's track width in px, stashed so the column-resize
 // drag handler (wired once, outside renderGantt) can recompute the
 // header/body's total scrollable width live without a full re-render.
@@ -3078,53 +3115,119 @@ document.getElementById('ganttExpandAllBtn').addEventListener('click', function(
   if (_lastTimelineTasks) renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
 });
 
-// drag the handle on the "TASKS" column's right edge to resize it — wired
-// once here (not inside renderGantt, which only touches width/left on the
-// elements it already creates each render) since the handle itself is
-// static markup, not regenerated per render.
+// the status and note headers are sticky: each rides right after the column
+// before it, so their `left` offsets follow the label (and status) widths
+function positionGanttStickyHeaders(){
+  var statusCorner = document.querySelector('.gantt-status-corner');
+  if (statusCorner) statusCorner.style.left = _ganttLabelWidth + 'px';
+  var noteCorner = document.querySelector('.gantt-note-corner');
+  if (noteCorner) noteCorner.style.left = (_ganttLabelWidth + ganttStatusWidth()) + 'px';
+}
+
+// re-apply everything that depends on the label / status / note column
+// widths, live, without a render: the cells' widths, the status and note
+// headers' sticky offsets, the header/body scroll width, and the overlay + day
+// ruler (both their LEFT and their WIDTH — see renderGantt's identical
+// formula; skipping the width is exactly what left the grid drifting out of
+// sync while dragging).
+function applyGanttLeftBlock(){
+  var ganttBox = document.querySelector('.gantt');
+  if (ganttBox){
+    ganttBox.style.setProperty('--gantt-status-w', GANTT_STATUS_W + 'px');
+    ganttBox.style.setProperty('--gantt-note-w', _ganttNoteWidth + 'px');
+  }
+  document.querySelectorAll('.task-label, .gantt-corner').forEach(function(el){ el.style.width = _ganttLabelWidth + 'px'; });
+  positionGanttStickyHeaders();
+  var headerEl = document.querySelector('.gantt-header');
+  var bodyEl = document.getElementById('ganttBody');
+  var leftW = ganttLeftWidth(); // label + status + note columns
+  var totalW = 'max(100%, ' + (leftW + _lastGanttTrackPxWidth) + 'px)';
+  if (headerEl) headerEl.style.width = totalW;
+  if (bodyEl) bodyEl.style.width = totalW;
+  var overlayWidthCss = 'calc(100% - ' + (leftW + _lastGanttBodyScrollbarWidth) + 'px)';
+  var overlayMinWidth = (_lastGanttTrackPxWidth - _lastGanttBodyScrollbarWidth) + 'px';
+  var overlay = document.querySelector('.gantt-track-overlay');
+  if (overlay){
+    overlay.style.left = leftW + 'px';
+    overlay.style.width = overlayWidthCss;
+    overlay.style.minWidth = overlayMinWidth;
+  }
+  var rulerEl = document.getElementById('dayRuler');
+  if (rulerEl){
+    rulerEl.style.width = overlayWidthCss;
+    rulerEl.style.minWidth = overlayMinWidth;
+  }
+}
+
+// drag the handle on the "TASKS" / "CẬP NHẬT MỚI NHẤT" column's right edge to
+// resize it — wired once here (not inside renderGantt, which only touches
+// width/left on the elements it already creates each render) since the
+// handles themselves are static markup, not regenerated per render.
 (function wireGanttColumnResize(){
-  var handle = document.getElementById('ganttColResize');
-  if (!handle) return;
-  handle.addEventListener('mousedown', function(e){
-    e.preventDefault();
-    var startX = e.clientX;
-    var startWidth = _ganttLabelWidth;
-    handle.classList.add('is-dragging');
-    function onMove(ev){
-      var newWidth = Math.max(GANTT_LABEL_MIN, Math.min(GANTT_LABEL_MAX, startWidth + (ev.clientX - startX)));
-      _ganttLabelWidth = newWidth;
-      document.querySelectorAll('.task-label, .gantt-corner').forEach(function(el){ el.style.width = newWidth + 'px'; });
-      var headerEl = document.querySelector('.gantt-header');
-      var bodyEl = document.getElementById('ganttBody');
-      var totalW = 'max(100%, ' + (newWidth + _lastGanttTrackPxWidth) + 'px)';
-      if (headerEl) headerEl.style.width = totalW;
-      if (bodyEl) bodyEl.style.width = totalW;
-      // overlay/ruler's WIDTH (not just their left offset) depends on
-      // newWidth too — see renderGantt's identical formula. Skipping this
-      // is exactly what left the grid drifting out of sync while dragging.
-      var overlayWidthCss = 'calc(100% - ' + (newWidth + _lastGanttBodyScrollbarWidth) + 'px)';
-      var overlayMinWidth = (_lastGanttTrackPxWidth - _lastGanttBodyScrollbarWidth) + 'px';
-      var overlay = document.querySelector('.gantt-track-overlay');
-      if (overlay){
-        overlay.style.left = newWidth + 'px';
-        overlay.style.width = overlayWidthCss;
-        overlay.style.minWidth = overlayMinWidth;
+  // however wide the user drags, some of the chart must stay visible beside
+  // the two frozen columns — they never scroll away, so past that point the
+  // bars would be unreachable. `other` is the width of the OTHER column.
+  var CHART_MIN_VISIBLE = 160;
+  function cap(min, max, other){
+    var box = document.querySelector('.gantt');
+    return Math.max(min, Math.min(max, (box ? box.clientWidth : Infinity) - other - CHART_MIN_VISIBLE));
+  }
+  function wire(handleId, min, getMax, getWidth, setWidth){
+    var handle = document.getElementById(handleId);
+    if (!handle) return;
+    handle.addEventListener('mousedown', function(e){
+      e.preventDefault();
+      var startX = e.clientX;
+      var startWidth = getWidth();
+      handle.classList.add('is-dragging');
+      function onMove(ev){
+        setWidth(Math.max(min, Math.min(getMax(), startWidth + (ev.clientX - startX))));
+        applyGanttLeftBlock();
       }
-      var rulerEl = document.getElementById('dayRuler');
-      if (rulerEl){
-        rulerEl.style.width = overlayWidthCss;
-        rulerEl.style.minWidth = overlayMinWidth;
+      function onUp(){
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        handle.classList.remove('is-dragging');
       }
-    }
-    function onUp(){
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      handle.classList.remove('is-dragging');
-    }
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+  wire('ganttColResize', GANTT_LABEL_MIN,
+    function(){ return cap(GANTT_LABEL_MIN, GANTT_LABEL_MAX, ganttStatusWidth() + ganttNoteWidth()); },
+    function(){ return _ganttLabelWidth; }, function(w){ _ganttLabelWidth = w; });
+  wire('ganttNoteColResize', GANTT_NOTE_MIN,
+    function(){ return cap(GANTT_NOTE_MIN, GANTT_NOTE_MAX, _ganttLabelWidth + ganttStatusWidth()); },
+    function(){ return _ganttNoteWidth; }, function(w){ _ganttNoteWidth = w; });
 })();
+
+// crossing the phone-width breakpoint adds/drops the status + note columns,
+// which moves the whole chart — redo every offset with a render instead of
+// patching them
+function onGanttNarrowBreakpoint(){
+  if (_lastTimelineTasks) renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+}
+if (_ganttNarrowMq.addEventListener) _ganttNarrowMq.addEventListener('change', onGanttNarrowBreakpoint);
+else if (_ganttNarrowMq.addListener) _ganttNarrowMq.addListener(onGanttNarrowBreakpoint);
+
+// renderGantt subtracts #ganttBody's own vertical scrollbar from the
+// overlay/ruler width so their "%" gridlines land on the same pixels as the
+// bars — but that scrollbar can only be MEASURED while the view is visible.
+// The first render usually runs while it's hidden (page load with another
+// tab active), stashes 0, and leaves the grid a scrollbar-width too wide until
+// something happens to re-render. Re-measure when the view is shown.
+function syncGanttScrollbarCorrection(){
+  var body = document.getElementById('ganttBody');
+  if (!body || !body.offsetWidth) return; // still hidden, nothing to measure
+  var scrollbar = body.offsetWidth - body.clientWidth;
+  if (scrollbar === _lastGanttBodyScrollbarWidth) return;
+  _lastGanttBodyScrollbarWidth = scrollbar;
+  var widthCss = 'calc(100% - ' + (ganttLeftWidth() + scrollbar) + 'px)';
+  var minWidth = (_lastGanttTrackPxWidth - scrollbar) + 'px';
+  [document.querySelector('.gantt-track-overlay'), document.getElementById('dayRuler')].forEach(function(el){
+    if (el){ el.style.width = widthCss; el.style.minWidth = minWidth; }
+  });
+}
 
 // ---- day-level ruler: two-digit day-of-month ticks, a bolder one + dd/mm label every Monday ----
 function fmtDdMm(d){ return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0'); }
@@ -3249,7 +3352,7 @@ function promptDateChangeReason(taskName, onConfirm, onCancel){
 }
 
 // records the typed reason as its own activity-log entry, right alongside
-// the server's own auto-generated "Dịch ngày/Đổi ngày" note for the same
+// the server's own auto-generated "Đổi ngày" note for the same
 // change (see dateChangeNote.js) — best-effort, matching how the drawer's
 // own initial-note posting doesn't block on failure either.
 function postDateChangeReasonLog(taskId, reason){
@@ -3780,8 +3883,61 @@ function renderSubtaskGanttRow(t, st, pctPos, axisSpan){
     noDate.textContent = 'Chưa có ngày';
     track.appendChild(noDate);
   }
-  row.appendChild(label); row.appendChild(track);
+  row.appendChild(label);
+  row.appendChild(buildGanttStatusCell(st, true));
+  row.appendChild(buildGanttNoteCell(null, true));
+  row.appendChild(track);
   return row;
+}
+
+// the "STATUS" cell of a Timeline row, right after the TASKS label (frozen
+// with it when the chart is scrolled sideways): the same colored pill as the
+// task's status in Danh sách nghiệp vụ, or — on a subtask row — its
+// TODO / WIP / Done pill. Read-only: status is changed from the table or the
+// task drawer, never from here. The pill is nowrap + clipped, so no label can
+// widen the cell or stretch the row.
+function buildGanttStatusCell(item, isSub){
+  var cell = document.createElement('div');
+  cell.className = 'task-status' + (isSub ? ' is-sub' : '');
+  var pill = document.createElement('span');
+  if (isSub){
+    pill.className = 'subtask-status-pill ' + item.status;
+    pill.textContent = SUBTASK_STATUS_LABELS[item.status] || item.status || '';
+  } else {
+    var idx = statusDotToNum(item.status);
+    pill.className = 'pill st-' + idx;
+    pill.textContent = idx === -1 ? (item.status || '') : statusLabel[idx].replace(/^\d+\.\s*/, '');
+  }
+  cell.appendChild(pill);
+  return cell;
+}
+
+// the "CẬP NHẬT MỚI NHẤT" cell of a Timeline row: the task's latest activity
+// log note, same text as Danh sách nghiệp vụ's column of that name. Sits
+// right after the TASKS label and is frozen with it when the chart is
+// scrolled sideways (see the .gantt scroll handler).
+// Only the note itself is shown — no author, no timestamp. Line breaks the
+// user typed are kept (white-space:pre-wrap, as in the table), but the text
+// is clamped to 3 lines (see .task-note-text) so a long or many-lined note
+// can never make a row taller than its track; the full text is in the hover
+// tooltip. Logs belong to tasks, not subtasks, so a subtask row just gets an
+// empty cell of the same width to keep the columns lined up.
+function buildGanttNoteCell(log, isSub){
+  var cell = document.createElement('div');
+  cell.className = 'task-note' + (isSub ? ' is-sub' : '');
+  if (isSub) return cell;
+  var textEl = document.createElement('span');
+  if (log){
+    var noteText = stripActorSuffix(log.note);
+    textEl.className = 'task-note-text';
+    textEl.textContent = noteText;
+    cell.title = noteText;
+  } else {
+    textEl.className = 'task-note-empty';
+    textEl.textContent = 'Chưa có log';
+  }
+  cell.appendChild(textEl);
+  return cell;
 }
 
 function renderGantt(tasks, sprints, phases){
@@ -3792,6 +3948,10 @@ function renderGantt(tasks, sprints, phases){
   // FLIP below (old rects were measured scrolled, new ones at scrollTop 0,
   // so rows "slid" by the scroll distance instead of by their real move).
   var prevBodyScrollTop = body.scrollTop;
+  // same for the chart's horizontal scroll (.gantt): emptying the body
+  // shrinks its content and the browser clamps scrollLeft to 0, so every
+  // refresh used to throw a sideways-scrolled chart back to the left edge
+  var prevGanttScrollLeft = document.querySelector('.gantt').scrollLeft;
   body.innerHTML = '';
   var oldOverlay = document.querySelector('.gantt-track-overlay');
   if (oldOverlay) oldOverlay.parentNode.removeChild(oldOverlay);
@@ -3841,12 +4001,15 @@ function renderGantt(tasks, sprints, phases){
   var axisSpanDays = axisSpan / (24 * 60 * 60 * 1000);
   var trackPxWidth = axisSpanDays * PX_PER_DAY;
   _lastGanttTrackPxWidth = trackPxWidth;
-  var totalRowWidth = _ganttLabelWidth + trackPxWidth;
+  var totalRowWidth = ganttLeftWidth() + trackPxWidth;
   var headerEl = document.querySelector('.gantt-header');
   headerEl.style.width = 'max(100%, ' + totalRowWidth + 'px)';
   body.style.width = 'max(100%, ' + totalRowWidth + 'px)';
   var cornerEl = document.querySelector('.gantt-corner');
   if (cornerEl) cornerEl.style.width = _ganttLabelWidth + 'px';
+  document.querySelector('.gantt').style.setProperty('--gantt-status-w', GANTT_STATUS_W + 'px');
+  document.querySelector('.gantt').style.setProperty('--gantt-note-w', _ganttNoteWidth + 'px');
+  positionGanttStickyHeaders();
 
   renderDayRuler(axisStart, axisEnd, pctPos);
 
@@ -4138,7 +4301,17 @@ function renderGantt(tasks, sprints, phases){
       });
 
       track.appendChild(bar);
-      row.appendChild(label); row.appendChild(track);
+      // edited in the last few minutes (by anyone) → tinted label + note
+      // cell with an accent bar, same cue as Danh sách nghiệp vụ; the
+      // ticker (refreshEditStamps) ages it out without a re-render
+      if (t.last_edited_at){
+        row.dataset.editAt = t.last_edited_at;
+        if (isFreshEdit(t.last_edited_at)) row.classList.add('row-fresh');
+      }
+      row.appendChild(label);
+      row.appendChild(buildGanttStatusCell(t, false));
+      row.appendChild(buildGanttNoteCell(_timelineLatestLogByTaskId[t.id], false));
+      row.appendChild(track);
       group.appendChild(row);
 
       if (hasSubtasks && _timelineExpandedTaskIds[t.id]){
@@ -4186,8 +4359,8 @@ function renderGantt(tasks, sprints, phases){
   _lastGanttBodyScrollbarWidth = bodyScrollbarWidth;
   var overlayEl = document.createElement('div');
   overlayEl.className = 'gantt-track-overlay';
-  overlayEl.style.left = _ganttLabelWidth + 'px';
-  overlayEl.style.width = 'calc(100% - ' + (_ganttLabelWidth + bodyScrollbarWidth) + 'px)';
+  overlayEl.style.left = ganttLeftWidth() + 'px';
+  overlayEl.style.width = 'calc(100% - ' + (ganttLeftWidth() + bodyScrollbarWidth) + 'px)';
   // the min-width floor needs the same scrollbar deduction as the calc()
   // above — otherwise on a narrow window (where this floor is what actually
   // wins) the overlay reverts to being scrollbarWidth px wider than
@@ -4199,7 +4372,7 @@ function renderGantt(tasks, sprints, phases){
   // flex:1 its date ticks render scrollbarWidth px too far right of where
   // the gridlines/bars they're labeling actually sit in the body below.
   var rulerEl = document.getElementById('dayRuler');
-  rulerEl.style.width = 'calc(100% - ' + (_ganttLabelWidth + bodyScrollbarWidth) + 'px)';
+  rulerEl.style.width = 'calc(100% - ' + (ganttLeftWidth() + bodyScrollbarWidth) + 'px)';
   rulerEl.style.minWidth = (trackPxWidth - bodyScrollbarWidth) + 'px';
   // axisStart/axisEnd are already clean UTC-midnight instants (see
   // renderDayRuler) — no setHours() reset here either, for the same reason.
@@ -4256,6 +4429,14 @@ function renderGantt(tasks, sprints, phases){
   var ganttEl = document.querySelector('.gantt');
   ganttEl.style.position = 'relative';
   ganttEl.appendChild(overlayEl);
+  ganttEl.scrollLeft = prevGanttScrollLeft;
+  // rows built while the chart is already scrolled sideways start unshifted
+  // (the freeze above only runs on a scroll event); bring them in line so the
+  // label, status and note cells don't sit off-screen after a re-render
+  if (ganttEl.scrollLeft){
+    var frozenShift = 'translateX(' + ganttEl.scrollLeft + 'px)';
+    body.querySelectorAll('.task-label, .task-status, .task-note').forEach(function(el){ el.style.transform = frozenShift; });
+  }
   playFlip();
 
   // the row just dropped/edited glows briefly (see markRowFlash) and, if
@@ -4631,17 +4812,7 @@ function tableCellHtml(col, t){
       var idx = statusDotToNum(t.status);
       return '<span class="pill st-' + idx + '">' + escapeHtml(statusLabel[idx].replace(/^\d+\.\s*/, '')) + '</span>';
     }
-    case 'last_edited': {
-      // who + when the task's content was last changed — see
-      // tasks.last_edited_at. data-edit-at lets refreshEditStamps() keep the
-      // relative time ("5 phút trước") current without re-rendering the table.
-      if (!t.last_edited_at) return '<span class="edit-stamp-none">—</span>';
-      var detail = fmtStamp(t.last_edited_at) + (t.last_edited_by ? ' — ' + t.last_edited_by : '');
-      return '<span class="edit-stamp' + (isFreshEdit(t.last_edited_at) ? ' is-fresh' : '') + '" data-edit-at="' +
-        escapeHtml(t.last_edited_at) + '" title="' + escapeHtml(detail) + '">' +
-        escapeHtml(fmtRelativeTime(t.last_edited_at)) + '</span>' +
-        (t.last_edited_by ? '<span class="edit-by" title="' + escapeHtml(detail) + '">' + escapeHtml(t.last_edited_by) + '</span>' : '');
-    }
+    case 'last_edited': return editStampHtml(t.last_edited_at, t.last_edited_by);
     case 'start': {
       var r1 = effectiveRange(t);
       return r1 ? fmtDMY(toIsoDate(r1.start)) : (t.start_date ? fmtDMY(t.start_date) : '');
@@ -5261,9 +5432,9 @@ function renderTableView(tasks){
 // there; walk the rendered rows and update them in place (no re-render, so
 // nothing the user is typing into is disturbed).
 function refreshEditStamps(){
-  var wrap = document.getElementById('tableViewWrap');
-  if (!wrap) return;
-  wrap.querySelectorAll('.edit-stamp[data-edit-at]').forEach(function(el){
+  // only Bảng danh sách carries the "x phút trước" stamp; its rows (<tr>)
+  // and the Timeline's rows (.task-row) share the same fresh-tint rule below
+  document.querySelectorAll('#tableViewWrap .edit-stamp[data-edit-at]').forEach(function(el){
     var iso = el.getAttribute('data-edit-at');
     el.textContent = fmtRelativeTime(iso);
     el.classList.toggle('is-fresh', isFreshEdit(iso));
@@ -5271,8 +5442,8 @@ function refreshEditStamps(){
   // both directions: a tint that ran out comes off, and one that the first
   // render got wrong (it ran before the server's clock offset was known, on
   // a machine whose own clock is off) goes on
-  wrap.querySelectorAll('tr[data-edit-at]').forEach(function(tr){
-    tr.classList.toggle('row-fresh', isFreshEdit(tr.getAttribute('data-edit-at')));
+  document.querySelectorAll('#tableViewWrap tr[data-edit-at], #ganttBody .task-row[data-edit-at]').forEach(function(row){
+    row.classList.toggle('row-fresh', isFreshEdit(row.getAttribute('data-edit-at')));
   });
 }
 setInterval(refreshEditStamps, 30000);
@@ -5442,13 +5613,9 @@ function loadTableView(){
     .then(function(results){
       _lastTableTasks = results[0]; _lastTableSprints = results[1]; _lastTablePhases = results[2];
       _tablePicsCache = results[4];
-      // /api/logs is already sorted newest-first, so the first entry seen
-      // per task_id is that task's most recent log — same reduction used
-      // by the Sprint page and Timeline nhóm.
-      _tableLatestLogByTaskId = {};
-      results[3].forEach(function(l){
-        if (!(l.task_id in _tableLatestLogByTaskId)) _tableLatestLogByTaskId[l.task_id] = l;
-      });
+      // newest manual note per task (date-change entries skipped) — the
+      // "Cập nhật mới nhất" column, same as the Timeline's
+      _tableLatestLogByTaskId = latestNoteByTaskId(results[3]);
       // only pick the default phase to show ONCE — a data refresh (task
       // save, filter elsewhere, refreshAllViews) must not yank the user
       // back to "today's phase" while they're looking at another one.
@@ -6485,11 +6652,14 @@ var _timelineFiltersInitialized = false;
 
 function loadTimelineView(){
   var body = document.getElementById('ganttBody');
-  return Promise.all([loadTasks(), loadSprints(), loadPhasesList()])
+  // the logs only feed the "Cập nhật mới nhất" column, so a failed /api/logs
+  // must not blank the whole Timeline — fall back to "no logs" instead
+  return Promise.all([loadTasks(), loadSprints(), loadPhasesList(), fetchJSON('/api/logs').catch(function(){ return []; })])
     .then(function(results){
       _lastTimelineTasks = results[0];
       _lastTimelineSprints = results[1];
       _lastTimelinePhases = results[2];
+      _timelineLatestLogByTaskId = latestNoteByTaskId(results[3]);
       if (!_timelineFiltersInitialized){
         _timelineFiltersInitialized = true;
         var currentPhase = _lastTimelinePhases.find(function(p){ return p.pct_complete !== null && p.pct_complete < 100; });
@@ -6546,15 +6716,32 @@ function stripActorSuffix(note){
 }
 
 function parseDateChangeNote(note){
-  var moveMatch = note.match(/\(([+-]\d+) ngày\)$/);
-  if (note.indexOf('Dịch ngày') === 0){
-    return { deltaDays: moveMatch ? Number(moveMatch[1]) : null };
-  }
   var startMatch = note.match(/bắt đầu [\d/]+ → [\d/]+ \(([+-]\d+) ngày\)/);
   var endMatch = note.match(/kết thúc [\d/]+ → [\d/]+ \(([+-]\d+) ngày\)/);
+  if (!startMatch && !endMatch){
+    // whole-range shift ("Đổi ngày (Tên): a–b → c–d (+9 ngày)", written
+    // "Dịch ngày …" before the label was unified): one delta, at the end
+    var moveMatch = note.match(/\(([+-]\d+) ngày\)$/);
+    return { deltaDays: moveMatch ? Number(moveMatch[1]) : null };
+  }
   var startDelta = startMatch ? Number(startMatch[1]) : null;
   var endDelta = endMatch ? Number(endMatch[1]) : null;
   return { deltaDays: endDelta != null ? endDelta : startDelta, startDelta: startDelta, endDelta: endDelta };
+}
+
+// "Cập nhật mới nhất" = the newest log a PERSON wrote. The auto-generated
+// "Đổi ngày …" entries (one per date edit / Timeline drag) are bookkeeping,
+// not an update, so they are skipped: a task shows its newest manual note —
+// including a "Lý do dời ngày: …" reason someone typed — or nothing when it
+// has none. `logs` is /api/logs' newest-first list. The hover popup's "Hoạt
+// động gần nhất" is a different thing (any activity) and keeps every log.
+function latestNoteByTaskId(logs){
+  var byTask = {};
+  logs.forEach(function(l){
+    if (isDateChangeNote(l.note)) return;
+    if (!(l.task_id in byTask)) byTask[l.task_id] = l;
+  });
+  return byTask;
 }
 
 var _logSummaryGroupBy = 'sprint';
@@ -7137,9 +7324,11 @@ function renderResourceMatrix(){
 // horizontal scroll (verified empirically). Shifting it by the live
 // scrollLeft via transform gets the same frozen-column look without
 // touching the working vertical-scroll setup.
+// The "STATUS" and "CẬP NHẬT MỚI NHẤT" cells are frozen the same way, so they
+// stay glued to the right of the label instead of sliding away under the chart.
 document.querySelector('.gantt').addEventListener('scroll', function(){
   var shift = this.scrollLeft + 'px';
-  document.querySelectorAll('.task-label').forEach(function(el){
+  document.querySelectorAll('.task-label, .task-status, .task-note').forEach(function(el){
     el.style.transform = 'translateX(' + shift + ')';
   });
 });

@@ -552,7 +552,7 @@ body{
    gridlines/today-line start right below the header instead of drawing
    across it — mounted on .gantt (not .gantt-body) so it stays visually
    pinned as gantt-body scrolls under it, instead of scrolling away with it. */
-.gantt-track-overlay{position:absolute; top:36px; bottom:0; left:186px; right:0; pointer-events:none; z-index:2;}
+.gantt-track-overlay{position:absolute; top:36px; bottom:0; left:538px; right:0; pointer-events:none; z-index:2;}
 .gantt-day-line{position:absolute; top:0; bottom:0; width:1px; background:var(--border); opacity:0.4;}
 .gantt-day-line.is-week{background:var(--ink-faint); opacity:0.55;}
 /* a full-day-wide wash, not just a line — low opacity so it reads as a
@@ -1602,3 +1602,78 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
 .edit-by{ display:block; font-size:11px; color:var(--ink-faint); max-width:140px; overflow:hidden; text-overflow:ellipsis; }
 .edit-stamp-none{ color:var(--ink-faint); }
 @media (prefers-reduced-motion: reduce){ .edit-stamp.is-fresh::before{ animation:none; } }
+
+/* ===== Timeline: "STATUS" and "CẬP NHẬT MỚI NHẤT" columns, between the TASKS label and the chart ===== */
+/* Same two-part freeze as the label: the header cells are sticky (their left is
+   set from JS: status after the label, note after the status), the body cells
+   are shifted by the chart's scrollLeft (see the .gantt scroll handler). The
+   widths are --gantt-status-w and the user-resizable --gantt-note-w (JS keeps
+   them in sync with GANTT_STATUS_W / _ganttNoteWidth, which every chart-offset
+   calculation uses); the values here are only the pre-JS defaults. */
+.gantt{--gantt-status-w:132px; --gantt-note-w:220px;}
+.gantt-status-corner, .gantt-note-corner{
+  flex:none; display:flex; align-items:center; padding:0 10px; white-space:nowrap;
+  border-right:1px solid var(--ink-faint); font-size:10px; font-family:var(--mono); color:var(--canvas);
+  position:sticky; z-index:4; background:var(--ink);
+}
+.gantt-status-corner{width:var(--gantt-status-w); left:186px;}
+.gantt-note-corner{width:var(--gantt-note-w); left:318px;}
+/* Row-height safety: the cell never sets a height of its own and the pill is
+   a single nowrap, clipped line, so no status label can stretch a row. */
+.task-status{
+  width:var(--gantt-status-w); flex:none; min-width:0; overflow:hidden; padding:0 10px;
+  display:flex; align-items:center;
+  border-right:1px solid var(--border); position:relative; z-index:3; background:var(--surface);
+}
+.task-status .pill, .task-status .subtask-status-pill{
+  min-width:0; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.task-status .pill{display:block;}
+/* a subtask's status here is plain muted text, not a colored pill: with a
+   colored pill on every task row AND every subtask row the column got too
+   busy, so only the task's own status keeps its color */
+.task-status .subtask-status-pill{
+  background:none; color:var(--ink-muted); padding:0; border-radius:0; font-size:10.5px; font-weight:500;
+}
+/* Row-height safety: the cell never sets a height of its own and its text is
+   clamped to 3 lines (3 x 13px = 39px, inside the 44px task track), so no
+   note — however long, however many line breaks — can stretch a row and
+   knock the bars out of line with their gridlines. */
+.task-note{
+  width:var(--gantt-note-w); flex:none; min-width:0; overflow:hidden; padding:0 10px;
+  display:flex; align-items:center;
+  border-right:1px solid var(--border); position:relative; z-index:3; background:var(--surface);
+}
+.task-note-text, .task-note-empty{
+  display:block; min-width:0; max-width:100%; font-size:11px; line-height:13px; color:var(--ink-muted);
+}
+/* pre-wrap, like the table's "Cập nhật mới nhất": keeps the line breaks the
+   user typed AND still wraps a long line within one of them */
+.task-note-text{
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; line-clamp:3;
+  max-height:39px; overflow:hidden; overflow-wrap:anywhere; white-space:pre-wrap;
+}
+.task-note-empty{color:var(--ink-faint); font-style:italic; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* phone width: both columns are dropped (ganttStatusWidth() / ganttNoteWidth()
+   in app.js use the same 640px breakpoint and count them as 0px) */
+@media (max-width:640px){
+  .gantt-status-corner, .gantt-note-corner, .task-status, .task-note{display:none;}
+}
+
+/* a task edited in the last few minutes: the label, status and note cells take a
+   SOLID tint (they sit over the bars when scrolled sideways, so a
+   translucent one would let bars show through) plus the accent bar. */
+:root{ --fresh-solid: var(--accent-soft); }
+@supports (color: color-mix(in srgb, red, blue)){
+  :root{ --fresh-solid: color-mix(in srgb, var(--accent-ink) 14%, var(--surface)); }
+}
+.task-row.row-fresh .task-label, .task-row.row-fresh .task-status, .task-row.row-fresh .task-note{background:var(--fresh-solid);}
+.task-row.row-fresh .task-label{box-shadow:inset 3px 0 0 var(--accent-ink);}
+/* the 2.4s flash fades INTO that tint, not to the plain surface, so it
+   doesn't end with a visible pop */
+.task-row.row-flash .task-status, .task-row.row-flash .task-note{
+  --flash-end: var(--surface);
+  animation: row-flash-bg 2400ms ease-out var(--flash-delay, 0ms) backwards;
+}
+.task-row.row-fresh.row-flash .task-label, .task-row.row-fresh.row-flash .task-status, .task-row.row-fresh.row-flash .task-note{--flash-end:var(--fresh-solid);}
+.task-row.row-fresh.row-flash .task-label{--flash-bar-end:var(--accent-ink);}

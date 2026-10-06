@@ -373,3 +373,13 @@ UPDATE subtasks SET sort_order = id WHERE sort_order IS NULL;
 -- so nothing is falsely flagged as recent on first deploy.
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS last_edited_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS last_edited_by TEXT;
+
+-- date-change audit notes used two labels: "Dịch ngày" for a whole-range
+-- shift and "Đổi ngày" for everything else. They are all "Đổi ngày" now (see
+-- src/lib/dateChangeNote.js); this rewrites the existing "Dịch ngày" rows so
+-- the history reads the same. Only the leading label changes (substring from
+-- char 10: "Dịch ngày" is 9 characters), and the WHERE
+-- makes it a no-op once applied, safe to re-run.
+UPDATE activity_logs
+SET note = 'Đổi ngày' || substring(note from 10)
+WHERE note LIKE 'Dịch ngày%';
