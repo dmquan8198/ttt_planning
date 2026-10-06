@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "node src/server.js",
+    "dev:443": "node scripts/dev_over_443.js",
     "bridge": "node scripts/ollama-bridge.js",
     "migrate": "node scripts/migrate.js",
     "import:excel": "node scripts/import_excel.js",
@@ -22,7 +23,9 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@neondatabase/serverless": "^1.2.0",
     "pg-mem": "^2.9.1",
-    "supertest": "^7.2.2"
+    "supertest": "^7.2.2",
+    "ws": "^8.22.0"
   }
 }

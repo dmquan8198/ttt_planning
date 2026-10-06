@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev"],
       "port": 3000,
       "autoPort": false
+    },
+    {
+      "name": "ttt-timeline-dev-443",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:443"],
+      "port": 3000,
+      "autoPort": false
     }
   ]
 }
