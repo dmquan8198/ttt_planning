@@ -49,7 +49,7 @@ function remindersRouter(pool) {
     }
 
     const { rows: tasks } = await pool.query(
-      `SELECT id, name, status, date_overridden, start_date, due_date, sprint_id, pic
+      `SELECT id, name, category, status, date_overridden, start_date, due_date, sprint_id, pic
        FROM tasks WHERE status <> '6.done'`
     );
     const { rows: subtasks } = await pool.query(

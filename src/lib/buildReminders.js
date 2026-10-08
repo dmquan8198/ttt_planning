@@ -16,7 +16,9 @@ const { isWeekend, workingDaysUntil } = require('./workingDays');
 //   largest window are not reminded. On a weekend nothing is, whatever the
 //   data says, so a trigger that also fires on Saturday/Sunday stays quiet.
 // - Each item carries its PIC's name (null when nobody is assigned) so the
-//   report can show who is responsible and flag what has no owner.
+//   report can show who is responsible and flag what has no owner, and the
+//   TASK's category and status (a subtask carries its parent's) so the report
+//   can file it under Analyst / Development and group it by category.
 function buildReminders({ tasks, subtasks, sprints, today, windows = [1, 3] }) {
   const weekend = isWeekend(today);
   const base = { today, windows, weekend, items: [] };
@@ -39,7 +41,9 @@ function buildReminders({ tasks, subtasks, sprints, today, windows = [1, 3] }) {
     if (!due_date) return;
     consider({
       kind: 'task', id: t.id, task_id: t.id, name: t.name, task_name: t.name,
-      sprint_code: sprint ? sprint.code : null, status: t.status, due_date, pic: t.pic || null
+      category: t.category || null, task_status: t.status,
+      sprint_code: sprint ? sprint.code : null, sprint_start: sprint ? sprint.start_date : null, sprint_end: sprint ? sprint.end_date : null,
+      status: t.status, due_date, pic: t.pic || null
     });
   });
 
@@ -49,7 +53,9 @@ function buildReminders({ tasks, subtasks, sprints, today, windows = [1, 3] }) {
     const sprint = parent.sprint_id != null ? sprintById.get(parent.sprint_id) : null;
     consider({
       kind: 'subtask', id: s.id, task_id: s.task_id, name: s.name, task_name: parent.name,
-      sprint_code: sprint ? sprint.code : null, status: s.status, due_date: s.due_date, pic: s.pic || null
+      category: parent.category || null, task_status: parent.status,
+      sprint_code: sprint ? sprint.code : null, sprint_start: sprint ? sprint.start_date : null, sprint_end: sprint ? sprint.end_date : null,
+      status: s.status, due_date: s.due_date, pic: s.pic || null
     });
   });
 

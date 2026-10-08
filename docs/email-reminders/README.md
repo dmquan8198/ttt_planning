@@ -1,28 +1,45 @@
 # Báo cáo việc sắp đến hạn qua email
 
-Mỗi sáng **một email báo cáo duy nhất** gửi tới **một group mail**, liệt kê nghiệp vụ / subtask
+Mỗi ngày lúc **9h30** (giờ Việt Nam) **một email báo cáo duy nhất** gửi tới **một group mail**, liệt kê nghiệp vụ / subtask
 **còn đúng 1 và 3 ngày làm việc** nữa là đến hạn. Không có email riêng cho từng người, từng task hay subtask.
 
 ## Email trông thế nào
 
-Gọn có chủ đích — mỗi việc **một dòng** trong một bảng nhỏ, để cả báo cáo xem được trong **một màn hình**
-(ngày thường vài việc; ngày cuối sprint với ~30 việc cao khoảng 900px). Không có ô thống kê.
+Mỗi việc **một dòng** trong một bảng, không có ô thống kê. Việc được gom **ba tầng, đúng thứ tự**:
 
-- **Tiêu đề:** `[TTT] Báo cáo việc sắp đến hạn — 08/10/2026 (12 việc)`
+1. **Analyst hoặc Development** (theo trạng thái của nghiệp vụ; nhóm trống thì không hiện):
+   - **Analyst:** Backlog, In Analyst, Ready for Dev
+   - **Development:** In Dev, inTest UAT, Done UAT, Done
+   (việc `Done` không bao giờ có trong báo cáo vì việc đã xong không cần nhắc; nhóm này chỉ có để đủ ánh xạ)
+2. **Sprint**, tăng dần (S9 trước S10), việc không có sprint ở cuối. Tiêu đề sprint kèm **thời gian của sprint**:
+   `S19 · 28/09 – 09/10`.
+3. **Category**, theo thứ tự màn Sprint Overview của app (TTT New - Product Foundation, Cross Service Integration,
+   Internal Features, Convert & Scale; category khác xếp sau, theo A–Z).
+
+Sprint và category đã là tiêu đề nên không lặp trên từng dòng.
+
+- **Tiêu đề thư:** `[TTT] Báo cáo việc sắp đến hạn — 08/10/2026 (12 việc)`
 - **Đầu báo cáo:** "Việc sắp đến hạn · Thứ Năm, 08/10/2026 · 12 việc" — đúng một con số: tổng số việc.
-- **Mỗi ngày hết hạn một dải tiêu đề** nền xám nhạt, vạch trái đỏ (còn 1 ngày) hoặc xám (còn nhiều hơn):
-  "Còn 1 ngày làm việc · hạn Thứ Sáu 09/10". Ngày chỉ ghi một lần ở đây, không lặp trên từng dòng.
-- **Mỗi dòng:** `tên | PIC | status | sprint`. Nghiệp vụ in đậm; subtask nằm ngay dưới nghiệp vụ cha, thụt vào với "↳"
-  (không lặp tên cha, không lặp sprint). Nếu chỉ subtask đến hạn còn nghiệp vụ cha thì chưa, nghiệp vụ cha là một dòng đầu mục
-  mờ, không đậm.
-- **Việc chưa có PIC** tự lộ ra ở cột PIC ("chưa có PIC", đỏ nhạt) — không cần ô thống kê riêng.
+- **Mỗi dòng:** `tên | PIC | status | hạn`. Hạn ghi **ngày + số ngày làm việc còn lại**, ví dụ `09/10 · còn 1 ngày`;
+  còn 1 ngày thì chữ **đỏ**, nhiều hơn thì xám. Nghiệp vụ in đậm; subtask nằm ngay dưới nghiệp vụ cha, thụt vào với "↳", và
+  theo nhóm / sprint / category của nghiệp vụ cha. Nếu chỉ subtask đến hạn còn nghiệp vụ cha thì chưa, nghiệp vụ cha là một
+  dòng đầu mục mờ, không đậm, không có hạn.
+- **Status của subtask khác hẳn status của nghiệp vụ:** status nghiệp vụ (In Dev, inTest UAT…) là chữ thường; status
+  subtask (TODO / WIP / Done) là một **viên thuốc viền nhỏ, thụt vào** dưới status của cha — để không đọc nhầm hai thứ
+  ngang hàng. (Bản chữ thường ghi rõ "subtask WIP".)
+- **Ít chữ lặp lại:** thiếu PIC chỉ là dấu **—** (đỏ); sprint và category là tiêu đề nên không lặp trên từng dòng.
 - Nền ngoài xám nhạt, thẻ giữa trắng; dùng `<table>` nên Outlook bản desktop cũng hiển thị đúng.
-- Có bản chữ thường (plain text) cùng cấu trúc, cho các mail client không hiển thị HTML.
+- Có bản chữ thường (plain text) cùng cấu trúc, ghi rõ "còn N ngày" cho từng việc.
+
+**Vì sao không có tương tác (thu gọn/mở rộng) hay hai cột Analyst | Development:** mail client như Gmail/Outlook không chạy
+script và bỏ hầu hết CSS tương tác, nên email chỉ đọc được, không bấm thu gọn được. Hai cột cạnh nhau cũng không gọn hơn khi hai
+nhóm lệch nhau (ví dụ 3 việc Analyst so với 29 việc Development): cột trái gần như trống, cột phải dài gấp đôi vì mỗi việc
+phải xuống hai dòng cho vừa chiều ngang.
 
 ## Cách hoạt động
 
 ```
-Google Apps Script (trong Workspace công ty, chạy ~8h sáng)
+Google Apps Script (trong Workspace công ty, 9h30 mỗi ngày)
    └─ GET https://ttt-planning.onrender.com/api/reminders/due   (kèm REMINDER_SECRET)
          └─ app trả danh sách việc sắp đến hạn (kèm PIC, sprint, status)
    └─ MailApp.sendEmail(...)  → 1 email tới group, gửi TỪ hộp thư công ty của bạn
@@ -40,7 +57,8 @@ Vì mail do chính Google Workspace của công ty gửi nên:
 |---|---|
 | Khi nào | Còn đúng **1** hoặc **3** ngày làm việc trước hạn (đổi bằng property `DAYS`, vd `1,2,5`) |
 | Ngày làm việc | Thứ Hai–thứ Sáu. **Chưa tính ngày lễ.** Hạn rơi vào cuối tuần được tính như thứ Sáu liền trước |
-| Cuối tuần | Không gửi gì, kể cả khi trigger vẫn chạy |
+| Cuối tuần | Không gửi gì, kể cả khi trigger vẫn chạy (thứ Bảy, Chủ nhật không có "ngày làm việc" nào để đếm) |
+| Giờ gửi | **9h30** mỗi ngày (đổi bằng property `SEND_AT`, dạng `HH:mm`, vd `08:45`). Script kiểm tra mỗi 5 phút nên mail đến lúc 9h30–9h35 |
 | Việc nào | Nghiệp vụ chưa `6. Done`; subtask chưa `Done` **và** nghiệp vụ cha chưa Done; subtask phải có Due |
 | Hạn của nghiệp vụ | Ngày Due hiển thị trên app: ngày tự chỉnh nếu có, không thì **cuối sprint** |
 | Không có gì để báo cáo | Không gửi email nào |
@@ -100,8 +118,13 @@ Nếu không, mail sẽ bị từ chối hoặc nằm chờ duyệt.
    chọn tài khoản → *Advanced* → *Go to … (unsafe)* → Allow. Đây là script của chính bạn nên cảnh báo "chưa xác minh" là bình thường.
    Xem **Execution log**: nó in ra nội dung báo cáo *sẽ* được gửi, chưa gửi gì.
 6. Chạy **`sendReportToMeOnly`** → bạn nhận báo cáo (chỉ mình bạn) để kiểm tra giao diện.
-7. Chạy **`installDailyTrigger`** một lần → script tự gửi tới group mỗi ngày khoảng 8h–9h sáng.
-   (Xem hoặc xóa trigger ở menu **Triggers** bên trái.)
+7. Chạy **`installDailyTrigger`** một lần → bật gửi tự động mỗi ngày lúc **9h30**.
+   - Trigger chạy **mỗi 5 phút**; hàm `sendReportAtScheduledTime` chỉ gửi **đúng một lần mỗi ngày**, từ 9h30 trở đi
+     (nên mail đến lúc 9h30–9h35). Lý do không dùng "mỗi ngày lúc 9h30" có sẵn của Apps Script: nó chỉ cho chọn *giờ*, còn phút
+     chỉ là "khoảng", lệch tới ±15 phút.
+   - Cài sau 9h30 thì **không gửi bù hôm nay** (tránh báo cáo bất ngờ tới group lúc 11h); lần gửi đầu là sáng hôm sau.
+     Muốn gửi ngay thì chạy `sendReport` (tới group) hoặc `sendReportToMeOnly` (chỉ bạn).
+   - Xem hoặc xóa trigger ở menu **Triggers** (biểu tượng đồng hồ) bên trái; chạy lại `installDailyTrigger` sẽ thay trigger cũ.
 
 Muốn thử khi hôm nay không có việc nào đến hạn: thêm tạm property `TODAY` = một ngày làm việc (`YYYY-MM-DD`) rồi chạy
 `previewReport` — script sẽ hỏi app "nếu hôm nay là ngày đó thì có việc gì?". **Nhớ xóa property này sau khi thử.**
@@ -115,6 +138,7 @@ Muốn thử khi hôm nay không có việc nào đến hạn: thêm tạm prope
 | Hạn mức gửi | Mỗi ngày chỉ 1 email nên không đáng kể (Workspace cho khoảng 1.500 người nhận/ngày qua MailApp) |
 | Nội dung đi qua đâu | Chỉ đi **app → Apps Script (Google, trong tenant công ty) → mail**. Không có dịch vụ gửi mail bên thứ ba |
 | Người gửi | Mail hiện là **bạn** gửi (đúng tài khoản chạy script), tên hiển thị "Túi Thần Tài" |
+| Muốn gửi lại báo cáo hôm nay | Xóa property `LAST_SENT` trong Script properties (hoặc chạy `sendReport`) |
 | Bạn nghỉ việc / đổi quyền | Script và trigger gắn với tài khoản của bạn; tài khoản bị khóa thì báo cáo dừng. Nên có người thứ hai biết cách tạo lại |
 
 ## Xử lý sự cố

@@ -97,3 +97,28 @@ test('on a weekend nothing is reminded, whatever the data', () => {
   assert.equal(r.weekend, true);
   assert.deepEqual(r.items, []);
 });
+
+test('every item carries the TASK\'s category and status — a subtask carries its parent\'s — so the report can file and group it', () => {
+  const r = run(
+    [base({ id: 1, name: 'T1', due_date: '2026-10-08', category: 'TTT New - Internal Features', status: '1.in_analyst' }),
+     base({ id: 2, name: 'Parent', due_date: '2026-10-30', category: 'Túi Thần Tài', status: '3.in_test' })],
+    [{ id: 10, task_id: 2, name: 'Sub', status: 'todo', due_date: '2026-10-08', pic: null }]
+  );
+  const byName = Object.fromEntries(r.items.map((i) => [i.name, i]));
+  assert.equal(byName.T1.category, 'TTT New - Internal Features');
+  assert.equal(byName.T1.task_status, '1.in_analyst');
+  assert.equal(byName.Sub.category, 'Túi Thần Tài', "a subtask is filed under its parent's category…");
+  assert.equal(byName.Sub.task_status, '3.in_test', "…and its parent's status (the subtask's own is todo/wip/done)");
+  assert.equal(byName.Sub.status, 'todo');
+});
+
+test('every item carries its sprint\'s dates (a subtask its parent\'s), null when there is no sprint', () => {
+  const r = run(
+    [base({ id: 1, name: 'In a sprint', due_date: '2026-10-08' }), base({ id: 2, name: 'No sprint', due_date: '2026-10-08', sprint_id: null })],
+    [{ id: 10, task_id: 1, name: 'Sub', status: 'todo', due_date: '2026-10-08', pic: null }]
+  );
+  const byName = Object.fromEntries(r.items.map((i) => [i.name, i]));
+  assert.deepEqual([byName['In a sprint'].sprint_code, byName['In a sprint'].sprint_start, byName['In a sprint'].sprint_end], ['S19', '2026-09-28', '2026-10-09']);
+  assert.deepEqual([byName.Sub.sprint_start, byName.Sub.sprint_end], ['2026-09-28', '2026-10-09']);
+  assert.deepEqual([byName['No sprint'].sprint_code, byName['No sprint'].sprint_start, byName['No sprint'].sprint_end], [null, null, null]);
+});

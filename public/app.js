@@ -4673,6 +4673,7 @@ var TABLE_COLUMNS = [
   { key: 'category', label: 'Category' },
   { key: 'why', label: 'Tại sao cần làm' },
   { key: 'platform', label: 'Platform' },
+  { key: 'pic', label: 'PIC' },
   { key: 'phase', label: 'Phase' },
   { key: 'sprint', label: 'Sprint' },
   { key: 'status', label: 'Status' },
@@ -4694,22 +4695,28 @@ var TABLE_COLUMNS = [
   // it, when" reads best as the final column of the row
   { key: 'last_edited', label: 'Sửa lần cuối' }
 ];
-var TABLE_DEFAULT_VISIBLE = ['stt', 'name', 'category', 'platform', 'phase', 'sprint', 'status', 'start', 'due', 'last_edited'];
+var TABLE_DEFAULT_VISIBLE = ['stt', 'name', 'category', 'platform', 'pic', 'phase', 'sprint', 'status', 'start', 'due', 'last_edited'];
 
 // bumped when a column is ADDED that everyone should see once: saved column
 // picks from before it have no way to include the new column, so they'd
 // never see it. On first load after the bump it's appended to a saved list
 // exactly once; if the person then hides it, it stays hidden (saving a
 // pick stamps the current version, see saveTableColumnPrefs).
-// v2: 'last_edited' ("Sửa lần cuối")
-var TABLE_COLUMNS_PREFS_VERSION = '2';
+// Each version lists the columns it added, so a person upgrading from v2
+// gets only v3's new column — not v2's again after they chose to hide it.
+// v2: 'last_edited' ("Sửa lần cuối")   v3: 'pic' (PIC)
+var TABLE_COLUMNS_ADDED_IN = { 2: ['last_edited'], 3: ['pic'] };
+var TABLE_COLUMNS_PREFS_VERSION = '3';
 function loadTableColumnPrefs(){
   try {
     var saved = JSON.parse(localStorage.getItem('ttt_table_columns') || 'null');
     if (Array.isArray(saved) && saved.length){
       var cols = saved.filter(function(k){ return TABLE_COLUMNS.some(function(c){ return c.key === k; }); });
       if (localStorage.getItem('ttt_table_columns_ver') !== TABLE_COLUMNS_PREFS_VERSION){
-        if (cols.indexOf('last_edited') === -1) cols.push('last_edited');
+        var fromVersion = Number(localStorage.getItem('ttt_table_columns_ver')) || 1;
+        for (var v = fromVersion + 1; v <= Number(TABLE_COLUMNS_PREFS_VERSION); v++){
+          (TABLE_COLUMNS_ADDED_IN[v] || []).forEach(function(k){ if (cols.indexOf(k) === -1) cols.push(k); });
+        }
         localStorage.setItem('ttt_table_columns', JSON.stringify(cols));
         localStorage.setItem('ttt_table_columns_ver', TABLE_COLUMNS_PREFS_VERSION);
       }
@@ -4727,6 +4734,9 @@ function saveTableColumnPrefs(){
 
 var _tableVisibleColumns = loadTableColumnPrefs();
 var _tableFilterCategory = [], _tableFilterPlatform = [], _tableFilterStatus = [], _tableFilterPhase = [], _tableFilterSprint = [];
+// PIC names, plus TABLE_NO_PIC for tasks nobody owns yet
+var _tableFilterPic = [];
+var TABLE_NO_PIC = '__none__';
 // an optional extra predicate the column-header filters can't express —
 // e.g. "Sprint này"'s composed total (this sprint's tasks OR an earlier
 // sprint's In-Dev carry-over). Set only by the summary widgets; any
@@ -4741,7 +4751,7 @@ var _tableGroupBy = 'sprint';
 // grouped by it (every row in a group already shares that value, shown
 // once in the group header instead), layered on top of the user's own
 // saved column picks rather than mutating them.
-var TABLE_GROUPBY_COLUMN_KEY = { category: 'category', sprint: 'sprint', phase: 'phase', platform: 'platform', status: 'status' };
+var TABLE_GROUPBY_COLUMN_KEY = { category: 'category', sprint: 'sprint', phase: 'phase', platform: 'platform', status: 'status', pic: 'pic' };
 var _lastTableTasks = null, _lastTableSprints = null, _lastTablePhases = null;
 // for the subtask tree preview's PIC <select> (renderSubtaskPreviewRow) —
 // loaded alongside the rest of this view's data in loadTableView rather
@@ -4765,6 +4775,7 @@ function applyTableFilters(tasks){
     if (_tableFilterStatus.length && _tableFilterStatus.indexOf(t.status) === -1) return false;
     if (_tableFilterPhase.length && _tableFilterPhase.indexOf(String(t.phase_id)) === -1) return false;
     if (_tableFilterSprint.length && _tableFilterSprint.indexOf(String(t.sprint_id)) === -1) return false;
+    if (_tableFilterPic.length && _tableFilterPic.indexOf(t.pic || TABLE_NO_PIC) === -1) return false;
     return true;
   });
 }
@@ -4788,6 +4799,7 @@ function tableColumnFilterArray(colKey){
     case 'status': return _tableFilterStatus;
     case 'phase': return _tableFilterPhase;
     case 'sprint': return _tableFilterSprint;
+    case 'pic': return _tableFilterPic;
     default: return null;
   }
 }
@@ -4798,6 +4810,8 @@ function tableColumnFilterOptions(colKey){
     case 'status': return bucketsForGroupBy(_lastTableTasks || [], 'status');
     case 'phase': return (_lastTablePhases || []).map(function(p){ return { key: String(p.id), label: p.code + ': ' + p.name }; });
     case 'sprint': return (_lastTableSprints || []).map(function(s){ return { key: String(s.id), label: s.code }; });
+    // "Chưa có PIC" first: finding the unassigned ones is what this filter is mostly for
+    case 'pic': return [{ key: TABLE_NO_PIC, label: 'Chưa có PIC' }].concat(tablePicNames().map(function(n){ return { key: n, label: n }; }));
     default: return [];
   }
 }
@@ -4822,10 +4836,24 @@ function tableGroupsForMode(tasks, sprints, phases, groupBy){
     phaseGroups.push({ key: 'none', label: 'Chưa gán phase' });
     return phaseGroups;
   }
+  if (groupBy === 'pic'){
+    var picGroups = tablePicNames().map(function(n){ return { key: 'u:' + n, label: n }; });
+    picGroups.push({ key: 'none', label: 'Chưa có PIC' });
+    return picGroups;
+  }
   return gtGroupsForMode(tasks, sprints, phases, groupBy);
 }
 function tableTaskGroupKey(t, groupBy){
+  if (groupBy === 'pic') return t.pic ? 'u:' + t.pic : 'none';
   return groupBy === 'status' ? t.status : gtTaskGroupKey(t, groupBy);
+}
+// the PIC names to offer in this view: the managed PIC list, plus any name a
+// task still carries that is no longer in it (so such a task isn't dropped
+// from a PIC filter/grouping)
+function tablePicNames(){
+  var names = (_tablePicsCache || []).map(function(p){ return p.name; });
+  (_lastTableTasks || []).forEach(function(t){ if (t.pic && names.indexOf(t.pic) === -1) names.push(t.pic); });
+  return names;
 }
 
 // rows within each group sort A-Z by whichever column is currently 2nd
@@ -4868,6 +4896,7 @@ function tableCellHtml(col, t){
     case 'name': return escapeHtml(t.name || '');
     case 'why': return escapeHtml(t.why || '');
     case 'platform': return escapeHtml(t.platform || '');
+    case 'pic': return t.pic ? escapeHtml(t.pic) : '<span class="sprint-report-empty">chưa có</span>';
     case 'phase': return escapeHtml(t.phase_code || '');
     case 'sprint': return escapeHtml(t.sprint_code || '');
     case 'status': {
@@ -4911,7 +4940,7 @@ function tableCellHtml(col, t){
 // column is advance-only (see appendStatusOnlyCell): no dropdown, so a
 // status can't jump to an arbitrary value from this view, only step
 // forward one stage at a time via the arrow.
-var TABLE_EDITABLE_FIELDS = ['name', 'why', 'category', 'platform', 'phase', 'sprint', 'start', 'due'];
+var TABLE_EDITABLE_FIELDS = ['name', 'why', 'category', 'platform', 'pic', 'phase', 'sprint', 'start', 'due'];
 
 function appendEditableInput(td, type, field, task, value){
   var input = document.createElement('input');
@@ -5004,6 +5033,10 @@ function appendEditableCell(td, col, t){
       return;
     case 'platform':
       appendEditableSelect(td, 'platform', t, PLATFORM_OPTIONS.map(function(p){ return { key: p, label: p }; }), t.platform || '');
+      return;
+    case 'pic':
+      // picking "— chưa có —" sends '' and the server stores NULL
+      appendEditableSelect(td, 'pic', t, tablePicNames().map(function(n){ return { key: n, label: n }; }), t.pic || '', '— chưa có —');
       return;
     case 'phase':
       appendEditableSelect(
@@ -5349,7 +5382,7 @@ document.getElementById('tableViewWrap').addEventListener('change', function(e){
   var overrides;
   switch (field){
     case 'phase': overrides = { phase_id: newValue === '' ? null : Number(newValue) }; break;
-    default: overrides = {}; overrides[field] = newValue; break; // name, why, category, platform, status
+    default: overrides = {}; overrides[field] = newValue; break; // name, why, category, platform, pic, status
   }
   input.disabled = true;
   saveTaskInlineField(task, overrides).then(function(){
@@ -5835,6 +5868,7 @@ document.getElementById('phaseSummaryTableWrap').addEventListener('click', funct
   else if (cell.dataset.status) _tableFilterStatus.push(cell.dataset.status);
   _tableFilterPlatform.length = 0;
   _tableFilterSprint.length = 0;
+  _tableFilterPic.length = 0;
   renderTableView(applyTableFilters(_lastTableTasks));
   document.getElementById('tableViewWrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
@@ -5842,7 +5876,7 @@ document.getElementById('phaseSummaryTableWrap').addEventListener('click', funct
 function clearAllTableFilters(){
   _tableFilterFn = null;
   _tableFilterCategory.length = 0; _tableFilterPlatform.length = 0; _tableFilterStatus.length = 0;
-  _tableFilterPhase.length = 0; _tableFilterSprint.length = 0;
+  _tableFilterPhase.length = 0; _tableFilterSprint.length = 0; _tableFilterPic.length = 0;
   _tableSearchWords = [];
   document.getElementById('tableSearchBox').value = '';
   if (_lastTableTasks) renderTableView(applyTableFilters(_lastTableTasks));
@@ -5992,7 +6026,7 @@ document.getElementById('sprintSummaryWrap').addEventListener('click', function(
     return scope === 'own' ? own : scope === 'carry' ? carried : (own || carried);
   };
   _tableFilterSprint.length = 0; _tableFilterStatus.length = 0;
-  _tableFilterPhase.length = 0; _tableFilterCategory.length = 0; _tableFilterPlatform.length = 0;
+  _tableFilterPhase.length = 0; _tableFilterCategory.length = 0; _tableFilterPlatform.length = 0; _tableFilterPic.length = 0;
   renderTableView(applyTableFilters(_lastTableTasks));
   document.getElementById('tableViewWrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
@@ -6009,6 +6043,7 @@ function tableCellPlainText(col, t){
     case 'name': return t.name || '';
     case 'why': return t.why || '';
     case 'platform': return t.platform || '';
+    case 'pic': return t.pic || '';
     case 'phase': return t.phase_code || '';
     case 'sprint': return t.sprint_code || '';
     case 'status': return statusLabel[statusDotToNum(t.status)].replace(/^\d+\.\s*/, '');
