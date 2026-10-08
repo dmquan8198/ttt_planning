@@ -383,3 +383,10 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS last_edited_by TEXT;
 UPDATE activity_logs
 SET note = 'Đổi ngày' || substring(note from 10)
 WHERE note LIKE 'Dịch ngày%';
+
+-- a task's owner (PIC). Only subtasks had a PIC before; the due-date report
+-- email (see docs/email-reminders/README.md) shows who is responsible for
+-- each item, tasks included. Stored as the PIC's NAME, like subtasks.pic, so
+-- a rename in the pics lookup is a plain text swap. Nullable (no owner yet).
+-- IF NOT EXISTS: safe to re-run.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS pic TEXT;

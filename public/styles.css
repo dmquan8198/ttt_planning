@@ -122,14 +122,22 @@ body{
   font-family:var(--mono); font-size:12px; color:var(--ink-muted);
   letter-spacing:0.01em;
 }
-.theme-toggle{
-  margin-left:auto; flex:none; display:flex; align-items:center; justify-content:center;
+.titlebar-actions{margin-left:auto; display:flex; align-items:center; gap:8px; flex:none;}
+.theme-toggle, .chatbot-toggle{
+  flex:none; display:flex; align-items:center; justify-content:center;
   width:26px; height:26px; border-radius:6px; border:1px solid var(--border);
   background:var(--surface-2); color:var(--ink-muted); cursor:pointer; padding:0;
   transition:background .12s ease, color .12s ease;
 }
-.theme-toggle:hover{background:var(--surface); color:var(--ink);}
-.theme-toggle svg{width:14px; height:14px; flex:none;}
+.theme-toggle:hover, .chatbot-toggle:hover{background:var(--surface); color:var(--ink);}
+.theme-toggle svg, .chatbot-toggle svg{width:14px; height:14px; flex:none;}
+/* chatbot on/off switch next to the theme toggle: accent colour while the
+   assistant is on, muted with a strike-through while it is off (the
+   data-chatbot="off" attribute on <html> is the single source of truth — it
+   is also what hides the widget, see .chatbot-widget below) */
+.chatbot-toggle[aria-pressed="true"]{color:var(--accent-ink); border-color:var(--accent-ink);}
+.chatbot-toggle .chatbot-toggle-slash{display:none;}
+:root[data-chatbot="off"] .chatbot-toggle .chatbot-toggle-slash{display:block;}
 .theme-toggle .icon-moon{display:none;}
 :root[data-theme="dark"] .theme-toggle .icon-sun{display:none;}
 :root[data-theme="dark"] .theme-toggle .icon-moon{display:block;}
@@ -935,6 +943,7 @@ body{
    (a text-bearing select) gets a bit more than the two date inputs. */
 .field-row-why{grid-template-columns:2fr 1fr 1fr;}
 .field-row-sprint{grid-template-columns:1.3fr 1fr 1fr;}
+.field-row-owner{grid-template-columns:1fr 1.3fr 1fr;}
 .field textarea{min-height:64px; resize:vertical; font-family:var(--sans);}
 .field-row-why textarea{min-height:38px;}
 /* the drawer's own task-level Status select, wrapped so its "advance to
@@ -1432,6 +1441,9 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
    paints for the first frame before that JS runs. */
 .chatbot-widget{position:fixed; left:calc(100vw - 141px); top:calc(100vh - 141px); z-index:60;}
 .chatbot-widget.is-dragging{transition:none;}
+/* switched off (titlebar toggle or "Tắt trợ lý" in the panel): no mascot, no
+   panel; the choice is remembered per browser (app.js, ttt_chatbot_off) */
+:root[data-chatbot="off"] .chatbot-widget{display:none;}
 
 /* assets/mascot.webp is now a real animated WEBP (genuine per-frame motion
    from a rendered video, background chroma-keyed out — see git history/
@@ -1487,6 +1499,11 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
 .chatbot-panel-head-text{flex:1; min-width:0;}
 .chatbot-panel-title{font-family:var(--serif); font-size:15px; font-weight:600; color:var(--ink);}
 .chatbot-panel-sub{font-size:11px; color:var(--ink-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.chatbot-off-btn{
+  flex:none; background:none; border:1px solid var(--border); border-radius:999px; color:var(--ink-muted);
+  cursor:pointer; font-family:var(--sans); font-size:11px; padding:3px 9px; white-space:nowrap;
+}
+.chatbot-off-btn:hover{color:var(--ink); border-color:var(--ink-faint);}
 .chatbot-close{flex:none; background:none; border:none; color:var(--ink-muted); cursor:pointer; font-size:14px; padding:4px;}
 .chatbot-close:hover{color:var(--ink);}
 .chatbot-messages{

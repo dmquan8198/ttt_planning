@@ -1256,6 +1256,28 @@ var PLATFORM_OPTIONS = ['Web', 'App'];
 // what a NEW task starts as in the create drawer (editing an existing task
 // always shows its own platform)
 var DEFAULT_PLATFORM = 'App';
+
+// the drawer's task-level PIC select: the PICs managed in Resource → Quản lý
+// PIC, by name (the same text subtasks.pic stores). A name the task has that
+// is no longer in the list stays selectable, so opening and saving a task
+// never silently drops its PIC.
+function populateTaskPicSelect(pics, current){
+  var sel = document.getElementById('f-pic');
+  sel.innerHTML = '';
+  var none = document.createElement('option'); none.value = ''; none.textContent = '— chưa có —';
+  sel.appendChild(none);
+  var names = pics.map(function(p){ return p.name; });
+  if (current && names.indexOf(current) === -1){
+    var stale = document.createElement('option'); stale.value = current; stale.textContent = current + ' (không còn trong danh sách)';
+    sel.appendChild(stale);
+  }
+  pics.forEach(function(p){
+    var opt = document.createElement('option'); opt.value = p.name;
+    opt.textContent = p.name;
+    sel.appendChild(opt);
+  });
+  sel.value = current || '';
+}
 function renderPlatformChips(containerEl, selectedValue, canEdit){
   containerEl.innerHTML = '';
   PLATFORM_OPTIONS.forEach(function(opt){
@@ -1332,7 +1354,7 @@ function openDrawer(mode, t){
   document.getElementById('f-newlog').value = '';
   manualDateEdit = false;
 
-  ['f-cat', 'f-cat-new', 'f-name', 'f-why', 'f-phase', 'f-sprint', 'f-status', 'f-start', 'f-due'].forEach(function(id){
+  ['f-cat', 'f-cat-new', 'f-name', 'f-why', 'f-phase', 'f-sprint', 'f-status', 'f-start', 'f-due', 'f-pic'].forEach(function(id){
     document.getElementById(id).disabled = !canEdit;
   });
   _fStatusAdvanceBtn.style.display = canEdit ? '' : 'none';
@@ -1344,10 +1366,11 @@ function openDrawer(mode, t){
   // always loaded (not just isEdit) so the "Resource cần" picker's option
   // list is available in create mode too; loadTasks() is cached, so this
   // costs nothing extra once the app's initial load has already fetched it.
-  Promise.all([loadPhasesList(), loadSprints(), loadTasks(), fetchJSON('/api/sprints/current-next'), loadResourceRoles()])
+  Promise.all([loadPhasesList(), loadSprints(), loadTasks(), fetchJSON('/api/sprints/current-next'), loadResourceRoles(), loadPics()])
     .then(function(results){
       if (loadToken !== _drawerLoadToken) return; // superseded by a newer openDrawer call
       var phases = results[0], sprints = results[1], allTasks = results[2], currentNext = results[3], roles = results[4];
+      var pics = results[5];
       var currentSprintId = currentNext.current ? currentNext.current.id : null;
       var nextSprint = currentNext.next || null;
       // same "current phase" rule as the phase pivot in Bảng danh sách
@@ -1396,6 +1419,7 @@ function openDrawer(mode, t){
         document.getElementById('f-cat').value = full.category || '';
         document.getElementById('f-cat-new').style.display = 'none';
         renderPlatformChips(document.getElementById('f-platform-chips'), full.platform || PLATFORM_OPTIONS[0], canEdit);
+        populateTaskPicSelect(pics, full.pic);
         document.getElementById('f-status').value = full.status || STATUS_ORDER[0];
         document.getElementById('f-phase').value = full.phase_id != null ? String(full.phase_id) : '';
         document.getElementById('f-sprint').value = full.sprint_id != null ? String(full.sprint_id) : '';
@@ -1415,6 +1439,7 @@ function openDrawer(mode, t){
         document.getElementById('f-cat').value = source.category || '';
         document.getElementById('f-cat-new').style.display = 'none';
         renderPlatformChips(document.getElementById('f-platform-chips'), source.platform || PLATFORM_OPTIONS[0], canEdit);
+        populateTaskPicSelect(pics, source.pic);
         document.getElementById('f-status').value = source.status || STATUS_ORDER[0];
         // phase/sprint/dates default forward (current phase, next sprint) —
         // NOT copied from the source, which is very likely sitting in a
@@ -1435,6 +1460,7 @@ function openDrawer(mode, t){
         document.getElementById('f-cat').value = 'TTT New - Product Foundation';
         document.getElementById('f-cat-new').style.display = 'none';
         renderPlatformChips(document.getElementById('f-platform-chips'), DEFAULT_PLATFORM, canEdit);
+        populateTaskPicSelect(pics, null);
         document.getElementById('f-status').value = STATUS_ORDER[0];
         applyDefaultPhaseSprint();
         document.getElementById('logPreview').innerHTML = '';
@@ -6985,7 +7011,7 @@ function loadResourceView(){
 // "name + ✎/× actions" language as the resource-role matrix header, just
 // as a plain vertical list rather than a grid cell (PIC has no matrix of
 // its own to anchor to). ----
-var _picsCache = []; // [{id, name, created_at, subtask_count}]
+var _picsCache = []; // [{id, name, created_at, subtask_count, task_count}]
 function reloadPicsAndRender(){
   _picsPromise = null;
   return loadPics().then(function(pics){
@@ -7040,7 +7066,7 @@ function renderPicManageRow(picRow, canEdit, canDelete){
     var nameEl = document.createElement('span'); nameEl.className = 'pic-manage-name';
     nameEl.textContent = picRow.name;
     var countEl = document.createElement('span'); countEl.className = 'pic-manage-count';
-    countEl.textContent = picRow.subtask_count + ' subtask';
+    countEl.textContent = picRow.subtask_count + ' subtask' + (picRow.task_count ? ' · ' + picRow.task_count + ' nghiệp vụ' : '');
     nameEl.appendChild(countEl);
     row.appendChild(nameEl);
     if (canEdit || canDelete){
@@ -7057,7 +7083,7 @@ function renderPicManageRow(picRow, canEdit, canDelete){
         delBtn.type = 'button'; delBtn.className = 'pic-manage-action-btn'; delBtn.title = 'Xóa PIC';
         delBtn.textContent = '×';
         delBtn.addEventListener('click', function(){
-          if (!confirm('Xóa PIC "' + picRow.name + '"?' + (picRow.subtask_count ? ' Còn ' + picRow.subtask_count + ' subtask đang gắn PIC này.' : ''))) return;
+          if (!confirm('Xóa PIC "' + picRow.name + '"?' + (picRow.subtask_count ? ' Còn ' + picRow.subtask_count + ' subtask đang gắn PIC này.' : '') + (picRow.task_count ? ' Còn ' + picRow.task_count + ' nghiệp vụ đang gắn PIC này.' : ''))) return;
           deletePic(picRow.id).then(reloadPicsAndRender).catch(function(err){
             toastError(err.message || 'Không xóa được PIC.');
           });
@@ -7817,6 +7843,7 @@ document.getElementById('saveBtn').addEventListener('click', function(){
     name: name,
     why: document.getElementById('f-why').value.trim() || null,
     resource_roles: _drawerResourceRoles.slice(),
+    pic: document.getElementById('f-pic').value || null,
     platform: platform,
     status: status,
     phase_id: phaseVal ? Number(phaseVal) : null,
@@ -8516,12 +8543,20 @@ function chatbotClosePanel(){
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ left: left, top: top })); } catch (err) { /* private mode etc — fine to just not persist */ }
   }
 
-  var saved = loadSavedPosition();
-  if (saved) {
-    applyPosition(saved.left, saved.top);
-  } else {
-    applyPosition(window.innerWidth - widget.offsetWidth - 24, window.innerHeight - widget.offsetHeight - 24);
+  function placeWidget(){
+    var saved = loadSavedPosition();
+    if (saved) {
+      applyPosition(saved.left, saved.top);
+    } else {
+      applyPosition(window.innerWidth - widget.offsetWidth - 24, window.innerHeight - widget.offsetHeight - 24);
+    }
   }
+  placeWidget();
+  // while the chatbot is switched off the widget is display:none, so every
+  // size read above was 0 and the position was worked out for a zero-size
+  // box (a default bottom-right spot would land mostly off-screen). Turning
+  // it back on calls this to place it again, now that it can be measured.
+  window._chatbotRelayout = function(){ if (widget.offsetWidth) placeWidget(); };
 
   // belt-and-suspenders against the actual bug this whole feature had:
   // <img> starts the browser's own "drag this image out of the page"
@@ -8577,6 +8612,9 @@ function chatbotClosePanel(){
   // re-clamp on resize so a saved position from a wider window can't leave
   // the widget stranded off-screen after e.g. rotating a tablet
   window.addEventListener('resize', function(){
+    // hidden (switched off): a zero-size rect would "re-clamp" the widget to
+    // the top-left corner and SAVE that, wiping the user's chosen position
+    if (!widget.offsetWidth) return;
     var rect = widget.getBoundingClientRect();
     var pos = applyPosition(rect.left, rect.top);
     savePosition(pos.left, pos.top);
@@ -8591,6 +8629,39 @@ document.getElementById('chatbotLauncher').addEventListener('click', function(){
   if (_chatbotOpen) chatbotClosePanel(); else chatbotOpenPanel();
 });
 document.getElementById('chatbotClose').addEventListener('click', chatbotClosePanel);
+
+// ---- switch the chatbot off / on ----
+// Off hides the mascot and its panel everywhere; the choice is remembered per
+// browser (localStorage, like the theme and the mascot's position). The
+// data-chatbot="off" attribute on <html> is the single source of truth —
+// CSS hides the widget from it, and the inline script in index.html's <head>
+// sets it before the first paint so the mascot never flashes on load.
+var CHATBOT_OFF_KEY = 'ttt_chatbot_off';
+function isChatbotOff(){ return document.documentElement.getAttribute('data-chatbot') === 'off'; }
+function syncChatbotToggle(){
+  var btn = document.getElementById('chatbotToggle');
+  var off = isChatbotOff();
+  btn.setAttribute('aria-pressed', off ? 'false' : 'true');
+  btn.title = off ? 'Bật trợ lý Túi Thần Tài' : 'Tắt trợ lý Túi Thần Tài';
+}
+function setChatbotEnabled(enabled){
+  if (enabled){
+    document.documentElement.removeAttribute('data-chatbot');
+    try { localStorage.removeItem(CHATBOT_OFF_KEY); } catch (err) { /* private mode etc — just not remembered */ }
+    if (window._chatbotRelayout) window._chatbotRelayout();
+  } else {
+    chatbotClosePanel();
+    document.documentElement.setAttribute('data-chatbot', 'off');
+    try { localStorage.setItem(CHATBOT_OFF_KEY, '1'); } catch (err) { /* private mode etc — just not remembered */ }
+  }
+  syncChatbotToggle();
+}
+document.getElementById('chatbotToggle').addEventListener('click', function(){ setChatbotEnabled(isChatbotOff()); });
+document.getElementById('chatbotOff').addEventListener('click', function(){
+  setChatbotEnabled(false);
+  toastInfo('Đã tắt trợ lý Túi Thần Tài', 'Bật lại bằng nút chat ở góc trên bên phải.');
+});
+syncChatbotToggle();
 
 function chatbotSend(){
   if (_chatbotBusy) return;

@@ -12,6 +12,9 @@
   var saved = localStorage.getItem('ttt_theme');
   var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   document.documentElement.setAttribute('data-theme', theme);
+  // same idea for the chatbot: if it was switched off, hide it from the very
+  // first paint instead of showing the mascot until app.js catches up
+  try { if (localStorage.getItem('ttt_chatbot_off') === '1') document.documentElement.setAttribute('data-chatbot', 'off'); } catch (e) {}
 })();
 </script>
 <link rel="stylesheet" href="styles.css">
@@ -32,10 +35,15 @@
   <div class="titlebar">
     <div class="dots"><span></span><span></span><span></span></div>
     <div class="path">ttt-timeline / Nghiệp vụ</div>
-    <button type="button" class="theme-toggle" id="themeToggle" title="Đổi giao diện sáng/tối">
-      <svg class="icon-sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="3.5"/><path d="M10 2.2v2.3M10 15.5v2.3M2.2 10h2.3M15.5 10h2.3M4.5 4.5l1.6 1.6M13.9 13.9l1.6 1.6M4.5 15.5l1.6-1.6M13.9 6.1l1.6-1.6"/></svg>
-      <svg class="icon-moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M17.2 11.8A7.2 7.2 0 1 1 8.2 2.8a5.8 5.8 0 0 0 9 9Z"/></svg>
-    </button>
+    <div class="titlebar-actions">
+      <button type="button" class="chatbot-toggle" id="chatbotToggle" title="Tắt trợ lý Túi Thần Tài" aria-pressed="true">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4.5h12a1 1 0 0 1 1 1v7.5a1 1 0 0 1-1 1H9.5L6 17v-3H4a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1Z"/><path class="chatbot-toggle-slash" d="M2.5 17.5l15-15"/></svg>
+      </button>
+      <button type="button" class="theme-toggle" id="themeToggle" title="Đổi giao diện sáng/tối">
+        <svg class="icon-sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="3.5"/><path d="M10 2.2v2.3M10 15.5v2.3M2.2 10h2.3M15.5 10h2.3M4.5 4.5l1.6 1.6M13.9 13.9l1.6 1.6M4.5 15.5l1.6-1.6M13.9 6.1l1.6-1.6"/></svg>
+        <svg class="icon-moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M17.2 11.8A7.2 7.2 0 1 1 8.2 2.8a5.8 5.8 0 0 0 9 9Z"/></svg>
+      </button>
+    </div>
   </div>
   <div class="body-wrap">
     <nav class="rail collapsed" id="rail">
@@ -394,8 +402,8 @@
         </div>
         <div id="resourceMatrixWrap"></div>
 
-        <div class="view-title" style="font-size:16px; margin-bottom:2px; margin-top:30px;">Quản lý PIC (subtask)</div>
-        <div class="view-sub" style="margin-bottom:12px;">Danh sách người phụ trách subtask — riêng với danh sách User đăng nhập</div>
+        <div class="view-title" style="font-size:16px; margin-bottom:2px; margin-top:30px;">Quản lý PIC</div>
+        <div class="view-sub" style="margin-bottom:12px;">Danh sách người phụ trách nghiệp vụ và subtask — riêng với danh sách User đăng nhập</div>
         <div id="picManageWrap"></div>
       </section>
 
@@ -550,7 +558,7 @@
       <input id="f-due" type="text" placeholder="dd/mm/yyyy" required>
     </div>
   </div>
-  <div class="field-row">
+  <div class="field-row field-row-owner">
     <div class="field">
       <label>Platform</label>
       <div class="resource-checkbox-group" id="f-platform-chips"></div>
@@ -558,6 +566,10 @@
     <div class="field">
       <label>Resource cần</label>
       <div id="f-resource-roles-ms"></div>
+    </div>
+    <div class="field">
+      <label for="f-pic" title="Người phụ trách nghiệp vụ — hiện trong báo cáo email việc sắp đến hạn">PIC</label>
+      <select id="f-pic"></select>
     </div>
   </div>
 
@@ -712,6 +724,7 @@
         <div class="chatbot-panel-title">Túi Thần Tài</div>
         <div class="chatbot-panel-sub">Hỏi mình về task, sprint, quy trình vận hành...</div>
       </div>
+      <button type="button" class="chatbot-off-btn" id="chatbotOff" title="Tắt trợ lý — bật lại bằng nút chat ở góc trên bên phải">Tắt trợ lý</button>
       <button type="button" class="chatbot-close" id="chatbotClose" aria-label="Đóng">&#10005;</button>
     </div>
     <div class="chatbot-messages" id="chatbotMessages"></div>

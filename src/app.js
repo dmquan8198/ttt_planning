@@ -13,6 +13,7 @@ const resourceRolesRouter = require('./routes/resourceRoles');
 const subtasksRouter = require('./routes/subtasks');
 const picsRouter = require('./routes/pics');
 const snapshotsRouter = require('./routes/snapshots');
+const remindersRouter = require('./routes/reminders');
 const sopsRouter = require('./routes/sops');
 const chatbotRouter = require('./routes/chatbot');
 const { verifyGoogleToken } = require('./lib/googleAuth');
@@ -70,6 +71,8 @@ function createApp(pool, googleTokenVerifier, llmGenerateFn, llmChatWithToolsFn)
   app.use('/api/pics', picsRouter(pool));
 
   app.use('/api/snapshots', snapshotsRouter(pool));
+
+  app.use('/api/reminders', remindersRouter(pool));
 
   app.use('/api/sops', sopsRouter(pool));
 

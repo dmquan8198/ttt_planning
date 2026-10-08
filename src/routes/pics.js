@@ -19,7 +19,13 @@ function picsRouter(pool) {
       GROUP BY p.id, p.name, p.created_at
       ORDER BY p.id
     `);
-    res.json(rows);
+    // tasks can have a PIC too (counted separately — a second LEFT JOIN on
+    // the same GROUP BY would multiply the two counts into each other)
+    const { rows: taskCounts } = await pool.query(
+      'SELECT pic, COUNT(*)::int AS n FROM tasks WHERE pic IS NOT NULL GROUP BY pic'
+    );
+    const taskCountByPic = Object.fromEntries(taskCounts.map((r) => [r.pic, r.n]));
+    res.json(rows.map((r) => ({ ...r, task_count: taskCountByPic[r.name] || 0 })));
   }));
 
   router.post('/', requireRole(pool, 'editor'), asyncHandler(async (req, res) => {
@@ -32,7 +38,7 @@ function picsRouter(pool) {
         'INSERT INTO pics (name) VALUES ($1) RETURNING id, name, created_at',
         [name]
       );
-      res.status(201).json({ ...rows[0], subtask_count: 0 });
+      res.status(201).json({ ...rows[0], subtask_count: 0, task_count: 0 });
     } catch (err) {
       if (isUniqueViolation(err)) {
         return res.status(409).json({ error: 'PIC này đã có trong danh sách' });
@@ -76,12 +82,16 @@ function picsRouter(pool) {
 
     if (oldName !== name) {
       await pool.query('UPDATE subtasks SET pic=$1 WHERE pic=$2', [name, oldName]);
+      await pool.query('UPDATE tasks SET pic=$1 WHERE pic=$2', [name, oldName]);
     }
 
     const { rows: countRows } = await pool.query(
       'SELECT count(*)::int AS subtask_count FROM subtasks WHERE pic=$1', [name]
     );
-    res.json({ ...updated, subtask_count: countRows[0].subtask_count });
+    const { rows: taskCountRows } = await pool.query(
+      'SELECT count(*)::int AS task_count FROM tasks WHERE pic=$1', [name]
+    );
+    res.json({ ...updated, subtask_count: countRows[0].subtask_count, task_count: taskCountRows[0].task_count });
   }));
 
   // deleting a PIC still assigned to subtasks would silently strip it off
@@ -103,6 +113,14 @@ function picsRouter(pool) {
     if (countRows[0].subtask_count > 0) {
       return res.status(409).json({
         error: 'Còn ' + countRows[0].subtask_count + ' subtask đang gắn PIC này — gỡ hết trước khi xóa.'
+      });
+    }
+    const { rows: taskCountRows } = await pool.query(
+      'SELECT count(*)::int AS task_count FROM tasks WHERE pic=$1', [existingRows[0].name]
+    );
+    if (taskCountRows[0].task_count > 0) {
+      return res.status(409).json({
+        error: 'Còn ' + taskCountRows[0].task_count + ' nghiệp vụ đang gắn PIC này — gỡ hết trước khi xóa.'
       });
     }
     await pool.query('DELETE FROM pics WHERE id=$1', [id]);

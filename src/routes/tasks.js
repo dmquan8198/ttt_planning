@@ -67,6 +67,11 @@ async function replaceTaskResourceRoles(pool, taskId, roles) {
   return clean;
 }
 
+// a task's PIC (owner, by name — see the pics table): trimmed, '' → null
+function cleanPic(pic) {
+  return (typeof pic === 'string' ? pic.trim() : '') || null;
+}
+
 // does this full-replace PUT actually change anything a person would call
 // "an update to the task"? Every field except stt (manual order) counts —
 // the Timeline's drag-to-reorder PUTs every shifted task with only stt
@@ -75,6 +80,10 @@ async function replaceTaskResourceRoles(pool, taskId, roles) {
 function taskContentChanged(beforeRow, beforeRoles, b, newRoles) {
   const same = (x, y) => (x == null && y == null) || (x != null && y != null && String(x) === String(y));
   const next = {
+    // an absent `pic` means "this caller doesn't know about it" (an older
+    // cached client, or a Timeline drag body) — that keeps the stored one, so
+    // it is never a change
+    pic: b.pic === undefined ? beforeRow.pic : cleanPic(b.pic),
     category: b.category, name: b.name, platform: b.platform, status: b.status,
     phase_id: b.phase_id || null, sprint_id: b.sprint_id || null,
     done_analyst: !!b.done_analyst, done_dev: !!b.done_dev, done_uat: !!b.done_uat, done_staging: !!b.done_staging,
@@ -142,14 +151,14 @@ function tasksRouter(pool) {
         `INSERT INTO tasks
            (stt, category, name, platform, phase_id, sprint_id, status,
             done_analyst, done_dev, done_uat, done_staging, start_date, due_date, date_overridden, why,
-            last_edited_at, last_edited_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now(), $16)
+            last_edited_at, last_edited_by, pic)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now(), $16, $17)
          RETURNING *`,
         [
           b.stt || null, b.category, b.name, b.platform, b.phase_id || null, b.sprint_id || null,
           b.status || STATUS_CODES[0], !!b.done_analyst, !!b.done_dev, !!b.done_uat, !!b.done_staging,
           b.start_date, b.due_date, !!b.date_overridden, (b.why || '').trim() || null,
-          req.actorName || null
+          req.actorName || null, cleanPic(b.pic)
         ]
       );
       // a task created straight into a non-Backlog status counts as having
@@ -207,7 +216,8 @@ function tasksRouter(pool) {
         b.category, b.name, b.platform, b.phase_id || null, b.sprint_id || null, b.status,
         !!b.done_analyst, !!b.done_dev, !!b.done_uat, !!b.done_staging,
         b.start_date, b.due_date, !!b.date_overridden, b.stt != null ? b.stt : null,
-        (b.why || '').trim() || null, id
+        (b.why || '').trim() || null,
+        b.pic === undefined ? beforeRows[0].pic : cleanPic(b.pic), id
       ];
       // only a real content change counts as "edited by <actor>" — a PUT that
       // changes just stt (Timeline reorder) or nothing at all leaves the
@@ -222,8 +232,8 @@ function tasksRouter(pool) {
         `UPDATE tasks SET
            category=$1, name=$2, platform=$3, phase_id=$4, sprint_id=$5, status=$6,
            done_analyst=$7, done_dev=$8, done_uat=$9, done_staging=$10,
-           start_date=$11, due_date=$12, date_overridden=$13, stt=$14, why=$15, updated_at=now()${stampSet}${editedSet}
-         WHERE id=$16
+           start_date=$11, due_date=$12, date_overridden=$13, stt=$14, why=$15, pic=$16, updated_at=now()${stampSet}${editedSet}
+         WHERE id=$17
          RETURNING *`,
         params
       );
