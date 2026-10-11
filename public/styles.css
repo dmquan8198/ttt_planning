@@ -1623,14 +1623,14 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
    widths are --gantt-status-w and the user-resizable --gantt-note-w (JS keeps
    them in sync with GANTT_STATUS_W / _ganttNoteWidth, which every chart-offset
    calculation uses); the values here are only the pre-JS defaults. */
-.gantt{--gantt-status-w:132px; --gantt-note-w:220px;}
+.gantt{--gantt-status-w:148px; --gantt-note-w:220px;}
 .gantt-status-corner, .gantt-note-corner{
   flex:none; display:flex; align-items:center; padding:0 10px; white-space:nowrap;
   border-right:1px solid var(--ink-faint); font-size:10px; font-family:var(--mono); color:var(--canvas);
   position:sticky; z-index:4; background:var(--ink);
 }
 .gantt-status-corner{width:var(--gantt-status-w); left:186px;}
-.gantt-note-corner{width:var(--gantt-note-w); left:318px;}
+.gantt-note-corner{width:var(--gantt-note-w); left:334px;}
 /* Row-height safety: the cell never sets a height of its own and the pill is
    a single nowrap, clipped line, so no status label can stretch a row. */
 .task-status{
@@ -1642,6 +1642,9 @@ select.table-cell-input{-webkit-appearance:none; -moz-appearance:none; appearanc
   min-width:0; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 .task-status .pill{display:block;}
+/* the quick "→" next to a task's status pill (editor+); the pill shrinks
+   (ellipsis) before the arrow can, so the cell never outgrows its width */
+.task-status .status-advance-btn{width:20px; height:20px; font-size:11px; margin-left:6px;}
 /* a subtask's status here is plain muted text, not a colored pill: with a
    colored pill on every task row AND every subtask row the column got too
    busy, so only the task's own status keeps its color */

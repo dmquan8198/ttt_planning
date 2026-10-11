@@ -3100,7 +3100,9 @@ var GANTT_LABEL_MIN = 120, GANTT_LABEL_MAX = 420;
 // wider than the whole chart box and cover the bars entirely, so below this
 // width both are dropped (hidden in CSS by the same breakpoint, and counted
 // as 0px here so every offset follows).
-var GANTT_STATUS_W = 132;
+// 148 = the longest pill ("Ready for Dev", ~99px) + the quick "→" next to it
+// (20px + 6px gap) + the cell's own 2 x 10px padding
+var GANTT_STATUS_W = 148;
 var _ganttNoteWidth = 220;
 var GANTT_NOTE_MIN = 140, GANTT_NOTE_MAX = 600;
 var _ganttNarrowMq = window.matchMedia('(max-width: 640px)');
@@ -3962,9 +3964,11 @@ function renderSubtaskGanttRow(t, st, pctPos, axisSpan){
 // the "STATUS" cell of a Timeline row, right after the TASKS label (frozen
 // with it when the chart is scrolled sideways): the same colored pill as the
 // task's status in Danh sách nghiệp vụ, or — on a subtask row — its
-// TODO / WIP / Done pill. Read-only: status is changed from the table or the
-// task drawer, never from here. The pill is nowrap + clipped, so no label can
-// widen the cell or stretch the row.
+// TODO / WIP / Done pill. A subtask's pill is read-only; a TASK row also gets
+// (editor+) the same advance-only "→" as Danh sách nghiệp vụ's Status cell:
+// one click steps the task to the next stage, never jumping to an arbitrary
+// one. The pill is nowrap + clipped, so no label can widen the cell or
+// stretch the row.
 function buildGanttStatusCell(item, isSub){
   var cell = document.createElement('div');
   cell.className = 'task-status' + (isSub ? ' is-sub' : '');
@@ -3978,7 +3982,44 @@ function buildGanttStatusCell(item, isSub){
     pill.textContent = idx === -1 ? (item.status || '') : statusLabel[idx].replace(/^\d+\.\s*/, '');
   }
   cell.appendChild(pill);
+  if (!isSub && hasRole('editor')){
+    var lastIdx = STATUS_ORDER.length - 1;
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'status-advance-btn'; btn.textContent = '→';
+    var atEnd = idx === -1 || idx === lastIdx;
+    btn.disabled = atEnd || !!_timelineStatusSaving[item.id];
+    btn.title = atEnd ? 'Đã ở status cuối' : 'Chuyển nhanh sang status tiếp theo';
+    btn.addEventListener('click', function(){ advanceTimelineTaskStatus(item); });
+    cell.appendChild(btn);
+  }
   return cell;
+}
+
+// task ids whose quick status step is still being saved. The Timeline is
+// re-rendered the moment a step is clicked (optimistic), which builds a fresh
+// button — this keeps that fresh one disabled until the save settles, so a
+// double click can't step the task two stages by accident.
+var _timelineStatusSaving = {};
+function advanceTimelineTaskStatus(task){
+  var idx = STATUS_ORDER.indexOf(task.status);
+  if (idx === -1 || idx === STATUS_ORDER.length - 1 || _timelineStatusSaving[task.id]) return;
+  var prevStatus = task.status, nextStatus = STATUS_ORDER[idx + 1];
+  _timelineStatusSaving[task.id] = true;
+  // optimistic, like Danh sách nghiệp vụ: the pill, the bar's colour and the
+  // row glow all step forward now instead of after the save + refetch
+  task.status = nextStatus;
+  markRowFlash('gantt', task.id);
+  renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+  saveTaskInlineField(task, { status: nextStatus }).then(function(){
+    delete _timelineStatusSaving[task.id];
+    toastSuccess('Đã chuyển "' + task.name + '" sang ' + statusLabel[idx + 1].replace(/^\d+\.\s*/, '') + '.');
+    refreshAllViews();
+  }).catch(function(err){
+    delete _timelineStatusSaving[task.id];
+    task.status = prevStatus;
+    renderGantt(applyTimelineFilters(_lastTimelineTasks), _lastTimelineSprints, _lastTimelinePhases);
+    toastError('Không lưu được: ' + err.message);
+  });
 }
 
 // the "CẬP NHẬT MỚI NHẤT" cell of a Timeline row: the task's latest activity
