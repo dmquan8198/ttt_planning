@@ -417,6 +417,14 @@
           </div>
         </div>
 
+        <!-- WEEKLY REPORT: one click → Google Slides + a mail with the link -->
+        <div class="risk-threshold-chips" id="weeklyReportControls" style="display:none;">
+          <span class="ai-assessment-section-title">Báo cáo tuần cho sếp</span>
+          <button type="button" class="chip snapshot-capture-btn" id="weeklyReportBtn">✦ Tạo báo cáo tuần (Google Slides)</button>
+        </div>
+        <div class="view-sub" style="margin-bottom:10px;">Tổng quan → thay đổi so với tuần trước → chi tiết nghiệp vụ → rủi ro, từ dữ liệu hiện tại. Bấm một lần: tạo file Google Slides và gửi link qua email của bạn — mất khoảng 30 giây</div>
+        <div id="weeklyReportResult" style="margin-bottom:22px;"></div>
+
         <div class="view-title" style="font-size:16px; margin-bottom:2px;">Lịch snapshot</div>
         <div class="view-sub" style="margin-bottom:12px;">✓ = đêm đó snapshot thành công, ✗ = không có (job không chạy hoặc lỗi) — bấm vào 1 ngày ✓ để xem chi tiết</div>
         <div id="snapshotCalendarWrap"></div>
@@ -509,9 +517,8 @@
     <div class="field">
       <label>Category</label>
       <select id="f-cat">
-        <option>TTT New - Product Foundation</option>
-        <option>TTT New - Cross Service Integration</option>
-        <option>TTT New - Internal Features</option>
+        <option>TTT New - Foundation</option>
+        <option>TTT New - Cross Service</option>
         <option>TTT New - Convert &amp; Scale</option>
         <option value="__add_new__">+ Thêm category mới...</option>
       </select>

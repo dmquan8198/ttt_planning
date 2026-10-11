@@ -68,9 +68,9 @@ function realResponse() {
     today: '2026-10-07', // a Wednesday
     sprints,
     tasks: [
-      { id: 1, name: 'Task <due> tomorrow', category: 'TTT New - Internal Features', status: '3.in_test', date_overridden: true, start_date: '2026-10-01', due_date: '2026-10-08', sprint_id: 1, pic: 'An' },
+      { id: 1, name: 'Task <due> tomorrow', category: 'TTT New - Foundation', status: '3.in_test', date_overridden: true, start_date: '2026-10-01', due_date: '2026-10-08', sprint_id: 1, pic: 'An' },
       { id: 2, name: 'Parent', category: 'TTT New - Convert & Scale', status: '2.ready_for_dev', date_overridden: true, start_date: '2026-10-01', due_date: '2026-10-30', sprint_id: 1, pic: null },
-      { id: 3, name: 'Owner-less task', category: 'TTT New - Internal Features', status: '1.in_analyst', date_overridden: true, start_date: '2026-10-01', due_date: '2026-10-08', sprint_id: 1, pic: null }
+      { id: 3, name: 'Owner-less task', category: 'TTT New - Foundation', status: '1.in_analyst', date_overridden: true, start_date: '2026-10-01', due_date: '2026-10-08', sprint_id: 1, pic: null }
     ],
     subtasks: [{ id: 10, task_id: 2, name: 'Sub Monday', status: 'wip', due_date: '2026-10-12', pic: 'Bình' }]
   });
@@ -112,14 +112,14 @@ test('the report nests Analyst/Development → Sprint → Category, one row per 
     'Việc đến hạn · Thứ Tư, 07/10/2026 · 3 việc',               // title: weekday + date + the one count
     'Analyst · 2 việc',                                          // 1. group by Analyst / Development
     'S19 · 28/09 – 09/10',                                       // 2. sprint, with its dates
-    'TTT New - Internal Features',                               // 3. category
+    'TTT New - Foundation',                               // 3. category
     'Owner-less task',
     'TTT New - Convert & Scale',
     'Parent',
     '↳ Sub Monday',
     'Development · 1 việc',
     'S19 · 28/09 – 09/10',
-    'TTT New - Internal Features',
+    'TTT New - Foundation',
     'Task <due> tomorrow',
     'Mở hệ thống · Hạn: ngày hết hạn · số ngày làm việc còn lại hoặc đã quá (đỏ = còn 1 ngày) · — = chưa có PIC'
   ], 'every item is exactly one row');
@@ -170,13 +170,13 @@ test('inside a group: sprints in numeric order (no sprint last), then categories
     item(1, 'Zeta team', 'S10'),
     item(2, 'TTT New - Convert & Scale', 'S10'),
     item(3, 'TTT New - Convert & Scale', 'S9'),
-    item(4, 'TTT New - Product Foundation', 'S10'),
+    item(4, 'TTT New - Foundation', 'S10'),
     item(5, 'Alpha team', 'S10'),
     item(6, 'TTT New - Convert & Scale', null),
-    item(7, 'TTT New - Internal Features', 'S11')
+    item(7, 'TTT New - Cross Service', 'S11')
   ])))[0];
   assert.deepEqual(dev.sprints.map((s) => s.label), ['S9', 'S10', 'S11', 'Chưa gán sprint'], 'S9 before S10 (numeric, not alphabetical)');
-  assert.deepEqual(dev.sprints[1].cats.map((c) => c.name), ['TTT New - Product Foundation', 'TTT New - Convert & Scale', 'Alpha team', 'Zeta team']);
+  assert.deepEqual(dev.sprints[1].cats.map((c) => c.name), ['TTT New - Foundation', 'TTT New - Convert & Scale', 'Alpha team', 'Zeta team']);
 });
 
 test('a subtask sits under its parent, filed by the PARENT\'s status/category; with only the subtask due, the parent is a plain dimmed heading row', () => {
@@ -292,9 +292,9 @@ test('the email also has a plain-text version in the same shape', () => {
   sandbox.sendReport();
   const text = mails[0].body;
   assert.match(text, /^VIỆC ĐẾN HẠN — Thứ Tư, 07\/10\/2026 · 3 việc\n/);
-  assert.ok(text.includes('== ANALYST (2 việc) ==\nS19 · 28/09 – 09/10\n  [TTT New - Internal Features]\n  - Owner-less task  (chưa có PIC · In Analyst · 08/10 · còn 1 ngày)'));
+  assert.ok(text.includes('== ANALYST (2 việc) ==\nS19 · 28/09 – 09/10\n  [TTT New - Foundation]\n  - Owner-less task  (chưa có PIC · In Analyst · 08/10 · còn 1 ngày)'));
   assert.ok(text.includes('  [TTT New - Convert & Scale]\n  - Parent\n      ↳ Sub Monday  (Bình · subtask WIP · 12/10 · còn 3 ngày)'));
-  assert.ok(text.includes('== DEVELOPMENT (1 việc) ==\nS19 · 28/09 – 09/10\n  [TTT New - Internal Features]\n  - Task <due> tomorrow  (An · In Dev · 08/10 · còn 1 ngày)'));
+  assert.ok(text.includes('== DEVELOPMENT (1 việc) ==\nS19 · 28/09 – 09/10\n  [TTT New - Foundation]\n  - Task <due> tomorrow  (An · In Dev · 08/10 · còn 1 ngày)'));
   assert.ok(text.indexOf('== ANALYST') < text.indexOf('== DEVELOPMENT'));
   assert.match(text, /Mở hệ thống: https:\/\/app\.example\.com\/?$/);
 });
@@ -367,7 +367,7 @@ test('sendSampleReportToMeOnly mails the owner a clearly-fake report without cal
   assert.match(mails[0].body, /quá hạn 3 ngày/, 'and shows what an overdue item looks like…');
   assert.match(mails[0].body, /hôm nay/, '…and one due today');
   assert.ok(heads.some((h) => /^S19 · \d{2}\/\d{2} – \d{2}\/\d{2}$/.test(h)) && heads.some((h) => /^S20 · \d{2}\/\d{2} – \d{2}\/\d{2}$/.test(h)), 'two sprints, each with its dates');
-  assert.ok(heads.includes('TTT New - Internal Features') && heads.includes('TTT New - Convert & Scale'), 'and two categories');
+  assert.ok(heads.includes('TTT New - Foundation') && heads.includes('TTT New - Convert & Scale'), 'and two categories');
   assert.match(mails[0].body, /còn 1 ngày/);
   assert.match(mails[0].body, /còn 3 ngày/);
   assert.ok(mails[0].htmlBody.includes('>—<'), 'an item without a PIC shows the dash');

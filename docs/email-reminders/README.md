@@ -14,8 +14,8 @@ Mỗi việc **một dòng** trong một bảng, không có ô thống kê. Vi�
    (việc `Done` không bao giờ có trong báo cáo vì việc đã xong không cần nhắc; nhóm này chỉ có để đủ ánh xạ)
 2. **Sprint**, tăng dần (S9 trước S10), việc không có sprint ở cuối. Tiêu đề sprint kèm **thời gian của sprint**:
    `S19 · 28/09 – 09/10`.
-3. **Category**, theo thứ tự màn Sprint Overview của app (TTT New - Product Foundation, Cross Service Integration,
-   Internal Features, Convert & Scale; category khác xếp sau, theo A–Z).
+3. **Category**, theo thứ tự màn Sprint Overview của app (TTT New - Foundation, Cross Service,
+   Convert & Scale; category khác xếp sau, theo A–Z).
 
 Sprint và category đã là tiêu đề nên không lặp trên từng dòng.
 

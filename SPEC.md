@@ -108,7 +108,7 @@ sprints
 tasks
   id              INTEGER PRIMARY KEY
   stt             INTEGER          -- số thứ tự, giữ tương thích với sheet cũ
-  category        TEXT             -- 'Product Foundation' | 'Cross Service Integration' | 'Internal features' | 'Convert & Scale'
+  category        TEXT             -- 'Foundation' | 'Cross Service' | 'Convert & Scale'
   name            TEXT NOT NULL
   platform        TEXT             -- 'Web' | 'App' | 'BE' | 'App/Auto'
   phase_id        INTEGER REFERENCES phases(id)

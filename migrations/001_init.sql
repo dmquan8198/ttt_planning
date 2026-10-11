@@ -390,3 +390,14 @@ WHERE note LIKE 'Dịch ngày%';
 -- a rename in the pics lookup is a plain text swap. Nullable (no owner yet).
 -- IF NOT EXISTS: safe to re-run.
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS pic TEXT;
+
+-- Category consolidation: "Internal Features" folded into "Product Foundation",
+-- which is then renamed along with "Cross Service Integration". Categories are
+-- free text on tasks (no lookup table), so a plain UPDATE is the whole change.
+-- Matches nothing once applied, safe to re-run.
+UPDATE tasks SET category = CASE category
+    WHEN 'TTT New - Internal Features' THEN 'TTT New - Foundation'
+    WHEN 'TTT New - Product Foundation' THEN 'TTT New - Foundation'
+    WHEN 'TTT New - Cross Service Integration' THEN 'TTT New - Cross Service'
+  END
+WHERE category IN ('TTT New - Internal Features', 'TTT New - Product Foundation', 'TTT New - Cross Service Integration');

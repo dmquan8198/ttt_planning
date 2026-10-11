@@ -60,7 +60,7 @@ function sendSampleReportToMeOnly() {
     d.setDate(d.getDate() + n);
     return Utilities.formatDate(d, tz, 'yyyy-MM-dd');
   }
-  var CAT_A = 'TTT New - Internal Features', CAT_B = 'TTT New - Convert & Scale';
+  var CAT_A = 'TTT New - Foundation', CAT_B = 'TTT New - Convert & Scale';
   var S19 = { sprint_code: 'S19', sprint_start: dayPlus_(-8), sprint_end: dayPlus_(3) };
   var S20 = { sprint_code: 'S20', sprint_start: dayPlus_(4), sprint_end: dayPlus_(15) };
   var PARENT = '[Mẫu] Nạp tiền vào Túi qua ví liên kết';
@@ -247,8 +247,8 @@ var SECTION_BY_STATUS_ = {
 };
 // thứ tự category giống màn Sprint Overview của app; category khác xếp sau, theo bảng chữ cái
 var CATEGORY_ORDER_ = [
-  'TTT New - Product Foundation', 'TTT New - Cross Service Integration',
-  'TTT New - Internal Features', 'TTT New - Convert & Scale'
+  'TTT New - Foundation', 'TTT New - Cross Service',
+  'TTT New - Convert & Scale'
 ];
 var NO_SPRINT_ = 'Chưa gán sprint';
 var NO_CATEGORY_ = 'Chưa có category';

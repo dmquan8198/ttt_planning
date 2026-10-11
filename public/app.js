@@ -1457,7 +1457,7 @@ function openDrawer(mode, t){
         editingTaskStt = allTasks.reduce(function(max, t){ return t.stt != null && t.stt > max ? t.stt : max; }, 0) + 1;
         document.getElementById('f-name').value = '';
         document.getElementById('f-why').value = '';
-        document.getElementById('f-cat').value = 'TTT New - Product Foundation';
+        document.getElementById('f-cat').value = 'TTT New - Foundation';
         document.getElementById('f-cat-new').style.display = 'none';
         renderPlatformChips(document.getElementById('f-platform-chips'), DEFAULT_PLATFORM, canEdit);
         populateTaskPicSelect(pics, null);
@@ -1660,6 +1660,8 @@ function applyRoleUI(){
   document.getElementById('navUsers').style.display = hasRole('admin') ? '' : 'none';
   var openSopsBtn = document.getElementById('openSopsDrawer');
   if (openSopsBtn) openSopsBtn.style.display = hasRole('editor') ? '' : 'none';
+  var weeklyReportControls = document.getElementById('weeklyReportControls');
+  if (weeklyReportControls) weeklyReportControls.style.display = hasRole('editor') ? '' : 'none';
   var nameEl = document.getElementById('userChipName');
   if (nameEl) nameEl.textContent = getActorName() + ' · ' + ROLE_DISPLAY[getActorRole()];
   if (typeof refreshAllViews === 'function') refreshAllViews();
@@ -2296,8 +2298,8 @@ function categorySortIndex(category){
 // actually is, not just a count.
 var SPRINT_OVERVIEW_PLATFORMS = ['Web', 'App'];
 var SPRINT_OVERVIEW_CATEGORIES = [
-  'TTT New - Product Foundation', 'TTT New - Cross Service Integration',
-  'TTT New - Internal Features', 'TTT New - Convert & Scale'
+  'TTT New - Foundation', 'TTT New - Cross Service',
+  'TTT New - Convert & Scale'
 ];
 var _sprintOverviewGroupBy = 'category';
 // cached inputs from the last renderSprintOverviewTable call, so switching
@@ -7750,6 +7752,38 @@ function renderSnapshotCalendarDetail(snapshot){
 
   wrap.innerHTML = html;
 }
+// one click → the server asks the company's Apps Script to build the weekly
+// report as a Google Slides file, share it with the signed-in user and mail them
+// the link (see src/routes/weeklyReport.js, docs/weekly-report/). Takes ~30 s.
+document.getElementById('weeklyReportBtn').addEventListener('click', function(){
+  var btn = this;
+  var result = document.getElementById('weeklyReportResult');
+  var label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Đang tạo báo cáo… (~30 giây)';
+  result.innerHTML = '<div class="view-sub">Đang lấy dữ liệu, dựng slide và chuyển sang Google Slides — đừng đóng trang này.</div>';
+  authFetch('/api/reports/weekly/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(body){
+        if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+        return body;
+      });
+    })
+    .then(function(body){
+      result.innerHTML =
+        '<div class="view-sub" style="color:var(--ink);">✓ Đã tạo <b>' + escapeHtml(body.title) + '</b> và gửi link tới <b>' + escapeHtml(body.to) + '</b>. ' +
+        '<a href="' + escapeHtml(body.url) + '" target="_blank" rel="noopener" style="color:inherit; font-weight:600; text-decoration:underline;">Mở Google Slides ↗</a>' +
+        (body.shared === false ? '<br>Chưa chia sẻ được file cho email này — nếu không mở được, hãy xin quyền xem.' : '') + '</div>';
+      toastSuccess('Đã tạo báo cáo và gửi link qua email');
+    })
+    .catch(function(err){
+      console.error('Failed to create weekly report', err);
+      result.innerHTML = '<div class="view-sub" style="color:var(--danger, #b42318);">Không tạo được báo cáo: ' + escapeHtml(err.message) + '</div>';
+      toastError(err.message);
+    })
+    .finally(function(){ btn.disabled = false; btn.textContent = label; });
+});
+
 function loadSnapshotView(){
   return fetchJSON('/api/snapshots').then(function(snapshots){
     renderSnapshotCalendar(snapshots);
@@ -7801,7 +7835,7 @@ function commitNewCategory(){
   var newInput = document.getElementById('f-cat-new');
   var name = newInput.value.trim();
   newInput.style.display = 'none';
-  if (!name) { sel.value = 'TTT New - Product Foundation'; return; }
+  if (!name) { sel.value = 'TTT New - Foundation'; return; }
   addCategoryOptionIfMissing(name);
   sel.value = name;
 }

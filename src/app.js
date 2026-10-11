@@ -14,6 +14,7 @@ const subtasksRouter = require('./routes/subtasks');
 const picsRouter = require('./routes/pics');
 const snapshotsRouter = require('./routes/snapshots');
 const remindersRouter = require('./routes/reminders');
+const weeklyReportRouter = require('./routes/weeklyReport');
 const sopsRouter = require('./routes/sops');
 const chatbotRouter = require('./routes/chatbot');
 const { verifyGoogleToken } = require('./lib/googleAuth');
@@ -29,7 +30,7 @@ function decodeActorHeader(raw) {
   }
 }
 
-function createApp(pool, googleTokenVerifier, llmGenerateFn, llmChatWithToolsFn) {
+function createApp(pool, googleTokenVerifier, llmGenerateFn, llmChatWithToolsFn, reportFetchFn) {
   const app = express();
   app.disable('x-powered-by');
   app.use(basicAuth);
@@ -73,6 +74,8 @@ function createApp(pool, googleTokenVerifier, llmGenerateFn, llmChatWithToolsFn)
   app.use('/api/snapshots', snapshotsRouter(pool));
 
   app.use('/api/reminders', remindersRouter(pool));
+
+  app.use('/api/reports', weeklyReportRouter(pool, reportFetchFn));
 
   app.use('/api/sops', sopsRouter(pool));
 
