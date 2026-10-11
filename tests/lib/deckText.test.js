@@ -58,13 +58,14 @@ test('the deck uses only Momo Trust Display, a single weight, hugging text boxes
   const { buffer, warnings } = await buildWeeklyDeck(report);
   const zip = await JSZip.loadAsync(buffer);
   const slides = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
-  assert.ok(slides.length >= 4, 'timeline + per-milestone + at least two detail pages');
+  assert.ok(slides.length >= 3, 'timeline + per-milestone + at least one detail page');
   const xml = (await Promise.all(slides.map((n) => zip.file(n).async('string')))).join('');
   const faces = new Set([...xml.matchAll(/<a:latin typeface="([^"]+)"/g)].map((m) => m[1]));
   assert.deepEqual([...faces], [FONT_FACE]);
   assert.ok(!/ b="1"/.test(xml), 'single-weight font: no bold runs');
-  assert.ok(/wrap="none"/.test(xml), 'text keeps the exact line breaks we measured');
-  assert.ok(xml.includes('Không có'), 'an item with no known blocker says so');
+  assert.ok(/wrap="none"/.test(xml), 'free text keeps the exact line breaks we measured');
+  assert.ok(/<a:tbl>/.test(xml), 'milestone and item pages are real tables');
+  assert.ok(!/BLOCKER/.test(xml), 'no blocker column for now');
   assert.ok(!/inTest UAT|In Analyst|Ready for Dev/.test(xml), 'tool jargon stays out of the slides');
   assert.deepEqual(warnings, [], 'nothing runs past the slide on a small report');
 });

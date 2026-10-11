@@ -29,10 +29,12 @@ Slide viết dạng highlight (cụm từ ngắn), font **Momo Trust Display**, 
 
 | Slide | Nội dung |
 |---|---|
-| 1. Timeline | Trục thời gian: các **phase** (P1…P4 kèm ngày mục tiêu), các **sprint**, vạch **hôm nay**. Bên dưới là 4 mốc: *vừa xong · đang/sắp làm · làm tiếp theo · sau đó*, mỗi mốc có tình trạng và vài nội dung chính |
-| 2. Từng mốc | Với mỗi mốc ở trang 1: đang làm gì, chia theo **Foundation / Cross Service / Nhóm khác** |
-| 3… Chi tiết | **Mọi** nghiệp vụ đang làm (chưa Done) thuộc các sprint đã qua, sprint đang/sắp chạy và sprint kế tiếp, chia theo nhóm: **Hiện tại · Bước tiếp theo · Blocker**. Tự sang trang mới khi hết chỗ |
-| Cuối | Tên các nghiệp vụ xếp sau (chưa bắt đầu), theo sprint — không bị ẩn sau chữ "việc khác" |
+| 1. Timeline | Trục thời gian theo tháng, các **mốc phase** (hình thoi, kèm ngày), vạch **hôm nay**. Bên dưới là các **làn** (Foundation / Cross Service / Nhóm khác), mỗi sprint một cột, mỗi việc chính là một ô: xám = đã xong, hồng nhạt = đang làm, viền đứt = chưa bắt đầu |
+| 2. Từng mốc | **Bảng** mốc (vừa xong · đang/sắp làm · tiếp theo · sau đó) × nhóm: đang làm gì ở mỗi mốc |
+| 3… Chi tiết | **Bảng** mọi nghiệp vụ đang làm (chưa Done) của các sprint đã qua, đang/sắp chạy và sprint kế tiếp, chia theo nhóm: **Sprint · Trạng thái · Hiện tại · Bước tiếp theo**. Chữ nhỏ để nhiều dòng trên một slide; tự sang trang khi hết chỗ |
+| Cuối | **Bảng** tên các nghiệp vụ xếp sau (chưa bắt đầu), theo sprint |
+
+Các trang 2, chi tiết và cuối là **bảng thật** của Google Slides: bạn thêm/bớt dòng, đổi độ rộng cột, đổi chữ đồng loạt mà không phải căn từng ô. (Cột Blocker tạm bỏ; dữ liệu blocker vẫn được tính sẵn nếu cần bật lại.)
 
 **Dữ liệu lấy ở đâu:**
 - *Phase / sprint / mốc:* màn Roadmap và Sprint của app (bảng `phases`, `sprints`).

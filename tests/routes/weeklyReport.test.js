@@ -76,7 +76,7 @@ test('GET /api/reports/weekly.pptx returns the report deck named after the week'
     const slides = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
     assert.ok(slides.length >= 3, 'timeline, per-milestone page and the item pages');
     const all = (await Promise.all(slides.map((n) => zip.file(n).async('string')))).join('');
-    assert.ok(all.includes('BLOCKER'), 'the item pages are present');
+    assert.ok(all.includes('BƯỚC TIẾP THEO'), 'the item pages are present');
   });
 });
 

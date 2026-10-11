@@ -106,7 +106,7 @@ async function collectWeeklyReport(pool, today = getTodayVN()) {
   const described = describeTasks({ tasks: inWindow, logs, today });
   const timelineItems = inWindow.map((t) => ({
     id: t.id, name: t.name, category: t.category, status: t.status, sprint: sprintById[t.sprint_id].code,
-    due: t.due_date, pic: t.pic || null, ...described.get(t.id)
+    start: t.start_date, due: t.due_date, pic: t.pic || null, ...described.get(t.id)
   }));
 
   return {

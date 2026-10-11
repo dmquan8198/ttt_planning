@@ -119,11 +119,24 @@ function createCanvas(pres, slide, warnings, limits = { bottom: 5.12, right: 9.6
       return box;
     },
     rect(o) {
-      slide.addShape(o.round ? pres.ShapeType.roundRect : pres.ShapeType.rect, {
+      slide.addShape(o.shape ? pres.ShapeType[o.shape] : (o.round ? pres.ShapeType.roundRect : pres.ShapeType.rect), {
         x: o.x, y: o.y, w: o.w, h: o.h, rectRadius: o.round,
         fill: o.fill ? { color: o.fill } : { type: 'none' },
         line: o.line ? { color: o.line, width: o.lw || 0.75, dashType: o.dash || 'solid' } : { type: 'none' }
       });
+    },
+    // a box that CARRIES its text (the text is part of the shape, so moving or resizing the box
+    // moves the words with it); the caller sizes it from layout() so it hugs the text
+    shapeText(label, o) {
+      const pad = o.pad === undefined ? 0.05 : o.pad;
+      slide.addText(String(label), {
+        x: o.x, y: o.y, w: o.w, h: o.h, shape: o.round ? pres.ShapeType.roundRect : pres.ShapeType.rect, rectRadius: o.round,
+        fill: o.fill ? { color: o.fill } : { type: 'none' },
+        line: o.line ? { color: o.line, width: o.lw || 0.75, dashType: o.dash || 'solid' } : { type: 'none' },
+        fontFace: FONT_FACE, fontSize: o.pt || 7, color: o.color, align: o.align === 'c' ? 'center' : 'left', valign: o.valign || 'middle',
+        margin: [pad, pad, pad, pad], lineSpacingMultiple: LINE_MULT, fit: 'none'
+      });
+      return { x: o.x, y: o.y, w: o.w, h: o.h, right: o.x + o.w, bottom: o.y + o.h };
     },
     hline(x1, x2, y, o = {}) {
       slide.addShape(pres.ShapeType.line, { x: x1, y, w: x2 - x1, h: 0, line: { color: o.color || 'E6E6E6', width: o.lw || 0.75, dashType: o.dash || 'solid' } });
