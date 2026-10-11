@@ -30,7 +30,7 @@ function decodeActorHeader(raw) {
   }
 }
 
-function createApp(pool, googleTokenVerifier, llmGenerateFn, llmChatWithToolsFn, reportFetchFn) {
+function createApp(pool, googleTokenVerifier, llmGenerateFn, llmChatWithToolsFn) {
   const app = express();
   app.disable('x-powered-by');
   app.use(basicAuth);
@@ -56,7 +56,10 @@ function createApp(pool, googleTokenVerifier, llmGenerateFn, llmChatWithToolsFn,
   // client-side code — just kept in an env var instead of hardcoded so
   // local/dev/prod can each point at their own registered origin.
   app.get('/api/config', (req, res) => {
-    res.json({ googleClientId: process.env.GOOGLE_CLIENT_ID || null });
+    // weeklyReportUrl: the Apps Script web app the "Tạo báo cáo tuần" button opens in a new
+    // tab. Not a secret — Google only lets signed-in company accounts run it, and it holds
+    // REPORT_SECRET itself (see docs/weekly-report/README.md).
+    res.json({ googleClientId: process.env.GOOGLE_CLIENT_ID || null, weeklyReportUrl: process.env.APPS_SCRIPT_URL || null });
   });
 
   app.use('/api', authRouter(pool, googleTokenVerifier || verifyGoogleToken));
@@ -75,7 +78,7 @@ function createApp(pool, googleTokenVerifier, llmGenerateFn, llmChatWithToolsFn,
 
   app.use('/api/reminders', remindersRouter(pool));
 
-  app.use('/api/reports', weeklyReportRouter(pool, reportFetchFn));
+  app.use('/api/reports', weeklyReportRouter(pool));
 
   app.use('/api/sops', sopsRouter(pool));
 

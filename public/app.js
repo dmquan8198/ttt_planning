@@ -7752,36 +7752,28 @@ function renderSnapshotCalendarDetail(snapshot){
 
   wrap.innerHTML = html;
 }
-// one click → the server asks the company's Apps Script to build the weekly
-// report as a Google Slides file, share it with the signed-in user and mail them
-// the link (see src/routes/weeklyReport.js, docs/weekly-report/). Takes ~30 s.
+// the button opens the company's Apps Script web app in a new tab (URL from
+// /api/config, env APPS_SCRIPT_URL). It runs as the signed-in company account of
+// whoever clicks: builds the weekly report as Google Slides in THEIR Drive and mails
+// them the link — see docs/weekly-report/. Takes ~30 s; the result shows in that tab.
 document.getElementById('weeklyReportBtn').addEventListener('click', function(){
-  var btn = this;
   var result = document.getElementById('weeklyReportResult');
-  var label = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Đang tạo báo cáo… (~30 giây)';
-  result.innerHTML = '<div class="view-sub">Đang lấy dữ liệu, dựng slide và chuyển sang Google Slides — đừng đóng trang này.</div>';
-  authFetch('/api/reports/weekly/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-    .then(function(res){
-      return res.json().catch(function(){ return {}; }).then(function(body){
-        if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
-        return body;
-      });
-    })
-    .then(function(body){
-      result.innerHTML =
-        '<div class="view-sub" style="color:var(--ink);">✓ Đã tạo <b>' + escapeHtml(body.title) + '</b> và gửi link tới <b>' + escapeHtml(body.to) + '</b>. ' +
-        '<a href="' + escapeHtml(body.url) + '" target="_blank" rel="noopener" style="color:inherit; font-weight:600; text-decoration:underline;">Mở Google Slides ↗</a>' +
-        (body.shared === false ? '<br>Chưa chia sẻ được file cho email này — nếu không mở được, hãy xin quyền xem.' : '') + '</div>';
-      toastSuccess('Đã tạo báo cáo và gửi link qua email');
-    })
-    .catch(function(err){
-      console.error('Failed to create weekly report', err);
-      result.innerHTML = '<div class="view-sub" style="color:var(--danger, #b42318);">Không tạo được báo cáo: ' + escapeHtml(err.message) + '</div>';
-      toastError(err.message);
-    })
-    .finally(function(){ btn.disabled = false; btn.textContent = label; });
+  fetchJSON('/api/config').then(function(config){
+    if (!config.weeklyReportUrl){
+      throw new Error('Chưa cấu hình APPS_SCRIPT_URL trên server — xem docs/weekly-report/README.md');
+    }
+    var win = window.open(config.weeklyReportUrl, '_blank', 'noopener');
+    if (!win){
+      // popup blocked: leave a plain link instead
+      result.innerHTML = '<div class="view-sub"><a href="' + escapeHtml(config.weeklyReportUrl) + '" target="_blank" rel="noopener" style="color:inherit; font-weight:600; text-decoration:underline;">Bấm vào đây để tạo báo cáo ↗</a></div>';
+      return;
+    }
+    result.innerHTML = '<div class="view-sub">Đã mở tab mới — báo cáo đang được tạo (~30 giây). Link Google Slides sẽ hiện ở tab đó và được gửi qua email của bạn. Lần đầu Google sẽ xin quyền, bấm Cho phép.</div>';
+  }).catch(function(err){
+    console.error('Failed to open weekly report', err);
+    result.innerHTML = '<div class="view-sub" style="color:var(--danger, #b42318);">' + escapeHtml(err.message) + '</div>';
+    toastError(err.message);
+  });
 });
 
 function loadSnapshotView(){

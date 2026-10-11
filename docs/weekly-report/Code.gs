@@ -5,18 +5,20 @@
  *   1. gọi app (GET /api/reports/weekly.pptx) — app tự dựng bộ slide 4 trang từ dữ liệu hiện tại;
  *   2. đổi file .pptx đó thành Google Slides trong Drive của bạn (có thể vào một thư mục chỉ định);
  *   3. (tùy chọn) gửi một email có link tới REPORT_TO.
- * Ngoài ra script còn là một Web app (doPost): nút "Tạo báo cáo tuần" trên web gọi vào đó để tạo slide NGAY, chia sẻ và gửi
- * link qua email cho chính người bấm nút.
+ * Ngoài ra script còn là một Web app (doGet): nút "Tạo báo cáo tuần" trên web mở trang đó ở tab mới; nó chạy bằng tài khoản
+ * công ty của CHÍNH người bấm (slide trong Drive của họ, mail gửi tới họ).
  *
  * Cài đặt từng bước: xem README.md cùng thư mục. Cần bật dịch vụ nâng cao "Drive API" (v3).
  *
  * Script properties (Project Settings → Script properties):
  *   APP_URL           bắt buộc  vd. https://ttt-planning.onrender.com
  *   REPORT_SECRET     bắt buộc  trùng REPORT_SECRET trên Render
- *   FOLDER_ID         tùy chọn  ID thư mục Drive để lưu slide (phần cuối của link thư mục). Trống = Drive gốc.
+ *   FOLDER_ID         tùy chọn  ID thư mục Drive (phần cuối của link thư mục) cho slide do CHỦ script chạy tay / theo lịch.
+ *                               Nút trên web luôn lưu ở Drive của người bấm, bỏ qua thư mục này.
  *   REPORT_TO         tùy chọn  email nhận link slide (nhiều địa chỉ: cách nhau bằng dấu phẩy). Trống = không gửi mail.
- *   SHARE_WITH_DOMAIN tùy chọn  "true" = ai trong công ty có link đều XEM được (cần để người nhận mở được file).
- *                               Mặc định: không chia sẻ, chỉ bạn thấy.
+ *   SHARE_WITH_DOMAIN tùy chọn  "true" = ai trong công ty có link đều XEM được file vừa tạo. Mặc định: chỉ người tạo thấy.
+ *   ALLOWED_EMAILS    tùy chọn  email được phép dùng nút trên web (cách nhau bằng dấu phẩy). Trống = mọi người trong công ty
+ *                               có link đều tạo được báo cáo.
  *   REPORT_DAY        tùy chọn  thứ tạo tự động, mặc định "FRIDAY" (MONDAY…SUNDAY)
  *   REPORT_HOUR       tùy chọn  giờ tạo tự động (0–23, theo múi giờ của project), mặc định "9"
  *   TODAY             chỉ để THỬ: YYYY-MM-DD — giả vờ hôm nay là ngày đó. Nhớ xóa đi sau khi thử xong.
@@ -81,53 +83,62 @@ function run_(onlyOwner) {
 }
 
 /**
- * Nút trên web (app gọi vào đây): tạo slide, CHIA SẺ cho người bấm nút (xem được) và gửi link qua email cho
- * chính họ. Cần triển khai script thành Web app — xem README.md. Bảo vệ bằng REPORT_SECRET trong nội dung yêu cầu.
+ * Nút "Tạo báo cáo tuần" trên web mở trang này ở tab mới. Script được triển khai thành Web app với
+ *   Execute as: User accessing the web app · Who has access: Anyone within <công ty>
+ * nên mọi thứ chạy bằng CHÍNH tài khoản công ty của người bấm: slide nằm trong Drive của họ, mail gửi tới họ.
+ * Lần đầu mỗi người sẽ thấy màn hình xin quyền của Google (Drive, gửi mail, kết nối ngoài).
+ * REPORT_SECRET nằm trong Script properties — người bấm không đọc được, chỉ code script dùng.
  */
-function doPost(e) {
-  var out;
-  try {
-    var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    var p = props_();
-    if (!body.secret || body.secret !== p.secret) throw new Error('Không có quyền.');
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(body.to || ''))) throw new Error('Thiếu email người nhận.');
-    var lock = LockService.getScriptLock();
-    if (!lock.tryLock(5000)) throw new Error('Đang có một báo cáo khác được tạo — thử lại sau ít phút.');
-    try {
-      out = create_(p, { to: String(body.to), shareWith: String(body.to), useToday: false }); // luôn là hôm nay thật, bỏ qua TODAY
-      out.ok = true;
-    } finally {
-      lock.releaseLock();
-    }
-  } catch (err) {
-    out = { ok: false, error: String(err && err.message ? err.message : err) };
-  }
-  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+function doGet() {
+  return HtmlService.createHtmlOutput(PAGE_HTML_).setTitle('Báo cáo tuần TTT');
 }
 
-/** Tải slide từ app → Google Slides → (chia sẻ) → (gửi mail). Trả về { url, title, to, shared }. */
+/** Được trang trên gọi (google.script.run): tạo slide cho người đang truy cập. Trả về { url, title, to } hoặc ném lỗi. */
+function createForMe() {
+  var user = Session.getActiveUser().getEmail();
+  if (!user) throw new Error('Không xác định được tài khoản của bạn — hãy đăng nhập Google công ty rồi thử lại.');
+  var allowed = String(PropertiesService.getScriptProperties().getProperty('ALLOWED_EMAILS') || '')
+    .split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
+  if (allowed.length && allowed.indexOf(user.toLowerCase()) < 0) throw new Error('Tài khoản ' + user + ' chưa được phép tạo báo cáo.');
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) throw new Error('Đang có một báo cáo khác được tạo — thử lại sau ít phút.');
+  try {
+    // thư mục FOLDER_ID là của chủ script, người khác không ghi vào được → lưu ở Drive của chính người bấm
+    return create_(props_(), { to: user, useToday: false, useFolder: false });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+var PAGE_HTML_ = '<!DOCTYPE html><html><head><base target="_top"><meta charset="utf-8">' +
+  '<style>body{font-family:Arial,sans-serif;max-width:560px;margin:60px auto;padding:0 20px;color:#262626}' +
+  'h1{font-size:20px;color:#A50064}.box{border:1px solid #e6d5de;border-radius:10px;padding:18px 20px;margin-top:18px}' +
+  'a.btn{display:inline-block;margin-top:12px;background:#A50064;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:bold}' +
+  '.err{color:#b42318}.mute{color:#6b6b6b;font-size:13px}</style></head><body>' +
+  '<h1>Báo cáo tuần TTT</h1><div class="box" id="out">Đang lấy dữ liệu, dựng slide và chuyển sang Google Slides… (khoảng 30 giây — đừng đóng tab)</div>' +
+  '<p class="mute">Slide được lưu trong Drive của bạn và link được gửi qua email của bạn.</p>' +
+  '<script>' +
+  'function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c]})}' +
+  'google.script.run.withSuccessHandler(function(r){' +
+  'document.getElementById("out").innerHTML="✓ Đã tạo <b>"+esc(r.title)+"</b> và gửi link tới <b>"+esc(r.to)+"</b>.<br><a class=\\"btn\\" target=\\"_blank\\" href=\\""+esc(r.url)+"\\">Mở Google Slides</a>";' +
+  '}).withFailureHandler(function(e){' +
+  'document.getElementById("out").innerHTML="<span class=\\"err\\">Không tạo được báo cáo: "+esc(e&&e.message?e.message:e)+"</span>";' +
+  '}).createForMe();' +
+  '</script></body></html>';
+
+/** Tải slide từ app → Google Slides (Drive của người chạy) → gửi mail. Trả về { url, title, to }. */
 function create_(p, opts) {
   var res = fetchDeck_(p.appUrl, p.secret, opts.useToday ? p.today : null);
   var title = '[TTT] Báo cáo tuần ' + formatDm_(res.weekStart) + ' – ' + formatDmy_(res.weekEnd);
 
   // Drive v3 chuyển .pptx thành Google Slides khi đặt mimeType đích của file mới là Slides.
   var resource = { name: title, mimeType: SLIDES_TYPE_ };
-  if (p.folderId) resource.parents = [p.folderId];
+  if (p.folderId && opts.useFolder !== false) resource.parents = [p.folderId];
   var file = Drive.Files.create(resource, res.blob, { supportsAllDrives: true });
   var url = 'https://docs.google.com/presentation/d/' + file.id + '/edit';
 
   if (p.shareDomain) {
     DriveApp.getFileById(file.id).setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW);
-  }
-  var shared = null;
-  if (opts.shareWith) {
-    try {
-      DriveApp.getFileById(file.id).addViewer(opts.shareWith);
-      shared = true;
-    } catch (e) {
-      shared = false; // vd. chính sách Workspace chặn chia sẻ ra ngoài công ty — link vẫn gửi, người nhận cần xin quyền
-      Logger.log('Không chia sẻ được cho ' + opts.shareWith + ': ' + e);
-    }
   }
   Logger.log('Đã tạo: ' + title + ' → ' + url);
 
@@ -137,14 +148,13 @@ function create_(p, opts) {
       subject: title,
       htmlBody: '<p>Báo cáo tuần ' + formatDm_(res.weekStart) + ' – ' + formatDmy_(res.weekEnd) + ' đã sẵn sàng:</p>' +
         '<p><a href="' + url + '">Mở Google Slides</a></p>' +
-        (shared === false ? '<p style="color:#b45309">Chưa chia sẻ được file cho email này — nếu không mở được, hãy xin quyền xem.</p>' : '') +
         '<p style="color:#888;font-size:12px">Bộ slide tự tạo từ dữ liệu TTT Planning lúc ' + formatDmy_(res.weekEnd) + '.</p>',
       body: 'Báo cáo tuần ' + formatDm_(res.weekStart) + ' – ' + formatDmy_(res.weekEnd) + ': ' + url,
       name: 'Túi Thần Tài'
     });
     Logger.log('Đã gửi link → ' + opts.to);
   }
-  return { url: url, title: title, to: opts.to || null, shared: shared };
+  return { url: url, title: title, to: opts.to || null };
 }
 
 /** Tải bộ slide từ app; Render gói free ngủ khi rảnh nên lần đầu có thể mất ~1 phút → thử lại. */
