@@ -2,7 +2,7 @@
  * Túi Thần Tài — báo cáo tuần cho sếp, tự tạo thành file GOOGLE SLIDES.
  *
  * Script này chạy TRONG Google Workspace của bạn (script.google.com). Mỗi tuần nó:
- *   1. gọi app (GET /api/reports/weekly.pptx) — app tự dựng bộ slide 4 trang từ dữ liệu hiện tại;
+ *   1. gọi app (GET /api/reports/weekly.pptx) — app tự dựng bộ slide 2 trang từ dữ liệu hiện tại;
  *   2. đổi file .pptx đó thành Google Slides trong Drive của bạn (có thể vào một thư mục chỉ định);
  *   3. (tùy chọn) gửi một email có link tới REPORT_TO.
  * Ngoài ra script còn là một Web app (doGet): nút "Tạo báo cáo tuần" trên web mở trang đó ở tab mới; nó chạy bằng tài khoản

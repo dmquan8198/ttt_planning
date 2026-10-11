@@ -5,8 +5,10 @@
 const { STATUS_LABELS } = require('./statusCodes');
 const { normalizeDate } = require('./normalizeDate');
 const { getTodayVN } = require('./today');
+const { buildFocusItems } = require('./weeklyReportItems');
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
+const MS_DAY = 86400000;
 
 function addDays(iso, n) {
   const d = new Date(iso + 'T00:00:00Z');
@@ -35,13 +37,17 @@ async function collectWeeklyReport(pool, today = getTodayVN()) {
   const sprints = (await q('SELECT id, code, start_date, end_date FROM sprints ORDER BY start_date'))
     .map((s) => ({ ...s, start_date: normalizeDate(s.start_date), end_date: normalizeDate(s.end_date) }));
   const tasks = (await q(`SELECT id, category, name, status, start_date, due_date, sprint_id,
-      in_analyst_at, ready_for_dev_at, in_test_at, in_test_uat_at, ready_for_staging_at, done_at, created_at
+      in_analyst_at, ready_for_dev_at, in_test_at, in_test_uat_at, ready_for_staging_at, done_at, created_at, updated_at, pic
     FROM tasks ORDER BY id`))
     .map((t) => ({ ...t, start_date: normalizeDate(t.start_date), due_date: normalizeDate(t.due_date) }));
   const subtasks = (await q('SELECT id, task_id, name, status, due_date, pic FROM subtasks'))
     .map((s) => ({ ...s, due_date: normalizeDate(s.due_date) }));
   const snapshots = (await q('SELECT snapshot_date, total_tasks, completed_tasks, completion_rate, by_status, by_category FROM daily_snapshots ORDER BY snapshot_date'))
     .map((s) => ({ ...s, snapshot_date: normalizeDate(s.snapshot_date), completion_rate: Number(s.completion_rate) }));
+
+  // last 30 days of activity-log notes: the team's own "Status: / Next action:" lines feed the item detail
+  const logCutoff = new Date(Date.now() - 30 * MS_DAY).toISOString();
+  const logs = (await pool.query('SELECT task_id, note, created_at FROM activity_logs WHERE created_at >= $1', [logCutoff])).rows;
 
   const sprintById = Object.fromEntries(sprints.map((s) => [s.id, s]));
   const inWeek = (ts) => !!ts && vnDate(ts) > weekAgo;
@@ -90,6 +96,12 @@ async function collectWeeklyReport(pool, today = getTodayVN()) {
   const curTasks = current ? tasks.filter((t) => t.sprint_id === current.id) : [];
   const nextTasks = nextSprint ? tasks.filter((t) => t.sprint_id === nextSprint.id) : [];
 
+  const focus = buildFocusItems({
+    tasks: tasks.map((t) => ({ ...t, sprint: sprintById[t.sprint_id]?.code || null })),
+    logs, today,
+    focusSprintIds: [current && current.id, nextSprint && nextSprint.id].filter(Boolean)
+  });
+
   return {
     today, weekAgo,
     totals: { total: tasks.length, done: byStatus['Done'] || 0, byStatus, byCategory },
@@ -111,7 +123,8 @@ async function collectWeeklyReport(pool, today = getTodayVN()) {
     newTasksThisWeek: tasks.filter((t) => inWeek(t.created_at)).map(brief),
     movedThisWeek,
     doneThisWeek: tasks.filter((t) => inWeek(t.done_at)).map(brief),
-    risks: { overdueByDone, overdue, dueNext7, subOverdue }
+    risks: { overdueByDone, overdue, dueNext7, subOverdue },
+    focus
   };
 }
 

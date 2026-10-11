@@ -2,7 +2,7 @@
 
 Trên web, vào **Báo cáo Snapshot** → bấm **✦ Tạo báo cáo tuần (Google Slides) ↗** (chỉ hiện với role **editor** trở lên). Một tab mới mở ra, và khoảng 30 giây sau:
 
-1. một file **Google Slides** 4 trang được tạo từ dữ liệu hiện tại, nằm trong **Drive của chính bạn**;
+1. một file **Google Slides** 2 trang được tạo từ dữ liệu hiện tại, nằm trong **Drive của chính bạn**;
 2. **link slide được gửi qua email** của bạn, và hiện luôn trên tab đó.
 
 Mỗi lần bấm tạo một file mới (tên `[TTT] Báo cáo tuần 05/10 – 11/10/2026`) — không ghi đè bản cũ.
@@ -24,15 +24,22 @@ Web: nút bấm ──mở tab mới──▶ Apps Script Web app (chạy bằng
 
 ## Bộ slide gồm gì
 
-| Trang | Nội dung |
-|---|---|
-| 1. Tổng quan & thay đổi | Số liệu chính; pipeline 7 giai đoạn, cột nét đứt = tuần trước, cột đặc = hiện tại |
-| 2. Chi tiết nghiệp vụ | Tiến độ từng category (thanh xếp chồng), Done tuần này, quá hạn |
-| 3. Sprint & nút thắt | Sprint vừa qua / đang chạy so với sprint kế tiếp, hàng chờ UAT so với tuần trước |
-| 4. Rủi ro & đề xuất | Bảng: rủi ro, dấu hiệu bằng số liệu, hậu quả, đề xuất |
+Chỉ **2 slide**, viết dạng highlight (cụm từ ngắn, không câu dài), font **Momo Trust Display**, một màu nhấn (magenta MoMo) + các mức xám:
 
-Câu chữ và số liệu đều sinh từ dữ liệu, nên tuần nào cũng khác. **Cột "Đề xuất" ở trang 4 là gợi ý theo quy tắc chung** — vì là Google Slides
-thật nên bạn sửa tay thoải mái trước khi gửi sếp.
+| Slide | Nội dung |
+|---|---|
+| 1. Tổng quan & thay đổi | 4 con số chính; dịch chuyển từng giai đoạn so với tuần trước (cột nét đứt = tuần trước, cột đặc = hiện tại); "Cần chú ý" (UAT, nhóm chậm, việc mới, subtask quá hạn); các việc vừa xong |
+| 2. Nghiệp vụ trọng tâm | Tối đa 6 nghiệp vụ đáng chú ý nhất, mỗi việc một dòng: **hiện tại · bước tiếp theo · blocker** (kèm sprint, PIC, hạn) |
+
+**Slide 2 lấy dữ liệu ở đâu:**
+- *Hiện tại* và *Bước tiếp theo*: dòng `Status:` và `Next action:` **mới nhất** trong Log hoạt động của từng nghiệp vụ (30 ngày gần nhất). Việc nào chưa có ghi chú thì dùng bước mặc định theo giai đoạn
+  (vd. inTest UAT → "Chốt UAT → Done UAT"). **Ghi chú theo mẫu `Status:` / `Next action:` càng đều thì slide càng đúng.**
+- *Blocker*: app chưa có trường blocker riêng, nên được suy ra từ dữ liệu: quá hạn N ngày, bị dời lịch (kèm "Lý do dời ngày"), ghi chú nhắc việc đang
+  chờ phản hồi ("chờ", "chưa phản hồi", "gửi lại"…), hoặc quá 7 ngày chưa có cập nhật.
+- *Chọn việc nào:* chấm điểm theo quá hạn, sắp đến hạn, bị dời lịch, đang chờ bên khác, có cập nhật gần đây, thuộc sprint hiện tại/kế tiếp; mỗi giai đoạn tối đa 3 việc để danh sách
+  không bị một nhóm chiếm hết. Các việc cùng tiền tố (vd. `[SOF] Thanh toán bằng Túi - …`) và cùng giai đoạn được gộp thành một dòng.
+
+Câu chữ và số liệu đều sinh từ dữ liệu, nên tuần nào cũng khác. Vì là Google Slides thật nên bạn sửa tay thoải mái trước khi gửi sếp.
 
 ## Cài đặt (một lần)
 

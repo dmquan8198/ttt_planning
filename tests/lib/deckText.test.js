@@ -45,12 +45,13 @@ test('the deck uses only Momo Trust Display, a single weight, and hugging text b
     sprint: { ended: true, code: 'S1', start: '2026-09-28', end: '2026-10-09', byStatus: { 'Done': 1, 'inTest UAT': 1 }, total: 2, done: 1, overdue: 1, not_done: 1, days_left: -2 },
     nextSprint: { code: 'S2', start: '2026-10-12', end: '2026-10-23', total: 1, byStatus: { 'In Analyst': 1 } },
     newTasksThisWeek: [], movedThisWeek: [], doneThisWeek: [],
+    focus: { items: [{ name: 'x', count: 1, statusLabel: 'inTest UAT', sprint: 'S1', pic: 'an', due: '2026-10-09', now: 'QC đang test', next: 'Chốt UAT', blockers: ['Quá hạn 2 ngày'] }], more: 0 },
     risks: { overdueByDone: 1, overdue: [{ id: 2, name: 'x', category: 'TTT New - Foundation', status: 'inTest UAT', sprint: 'S1', due: '2026-10-09', days_late: 2 }], dueNext7: [], subOverdue: 0 }
   };
   const { buffer, warnings } = await buildWeeklyDeck(report);
   const zip = await JSZip.loadAsync(buffer);
   const slides = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
-  assert.equal(slides.length, 4);
+  assert.equal(slides.length, 2);
   const xml = (await Promise.all(slides.map((n) => zip.file(n).async('string')))).join('');
   const faces = new Set([...xml.matchAll(/<a:latin typeface="([^"]+)"/g)].map((m) => m[1]));
   assert.deepEqual([...faces], [FONT_FACE]);
