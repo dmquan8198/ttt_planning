@@ -1,16 +1,18 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildFocusItems, parseNote, cut, daysBetween } = require('../../src/lib/weeklyReportItems');
+const { describeTasks, groupThemes, parseNote, cut, daysBetween } = require('../../src/lib/weeklyReportItems');
 
 const TODAY = '2026-10-11';
 const ts = (iso) => `${iso}T05:00:00.000Z`;
-const task = (o) => ({ id: 1, name: 'T', category: 'TTT New - Foundation', status: '4.in_test_uat', due_date: '2026-10-20', sprint: 'S19', sprint_id: 1, pic: 'an', updated_at: ts('2026-10-01'), in_test_uat_at: ts('2026-10-01'), ...o });
+const task = (o) => ({ id: 1, name: 'T', status: '4.in_test_uat', due_date: '2026-10-20', updated_at: ts('2026-10-01'), in_test_uat_at: ts('2026-10-01'), ...o });
 const log = (task_id, note, day) => ({ task_id, note, created_at: ts(day) });
+const one = (t, logs) => describeTasks({ tasks: [t], logs, today: TODAY }).get(t.id);
 
 test('parseNote reads the team\'s "Status:" / "Next action:" lines and drops the " — actor" suffix', () => {
   const n = parseNote('Status: Done dev, VTS đã aware về scope test\nNext action: Team TTT gửi lại test case — Quân Minh');
   assert.equal(n.status, 'Done dev, VTS đã aware về scope test');
   assert.equal(n.next, 'Team TTT gửi lại test case');
+  assert.equal(parseNote('Next action: - CRM gửi lại list').next, 'CRM gửi lại list', 'a leading list dash is dropped');
 });
 
 test('parseNote reads reschedule entries and their reason', () => {
@@ -28,61 +30,62 @@ test('cut() shortens at a word boundary with an ellipsis and leaves short text a
   assert.equal(daysBetween('2026-10-09', '2026-10-11'), 2);
 });
 
-test('an overdue item gets a blocker, the latest Status/Next action, and its sprint/PIC/due', () => {
-  const { items } = buildFocusItems({
-    tasks: [task({ id: 1, name: 'Auto receive', due_date: '2026-10-09' })],
-    logs: [log(1, 'Status: Core done dev', '2026-10-05'), log(1, 'Status: QC đang test\nNext action: QC test xong 12.10', '2026-10-08')],
-    today: TODAY, focusSprintIds: [1]
-  });
-  assert.equal(items.length, 1);
-  assert.equal(items[0].now, 'QC đang test', 'newest status wins');
-  assert.equal(items[0].next, 'QC test xong 12.10');
-  assert.ok(items[0].blockers.includes('Quá hạn 2 ngày'));
-  assert.equal(items[0].sprint, 'S19');
+test('now/next come from the newest Status and Next action notes; an overdue item gets a blocker', () => {
+  const d = one(task({ id: 1, due_date: '2026-10-09' }), [
+    log(1, 'Status: Core done dev', '2026-10-05'),
+    log(1, 'Status: QC đang test\nNext action: QC test xong 12.10', '2026-10-08')
+  ]);
+  assert.equal(d.now, 'QC đang test', 'newest status wins');
+  assert.equal(d.next, 'QC test xong 12.10');
+  assert.ok(d.blockers.includes('Quá hạn 2 ngày'));
 });
 
-test('rescheduling shows net days moved with the reason; waiting on someone is flagged; no log falls back to the stage step', () => {
-  const { items } = buildFocusItems({
-    tasks: [task({ id: 2, name: 'Sacombank', status: '3.in_test', in_test_at: ts('2026-10-01') }), task({ id: 3, name: 'Silent', status: '1.in_analyst', in_analyst_at: ts('2026-09-20'), due_date: '2026-10-09' })],
-    logs: [
-      log(2, 'Đổi ngày (An): kết thúc 09/10/2026 → 23/10/2026 (+14 ngày)', '2026-10-09'),
-      log(2, 'Lý do dời ngày: Sacombank chưa hoàn thành — An', '2026-10-09'),
-      log(2, 'Status: Phía Sacombank chưa phản hồi', '2026-10-10')
-    ],
-    today: TODAY, focusSprintIds: [1]
-  });
-  const sac = items.find((i) => i.name === 'Sacombank');
+test('no log → a plain default next step per stage and an empty "now"; nothing known means no blockers', () => {
+  const d = one(task({ id: 2, status: '1.in_analyst', in_analyst_at: ts('2026-10-09') }), []);
+  assert.equal(d.now, '');
+  assert.equal(d.next, 'Chốt phân tích, chuyển dev');
+  assert.deepEqual(d.blockers, []);
+});
+
+test('reschedules show the NET days moved with the reason; waiting on someone and silence are flagged', () => {
+  const sac = one(task({ id: 3, status: '3.in_test', in_test_at: ts('2026-10-01') }), [
+    log(3, 'Đổi ngày (An): kết thúc 09/10/2026 → 23/10/2026 (+14 ngày)', '2026-10-09'),
+    log(3, 'Lý do dời ngày: Sacombank chưa hoàn thành — An', '2026-10-09'),
+    log(3, 'Status: Phía Sacombank chưa phản hồi', '2026-10-10')
+  ]);
   assert.ok(sac.blockers.some((b) => b.startsWith('Dời lịch +14 ngày: Sacombank chưa hoàn thành')));
   assert.ok(sac.blockers.length <= 2);
-  const silent = items.find((i) => i.name === 'Silent');
-  assert.equal(silent.next, 'Chốt phân tích → Ready for Dev', 'default next step by stage');
-  assert.match(silent.now, /ngày ở In Analyst/);
-  assert.ok(silent.blockers.some((b) => /Chưa có log, 21 ngày/.test(b)));
+  const pulledBack = one(task({ id: 4 }), [log(4, 'Đổi ngày (An): kết thúc 23/10/2026 → 09/10/2026 (-14 ngày)', '2026-10-09'), log(4, 'Đổi ngày (An): kết thúc 09/10/2026 → 23/10/2026 (+14 ngày)', '2026-10-10')]);
+  assert.ok(!pulledBack.blockers.some((b) => b.startsWith('Dời lịch')), 'moved out and back = no net slip');
+  const waiting = one(task({ id: 5 }), [log(5, 'Status: PO Bank back lại timeline vào 07.10', '2026-10-10')]);
+  assert.ok(waiting.blockers.includes('Đang chờ phản hồi bên liên quan'));
+  const silent = one(task({ id: 6, status: '1.in_analyst', in_analyst_at: ts('2026-09-20'), due_date: '2026-12-01' }), []);
+  assert.ok(silent.blockers.some((b) => /Chưa có cập nhật, đã 21 ngày/.test(b)));
+  const quiet = one(task({ id: 7, status: '5.ready_for_staging', due_date: '2026-10-01' }), []);
+  assert.deepEqual(quiet.blockers, [], 'a finished item is never "overdue"');
 });
 
-test('done / Done UAT items and quiet, on-track items are left out', () => {
-  const { items } = buildFocusItems({
-    tasks: [task({ id: 4, status: '6.done', due_date: '2026-10-01' }), task({ id: 5, status: '5.ready_for_staging', due_date: '2026-10-01' }), task({ id: 6, due_date: '2026-12-01', sprint_id: 9 })],
-    logs: [], today: TODAY
-  });
-  assert.deepEqual(items, []);
+test('groupThemes: items sharing a "Prefix - suffix" prefix fold into one theme', () => {
+  const items = ['Donation', 'VTS', 'QR'].map((s) => ({ name: `[SOF] Thanh toán bằng Túi - ${s}`, status: '4.in_test_uat' }));
+  items.push({ name: 'Add tabbar', status: '4.in_test_uat' });
+  const g = groupThemes(items);
+  assert.equal(g[0].label, 'Thanh toán bằng Túi');
+  assert.equal(g[0].count, 3);
+  assert.equal(g[0].status, '4.in_test_uat');
+  assert.equal(g.length, 2);
 });
 
-test('siblings with the same prefix and stage fold into one line that shows each blocker kind once', () => {
-  const tasks = ['Donation', 'VTS', 'QR'].map((p, i) => task({ id: 10 + i, name: `[SOF] Thanh toán bằng Túi - ${p}`, due_date: '2026-10-09' }));
-  const { items } = buildFocusItems({ tasks, logs: [log(10, 'Status: Done dev\nNext action: gửi lại test case', '2026-10-08')], today: TODAY, focusSprintIds: [1] });
-  assert.equal(items.length, 1);
-  assert.equal(items[0].name, '[SOF] Thanh toán bằng Túi');
-  assert.equal(items[0].count, 3);
-  assert.equal(items[0].blockers.filter((b) => b.startsWith('Quá hạn')).length, 1);
+test('groupThemes: three or more items sharing a phrase become one theme named after it', () => {
+  const names = ['Mở quỹ sinh lời', 'Nạp tiền vào quỹ sinh lời', 'Rút tiền khỏi quỹ sinh lời về ví', 'Bảo trì Túi New'];
+  const g = groupThemes(names.map((name) => ({ name, status: '1.in_analyst' })));
+  assert.equal(g[0].label, 'Quỹ sinh lời');
+  assert.equal(g[0].count, 3);
+  assert.ok(g.some((x) => x.label === 'Bảo trì Túi New' && x.count === 1), 'the odd one out keeps its own line');
 });
 
-test('the list is capped, varied (max 3 per stage first) and reports how many more there are', () => {
-  const tasks = [];
-  for (let i = 0; i < 6; i += 1) tasks.push(task({ id: 20 + i, name: `UAT ${i}`, due_date: '2026-10-09' }));
-  tasks.push(task({ id: 40, name: 'Dev one', status: '3.in_test', in_test_at: ts('2026-10-01'), due_date: '2026-10-09' }));
-  const { items, more } = buildFocusItems({ tasks, logs: [], today: TODAY, focusSprintIds: [1], limit: 4 });
-  assert.equal(items.length, 4);
-  assert.ok(items.some((i) => i.name === 'Dev one'), 'a different stage makes the cut over the 4th UAT item');
-  assert.equal(more, 3);
+test('groupThemes: every item ends up in exactly one theme', () => {
+  const items = Array.from({ length: 9 }, (_, i) => ({ name: i % 2 ? `Luồng A - x${i}` : `Việc riêng ${i}`, status: '0.backlog' }));
+  const g = groupThemes(items);
+  assert.equal(g.reduce((a, x) => a + x.count, 0), 9);
+  assert.equal(new Set(g.flatMap((x) => x.tasks)).size, 9);
 });

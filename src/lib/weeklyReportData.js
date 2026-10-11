@@ -5,7 +5,7 @@
 const { STATUS_LABELS } = require('./statusCodes');
 const { normalizeDate } = require('./normalizeDate');
 const { getTodayVN } = require('./today');
-const { buildFocusItems } = require('./weeklyReportItems');
+const { describeTasks } = require('./weeklyReportItems');
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 const MS_DAY = 86400000;
@@ -48,6 +48,9 @@ async function collectWeeklyReport(pool, today = getTodayVN()) {
   // last 30 days of activity-log notes: the team's own "Status: / Next action:" lines feed the item detail
   const logCutoff = new Date(Date.now() - 30 * MS_DAY).toISOString();
   const logs = (await pool.query('SELECT task_id, note, created_at FROM activity_logs WHERE created_at >= $1', [logCutoff])).rows;
+
+  const phases = (await q('SELECT code, name, target_date FROM phases ORDER BY target_date'))
+    .map((ph) => ({ code: ph.code, name: ph.name, target: normalizeDate(ph.target_date) }));
 
   const sprintById = Object.fromEntries(sprints.map((s) => [s.id, s]));
   const inWeek = (ts) => !!ts && vnDate(ts) > weekAgo;
@@ -96,11 +99,15 @@ async function collectWeeklyReport(pool, today = getTodayVN()) {
   const curTasks = current ? tasks.filter((t) => t.sprint_id === current.id) : [];
   const nextTasks = nextSprint ? tasks.filter((t) => t.sprint_id === nextSprint.id) : [];
 
-  const focus = buildFocusItems({
-    tasks: tasks.map((t) => ({ ...t, sprint: sprintById[t.sprint_id]?.code || null })),
-    logs, today,
-    focusSprintIds: [current && current.id, nextSprint && nextSprint.id].filter(Boolean)
-  });
+  // the timeline pages: every item in the sprints from "recently ended" onwards, with where it
+  // stands / next step / blocker worked out from the team's log notes
+  const windowStart = addDays(today, -35);
+  const inWindow = tasks.filter((t) => sprintById[t.sprint_id] && sprintById[t.sprint_id].end_date >= windowStart);
+  const described = describeTasks({ tasks: inWindow, logs, today });
+  const timelineItems = inWindow.map((t) => ({
+    id: t.id, name: t.name, category: t.category, status: t.status, sprint: sprintById[t.sprint_id].code,
+    due: t.due_date, pic: t.pic || null, ...described.get(t.id)
+  }));
 
   return {
     today, weekAgo,
@@ -124,7 +131,11 @@ async function collectWeeklyReport(pool, today = getTodayVN()) {
     movedThisWeek,
     doneThisWeek: tasks.filter((t) => inWeek(t.done_at)).map(brief),
     risks: { overdueByDone, overdue, dueNext7, subOverdue },
-    focus
+    timeline: {
+      phases,
+      sprints: sprints.map((sp) => ({ code: sp.code, start: sp.start_date, end: sp.end_date })),
+      items: timelineItems
+    }
   };
 }
 

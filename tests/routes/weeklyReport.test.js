@@ -63,7 +63,7 @@ test('GET /api/reports/weekly.pptx rejects a malformed today', async () => {
   });
 });
 
-test('GET /api/reports/weekly.pptx returns a 2-slide deck named after the week', async () => {
+test('GET /api/reports/weekly.pptx returns the report deck named after the week', async () => {
   await withSecret(async () => {
     const pool = makeTestPool();
     await seed(pool);
@@ -74,9 +74,9 @@ test('GET /api/reports/weekly.pptx returns a 2-slide deck named after the week',
     assert.match(res.headers['content-disposition'], /bao-cao-tuan_2026-10-04_2026-10-11\.pptx/);
     const zip = await JSZip.loadAsync(res.body);
     const slides = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
-    assert.equal(slides.length, 2);
+    assert.ok(slides.length >= 3, 'timeline, per-milestone page and the item pages');
     const all = (await Promise.all(slides.map((n) => zip.file(n).async('string')))).join('');
-    assert.ok(all.includes('BLOCKER'), 'the item slide is present');
+    assert.ok(all.includes('BLOCKER'), 'the item pages are present');
   });
 });
 
@@ -86,7 +86,7 @@ test('the deck still builds on an empty database (no tasks, no sprints)', async 
       .set('X-Report-Secret', SECRET).buffer(true).parse(binary);
     assert.equal(res.status, 200);
     const zip = await JSZip.loadAsync(res.body);
-    assert.equal(Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).length, 2);
+    assert.ok(Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).length >= 1);
   });
 });
 

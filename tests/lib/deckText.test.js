@@ -35,7 +35,7 @@ test('layout() honours explicit line breaks, styled runs, and never splits a wor
   assert.equal(long.lines[0].runs[0].text, 'Siêucực');
 });
 
-test('the deck uses only Momo Trust Display, a single weight, and hugging text boxes', async () => {
+test('the deck uses only Momo Trust Display, a single weight, hugging text boxes, and plain words', async () => {
   const report = {
     today: '2026-10-11', weekAgo: '2026-10-04',
     totals: { total: 3, done: 1, byStatus: { 'Done': 1, 'inTest UAT': 1, 'In Analyst': 1 }, byCategory: { 'TTT New - Foundation': { total: 3, done: 1, overdue: 1 } } },
@@ -45,17 +45,26 @@ test('the deck uses only Momo Trust Display, a single weight, and hugging text b
     sprint: { ended: true, code: 'S1', start: '2026-09-28', end: '2026-10-09', byStatus: { 'Done': 1, 'inTest UAT': 1 }, total: 2, done: 1, overdue: 1, not_done: 1, days_left: -2 },
     nextSprint: { code: 'S2', start: '2026-10-12', end: '2026-10-23', total: 1, byStatus: { 'In Analyst': 1 } },
     newTasksThisWeek: [], movedThisWeek: [], doneThisWeek: [],
-    focus: { items: [{ name: 'x', count: 1, statusLabel: 'inTest UAT', sprint: 'S1', pic: 'an', due: '2026-10-09', now: 'QC đang test', next: 'Chốt UAT', blockers: ['Quá hạn 2 ngày'] }], more: 0 },
+    timeline: {
+      phases: [{ code: 'P1', name: 'Lived', target: '2026-09-15' }, { code: 'P2', name: 'Rollout', target: '2026-11-06' }],
+      sprints: [{ code: 'S1', start: '2026-09-28', end: '2026-10-09' }, { code: 'S2', start: '2026-10-12', end: '2026-10-23' }, { code: 'S3', start: '2026-10-26', end: '2026-11-06' }],
+      items: [
+        { id: 1, name: 'Auto receive', category: 'TTT New - Foundation', status: '4.in_test_uat', sprint: 'S1', due: '2026-10-09', pic: 'an', now: 'QC đang test', next: 'Chốt kết quả test', blockers: ['Quá hạn 2 ngày'] },
+        { id: 2, name: 'Mở quỹ', category: 'TTT New - Cross Service', status: '1.in_analyst', sprint: 'S2', due: '2026-10-20', pic: null, now: '', next: 'Chốt phân tích, chuyển dev', blockers: [] }
+      ]
+    },
     risks: { overdueByDone: 1, overdue: [{ id: 2, name: 'x', category: 'TTT New - Foundation', status: 'inTest UAT', sprint: 'S1', due: '2026-10-09', days_late: 2 }], dueNext7: [], subOverdue: 0 }
   };
   const { buffer, warnings } = await buildWeeklyDeck(report);
   const zip = await JSZip.loadAsync(buffer);
   const slides = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
-  assert.equal(slides.length, 2);
+  assert.ok(slides.length >= 4, 'timeline + per-milestone + at least two detail pages');
   const xml = (await Promise.all(slides.map((n) => zip.file(n).async('string')))).join('');
   const faces = new Set([...xml.matchAll(/<a:latin typeface="([^"]+)"/g)].map((m) => m[1]));
   assert.deepEqual([...faces], [FONT_FACE]);
   assert.ok(!/ b="1"/.test(xml), 'single-weight font: no bold runs');
   assert.ok(/wrap="none"/.test(xml), 'text keeps the exact line breaks we measured');
+  assert.ok(xml.includes('Không có'), 'an item with no known blocker says so');
+  assert.ok(!/inTest UAT|In Analyst|Ready for Dev/.test(xml), 'tool jargon stays out of the slides');
   assert.deepEqual(warnings, [], 'nothing runs past the slide on a small report');
 });
