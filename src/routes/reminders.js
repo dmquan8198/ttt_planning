@@ -3,7 +3,7 @@ const { Router } = require('express');
 const { asyncHandler } = require('../lib/asyncHandler');
 const { normalizeDate } = require('../lib/normalizeDate');
 const { getTodayVN } = require('../lib/today');
-const { buildReminders } = require('../lib/buildReminders');
+const { buildReminders, OVERDUE_BASES } = require('../lib/buildReminders');
 
 // constant-time compare via fixed-length hashes (same approach as basicAuth.js)
 function safeEqual(a, b) {
@@ -19,6 +19,16 @@ function parseWindows(raw) {
   const nums = parts.map(Number);
   if (nums.length === 0 || nums.some((n) => !Number.isInteger(n) || n < 1 || n > 10)) return null;
   return [...new Set(nums)].sort((a, b) => a - b);
+}
+
+// ?due_today=1 / ?overdue=1 switch the extra sections on; absent = off (so older
+// callers are unaffected). null = malformed.
+function parseFlag(raw) {
+  if (raw === undefined) return false;
+  const v = String(raw).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(v)) return true;
+  if (['0', 'false', 'no', 'off'].includes(v)) return false;
+  return null;
 }
 
 function remindersRouter(pool) {
@@ -43,6 +53,16 @@ function remindersRouter(pool) {
     if (!windows) {
       return res.status(400).json({ error: 'days không hợp lệ (ví dụ: 1,3 — mỗi số từ 1 đến 10)' });
     }
+    const includeToday = parseFlag(req.query.due_today);
+    const includeOverdue = parseFlag(req.query.overdue);
+    if (includeToday === null || includeOverdue === null) {
+      return res.status(400).json({ error: 'due_today / overdue không hợp lệ (1 hoặc 0)' });
+    }
+    // what counts as overdue: 'done_uat' (default) or 'done' — see buildReminders
+    const overdueBasis = req.query.overdue_by === undefined ? 'done_uat' : String(req.query.overdue_by);
+    if (!OVERDUE_BASES.includes(overdueBasis)) {
+      return res.status(400).json({ error: 'overdue_by không hợp lệ (done_uat hoặc done)' });
+    }
     const today = req.query.today || getTodayVN();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) {
       return res.status(400).json({ error: 'today không hợp lệ (YYYY-MM-DD)' });
@@ -64,7 +84,10 @@ function remindersRouter(pool) {
       subtasks: subtasks.map((s) => dates(s, ['due_date'])),
       sprints: sprints.map((s) => dates(s, ['start_date', 'end_date'])),
       today,
-      windows
+      windows,
+      includeToday,
+      includeOverdue,
+      overdueBasis
     }));
   }));
 

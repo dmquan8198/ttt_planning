@@ -1,7 +1,8 @@
-# Báo cáo việc sắp đến hạn qua email
+# Báo cáo việc đến hạn qua email
 
 Mỗi ngày lúc **9h30** (giờ Việt Nam) **một email báo cáo duy nhất** gửi tới **một group mail**, liệt kê nghiệp vụ / subtask
-**còn đúng 1 và 3 ngày làm việc** nữa là đến hạn. Không có email riêng cho từng người, từng task hay subtask.
+**còn đúng 1 và 3 ngày làm việc** nữa là đến hạn, **đến hạn hôm nay**, hoặc **đã quá hạn** (chưa Done). Không có email riêng
+cho từng người, từng task hay subtask.
 
 ## Email trông thế nào
 
@@ -18,10 +19,20 @@ Mỗi việc **một dòng** trong một bảng, không có ô thống kê. Vi�
 
 Sprint và category đã là tiêu đề nên không lặp trên từng dòng.
 
-- **Tiêu đề thư:** `[TTT] Báo cáo việc sắp đến hạn — 08/10/2026 (12 việc)`
-- **Đầu báo cáo:** "Việc sắp đến hạn · Thứ Năm, 08/10/2026 · 12 việc" — đúng một con số: tổng số việc.
-- **Mỗi dòng:** `tên | PIC | status | hạn`. Hạn ghi **ngày + số ngày làm việc còn lại**, ví dụ `09/10 · còn 1 ngày`;
-  còn 1 ngày thì chữ **đỏ**, nhiều hơn thì xám. Nghiệp vụ in đậm; subtask nằm ngay dưới nghiệp vụ cha, thụt vào với "↳", và
+- **Tiêu đề thư:** `[TTT] Báo cáo việc đến hạn — 08/10/2026 (12 việc · 4 quá hạn)` (chỉ có "· N quá hạn" khi có việc quá hạn)
+- **Đầu báo cáo:** "Việc đến hạn · Thứ Năm, 08/10/2026 · 12 việc (4 quá hạn)  [Quá hạn theo Done UAT]" — tổng số việc, số việc
+  quá hạn và một nhãn nhỏ cho biết "quá hạn" đang tính theo mốc Done UAT hay Done; không có thống kê nào khác.
+- **Mỗi dòng:** `tên | PIC | status | hạn`. Hạn ghi **ngày + số ngày làm việc còn lại / đã quá**:
+
+  | Hạn | Hiển thị |
+  |---|---|
+  | còn 3 ngày làm việc | `12/10 · còn 3 ngày` (xám) |
+  | còn 1 ngày | `09/10 · còn 1 ngày` (**đỏ**) |
+  | đến hạn hôm nay | `09/10 · hôm nay` (**cam đậm**) |
+  | đã quá hạn | `02/10 · quá hạn 5 ngày` (**đỏ sẫm đậm**; số ngày là ngày làm việc) |
+
+  Trong mỗi category, việc quá hạn lâu nhất đứng trước, rồi tới hôm nay, rồi tới sắp đến hạn. Việc quá hạn nằm ở sprint cũ nên
+  tự nhiên xuất hiện đầu báo cáo (sprint tăng dần). Nghiệp vụ in đậm; subtask nằm ngay dưới nghiệp vụ cha, thụt vào với "↳", và
   theo nhóm / sprint / category của nghiệp vụ cha. Nếu chỉ subtask đến hạn còn nghiệp vụ cha thì chưa, nghiệp vụ cha là một
   dòng đầu mục mờ, không đậm, không có hạn.
 - **Status của subtask khác hẳn status của nghiệp vụ:** status nghiệp vụ (In Dev, inTest UAT…) là chữ thường; status
@@ -29,7 +40,7 @@ Sprint và category đã là tiêu đề nên không lặp trên từng dòng.
   ngang hàng. (Bản chữ thường ghi rõ "subtask WIP".)
 - **Ít chữ lặp lại:** thiếu PIC chỉ là dấu **—** (đỏ); sprint và category là tiêu đề nên không lặp trên từng dòng.
 - Nền ngoài xám nhạt, thẻ giữa trắng; dùng `<table>` nên Outlook bản desktop cũng hiển thị đúng.
-- Có bản chữ thường (plain text) cùng cấu trúc, ghi rõ "còn N ngày" cho từng việc.
+- Có bản chữ thường (plain text) cùng cấu trúc, ghi rõ "còn N ngày" / "hôm nay" / "quá hạn N ngày" cho từng việc.
 
 **Vì sao không có tương tác (thu gọn/mở rộng) hay hai cột Analyst | Development:** mail client như Gmail/Outlook không chạy
 script và bỏ hầu hết CSS tương tác, nên email chỉ đọc được, không bấm thu gọn được. Hai cột cạnh nhau cũng không gọn hơn khi hai
@@ -41,7 +52,7 @@ phải xuống hai dòng cho vừa chiều ngang.
 ```
 Google Apps Script (trong Workspace công ty, 9h30 mỗi ngày)
    └─ GET https://ttt-planning.onrender.com/api/reminders/due   (kèm REMINDER_SECRET)
-         └─ app trả danh sách việc sắp đến hạn (kèm PIC, sprint, status)
+         └─ app trả danh sách việc đến hạn / quá hạn (kèm PIC, sprint, status)
    └─ MailApp.sendEmail(...)  → 1 email tới group, gửi TỪ hộp thư công ty của bạn
 ```
 
@@ -55,7 +66,7 @@ Vì mail do chính Google Workspace của công ty gửi nên:
 
 | | |
 |---|---|
-| Khi nào | Còn đúng **1** hoặc **3** ngày làm việc trước hạn (đổi bằng property `DAYS`, vd `1,2,5`) |
+| Khi nào | Còn đúng **1** hoặc **3** ngày làm việc trước hạn (đổi bằng property `DAYS`, vd `1,2,5`); **đến hạn hôm nay**; **đã quá hạn** |
 | Ngày làm việc | Thứ Hai–thứ Sáu. **Chưa tính ngày lễ.** Hạn rơi vào cuối tuần được tính như thứ Sáu liền trước |
 | Cuối tuần | Không gửi gì, kể cả khi trigger vẫn chạy (thứ Bảy, Chủ nhật không có "ngày làm việc" nào để đếm) |
 | Giờ gửi | **9h30** mỗi ngày (đổi bằng property `SEND_AT`, dạng `HH:mm`, vd `08:45`). Script kiểm tra mỗi 5 phút nên mail đến lúc 9h30–9h35 |
@@ -63,7 +74,31 @@ Vì mail do chính Google Workspace của công ty gửi nên:
 | Hạn của nghiệp vụ | Ngày Due hiển thị trên app: ngày tự chỉnh nếu có, không thì **cuối sprint** |
 | Không có gì để báo cáo | Không gửi email nào |
 
-Quá hạn và đúng ngày đến hạn **không** được đưa vào báo cáo (chỉ 1 và 3 ngày trước hạn).
+**Đến hạn hôm nay và quá hạn mặc định BẬT.** Tắt riêng từng loại bằng Script property (đặt giá trị `false`, không cần sửa code):
+
+| Property | Tác dụng |
+|---|---|
+| `INCLUDE_TODAY` = `false` | không đưa việc đến hạn hôm nay vào báo cáo |
+| `INCLUDE_OVERDUE` = `false` | không đưa việc quá hạn vào báo cáo (quay về chỉ nhắc trước hạn) |
+| `OVERDUE_BASIS` = `done_uat` (mặc định) hoặc `done` | quá hạn tính theo mốc nào, xem dưới |
+
+**Quá hạn tính theo mốc nào (`OVERDUE_BASIS`):**
+
+| Giá trị | Nghiệp vụ nào còn bị tính là quá hạn |
+|---|---|
+| `done_uat` (**mặc định**) | Chưa tới **Done UAT** (Backlog, In Analyst, Ready for Dev, In Dev, inTest UAT). Tới Done UAT là coi như xong |
+| `done` | Chưa **Done** hẳn — Done UAT vẫn bị tính là quá hạn cho tới khi chuyển sang Done |
+
+Subtask theo nghiệp vụ cha: cha đã tới Done UAT thì subtask còn mở của nó cũng không bị tính quá hạn (khi dùng `done_uat`). Mốc này
+chỉ ảnh hưởng **quá hạn**; việc đến hạn hôm nay và còn 1 / 3 ngày vẫn báo bất kể nghiệp vụ đang ở trạng thái nào (trừ Done).
+
+Mail là mail tĩnh, không bấm được nên "chip" trên đầu báo cáo chỉ là nhãn cho người đọc biết đang tính theo mốc nào:
+`Quá hạn theo [Done UAT]` hoặc `Quá hạn theo [Done]` (chỉ hiện khi phần quá hạn đang bật). Muốn đổi mốc, sửa Script property
+`OVERDUE_BASIS` rồi chạy `sendReportToMeOnly` để xem lại.
+
+Việc quá hạn được nhắc **mỗi ngày làm việc** cho tới khi chuyển qua mốc đã chọn (hoặc đổi lại ngày Due). Quá hạn tính theo số ngày
+làm việc (thứ Hai–thứ Sáu) kể từ ngày hết hạn tới hôm nay, không giới hạn số ngày. Nghiệp vụ không tự chỉnh ngày có hạn là cuối
+sprint nên cả sprint cũ chưa xong sẽ cùng quá hạn — với mốc `done` danh sách có thể rất dài.
 
 > Vì nghiệp vụ không tự chỉnh ngày có hạn là cuối sprint, ở ngày còn 1 hoặc 3 ngày làm việc trước khi sprint kết thúc,
 > báo cáo sẽ liệt kê **mọi** nghiệp vụ chưa xong của sprint đó — có thể rất dài.
@@ -113,7 +148,7 @@ Nếu không, mail sẽ bị từ chối hoặc nằm chờ duyệt.
    - `APP_URL` = `https://ttt-planning.onrender.com`
    - `REMINDER_SECRET` = chuỗi ở bước 1
    - `REPORT_TO` = địa chỉ group mail (nhiều địa chỉ thì cách nhau bằng dấu phẩy)
-   - (tùy chọn) `DAYS` — xem phần đầu `Code.gs`
+   - (tùy chọn) `DAYS`, `INCLUDE_TODAY`, `INCLUDE_OVERDUE`, `OVERDUE_BASIS` — xem phần đầu `Code.gs`
 5. Chọn hàm **`previewReport`** → **Run**. Lần đầu Google hỏi cấp quyền (gửi mail, gọi URL ngoài):
    chọn tài khoản → *Advanced* → *Go to … (unsafe)* → Allow. Đây là script của chính bạn nên cảnh báo "chưa xác minh" là bình thường.
    Xem **Execution log**: nó in ra nội dung báo cáo *sẽ* được gửi, chưa gửi gì.
@@ -155,5 +190,5 @@ Muốn thử khi hôm nay không có việc nào đến hạn: thêm tạm prope
 
 ## Đổi hoặc thu hồi secret
 
-Đổi `REMINDER_SECRET` trên Render **và** trong Script properties. Ai có secret đều đọc được danh sách việc sắp đến hạn,
+Đổi `REMINDER_SECRET` trên Render **và** trong Script properties. Ai có secret đều đọc được danh sách việc đến hạn,
 nên đừng gửi nó qua chat hay email.

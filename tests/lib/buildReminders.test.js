@@ -44,6 +44,105 @@ test('only items due in exactly 1 or 3 working days are reminded (default window
   assert.deepEqual(r.windows, [1, 3]);
 });
 
+test('due-today and overdue items are only included when asked for — and then carry 0 / a negative working_days_left', () => {
+  const tasks = [
+    base({ id: 1, name: 'long overdue', due_date: '2026-09-23' }),   // Wed three weeks earlier... 10 working days back
+    base({ id: 2, name: 'overdue', due_date: '2026-10-05' }),        // Monday: 2 working days ago
+    base({ id: 3, name: 'yesterday', due_date: '2026-10-06' }),
+    base({ id: 4, name: 'today', due_date: '2026-10-07' }),
+    base({ id: 5, name: 'tomorrow', due_date: '2026-10-08' }),
+    base({ id: 6, name: 'in 2', due_date: '2026-10-09' }),
+    base({ id: 7, name: 'monday', due_date: '2026-10-12' })
+  ];
+  const mk = (extra) => buildReminders({ tasks, subtasks: [], sprints: SPRINTS, today: WED, ...extra });
+  const left = (r) => r.items.map((i) => [i.name, i.working_days_left]);
+
+  assert.deepEqual(left(mk({})), [['tomorrow', 1], ['monday', 3]], 'off by default: callers that predate this see no change');
+  assert.deepEqual(left(mk({ includeToday: true })), [['today', 0], ['tomorrow', 1], ['monday', 3]]);
+  assert.deepEqual(left(mk({ includeOverdue: true })), [
+    ['long overdue', -10], ['overdue', -2], ['yesterday', -1], ['tomorrow', 1], ['monday', 3]
+  ], 'most overdue first');
+  const both = mk({ includeToday: true, includeOverdue: true });
+  assert.deepEqual(left(both), [
+    ['long overdue', -10], ['overdue', -2], ['yesterday', -1], ['today', 0], ['tomorrow', 1], ['monday', 3]
+  ]);
+  assert.equal(both.include_today, true);
+  assert.equal(both.include_overdue, true);
+  assert.equal(mk({}).include_overdue, false);
+});
+
+test('overdue is counted in working days all the way back, not capped at the reminder windows', () => {
+  const r = buildReminders({
+    tasks: [base({ id: 1, name: 'ancient', due_date: '2026-05-29' })], subtasks: [], sprints: SPRINTS,
+    today: '2026-10-09', includeOverdue: true
+  });
+  assert.equal(r.items[0].working_days_left, -workingDaysUntil('2026-05-29', '2026-10-09', 1000));
+  assert.ok(r.items[0].working_days_left < -60);
+});
+
+test('done work is never reported as overdue; an overdue subtask counts, and a not-yet-due subtask of an overdue task does not', () => {
+  const tasks = [
+    base({ id: 1, name: 'overdue open', due_date: '2026-10-01' }),
+    base({ id: 2, name: 'overdue but done', status: '6.done', due_date: '2026-10-01' })
+  ];
+  const subtasks = [
+    { id: 10, task_id: 1, name: 'late sub', status: 'wip', due_date: '2026-10-02', pic: null },
+    { id: 11, task_id: 1, name: 'done late sub', status: 'done', due_date: '2026-10-02', pic: null },
+    { id: 12, task_id: 2, name: 'late sub of done task', status: 'todo', due_date: '2026-10-02', pic: null },
+    { id: 13, task_id: 1, name: 'future sub', status: 'todo', due_date: '2026-10-30', pic: null }
+  ];
+  const r = buildReminders({ tasks, subtasks, sprints: SPRINTS, today: WED, includeOverdue: true, includeToday: true });
+  assert.deepEqual(r.items.map((i) => `${i.kind}:${i.name}`), ['task:overdue open', 'subtask:late sub']);
+});
+
+test('overdue basis: by default a task that reached Done UAT is finished (not overdue); with basis "done" it stays overdue until Done', () => {
+  const tasks = [
+    base({ id: 1, name: 'in dev', status: '3.in_test', due_date: '2026-10-01' }),
+    base({ id: 2, name: 'in UAT', status: '4.in_test_uat', due_date: '2026-10-01' }),
+    base({ id: 3, name: 'done UAT', status: '5.ready_for_staging', due_date: '2026-10-01' }),
+    base({ id: 4, name: 'done', status: '6.done', due_date: '2026-10-01' })
+  ];
+  const subtasks = [
+    { id: 10, task_id: 2, name: 'sub of in-UAT', status: 'wip', due_date: '2026-10-02', pic: null },
+    { id: 11, task_id: 3, name: 'sub of done-UAT', status: 'wip', due_date: '2026-10-02', pic: null }
+  ];
+  const names = (r) => r.items.map((i) => i.name).sort();
+  const run2 = (extra) => buildReminders({ tasks, subtasks, sprints: SPRINTS, today: WED, includeOverdue: true, ...extra });
+
+  assert.deepEqual(names(run2({})), ['in UAT', 'in dev', 'sub of in-UAT'], 'default basis is Done UAT');
+  assert.deepEqual(names(run2({ overdueBasis: 'done_uat' })), ['in UAT', 'in dev', 'sub of in-UAT']);
+  assert.deepEqual(names(run2({ overdueBasis: 'done' })), ['done UAT', 'in UAT', 'in dev', 'sub of done-UAT', 'sub of in-UAT'],
+    'a subtask follows its parent: with basis done_uat the subtask of a Done UAT task is not overdue either');
+  assert.equal(run2({}).overdue_basis, 'done_uat');
+  assert.equal(run2({ overdueBasis: 'done' }).overdue_basis, 'done');
+});
+
+test('the overdue basis only affects OVERDUE — a Done UAT task due today or in 1 / 3 days is still reported', () => {
+  const tasks = [
+    base({ id: 1, name: 'done UAT today', status: '5.ready_for_staging', due_date: '2026-10-07' }),
+    base({ id: 2, name: 'done UAT tomorrow', status: '5.ready_for_staging', due_date: '2026-10-08' }),
+    base({ id: 3, name: 'done UAT overdue', status: '5.ready_for_staging', due_date: '2026-10-05' })
+  ];
+  const r = buildReminders({ tasks, subtasks: [], sprints: SPRINTS, today: WED, includeToday: true, includeOverdue: true });
+  assert.deepEqual(r.items.map((i) => [i.name, i.working_days_left]), [['done UAT today', 0], ['done UAT tomorrow', 1]]);
+});
+
+test('a task due on the weekend is "due today" on the Friday before it', () => {
+  const r = buildReminders({
+    tasks: [base({ id: 1, name: 'sat', due_date: '2026-10-10' })], subtasks: [], sprints: SPRINTS,
+    today: '2026-10-09', includeToday: true
+  });
+  assert.deepEqual(r.items.map((i) => i.working_days_left), [0]);
+});
+
+test('on a weekend nothing is reminded even with overdue switched on', () => {
+  const r = buildReminders({
+    tasks: [base({ id: 1, name: 'late', due_date: '2026-10-01' })], subtasks: [], sprints: SPRINTS,
+    today: '2026-10-10', includeOverdue: true, includeToday: true
+  });
+  assert.deepEqual(r.items, []);
+});
+
 test('windows are configurable', () => {
   const r = run([base({ id: 1, name: 'in 2', due_date: '2026-10-09' })], [], WED, [2]);
   assert.equal(r.items.length, 1);

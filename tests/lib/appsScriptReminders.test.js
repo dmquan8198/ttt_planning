@@ -81,12 +81,12 @@ test('sendReport sends ONE report email to the group address — nobody else get
   sandbox.sendReport();
 
   assert.equal(fetched.length, 1);
-  assert.equal(fetched[0].url, 'https://app.example.com/api/reminders/due?days=1%2C3', 'trailing slash on APP_URL is tolerated');
+  assert.equal(fetched[0].url, 'https://app.example.com/api/reminders/due?days=1%2C3&due_today=1&overdue=1&overdue_by=done_uat', 'trailing slash on APP_URL is tolerated; due-today and overdue are asked for by default, overdue measured up to Done UAT');
   assert.equal(fetched[0].options.headers['X-Reminder-Secret'], 's3cret');
 
   assert.equal(mails.length, 1, 'one email in total, not one per person / task / subtask');
   assert.equal(mails[0].to, 'ttt-team@corp.com');
-  assert.equal(mails[0].subject, '[TTT] Báo cáo việc sắp đến hạn — 07/10/2026 (3 việc)');
+  assert.equal(mails[0].subject, '[TTT] Báo cáo việc đến hạn — 07/10/2026 (3 việc)');
 });
 
 // the report is one small <table>; read it back as rows of cell texts (and keep each row's raw html for style checks)
@@ -109,7 +109,7 @@ test('the report nests Analyst/Development → Sprint → Category, one row per 
   assert.ok(!html.includes('<due>'));
 
   assert.deepEqual(rows.map((r) => r.cells[0]), [
-    'Việc sắp đến hạn · Thứ Tư, 07/10/2026 · 3 việc',          // title: weekday + date + the one count
+    'Việc đến hạn · Thứ Tư, 07/10/2026 · 3 việc',               // title: weekday + date + the one count
     'Analyst · 2 việc',                                          // 1. group by Analyst / Development
     'S19 · 28/09 – 09/10',                                       // 2. sprint, with its dates
     'TTT New - Internal Features',                               // 3. category
@@ -121,7 +121,7 @@ test('the report nests Analyst/Development → Sprint → Category, one row per 
     'S19 · 28/09 – 09/10',
     'TTT New - Internal Features',
     'Task <due> tomorrow',
-    'Mở hệ thống · Hạn: ngày hết hạn · số ngày làm việc còn lại (đỏ = còn 1 ngày) · — = chưa có PIC'
+    'Mở hệ thống · Hạn: ngày hết hạn · số ngày làm việc còn lại hoặc đã quá (đỏ = còn 1 ngày) · — = chưa có PIC'
   ], 'every item is exactly one row');
 });
 
@@ -213,11 +213,85 @@ test('when a task AND its subtask are due the same day: parent row (bold) then t
   assert.equal(mails[0].htmlBody.match(/S19/g).length, 1, 'the sprint is a heading, not repeated on rows');
 });
 
+// ---- due today / overdue ----
+function overdueResponse() {
+  const sprints = [{ id: 1, code: 'S19', start_date: '2026-09-28', end_date: '2026-10-09' }];
+  const t = (id, name, due) => ({ id, name, category: 'Cat', status: '3.in_test', date_overridden: true, start_date: '2026-09-01', due_date: due, sprint_id: 1, pic: 'An' });
+  return buildReminders({
+    today: '2026-10-07', sprints, includeToday: true, includeOverdue: true,
+    tasks: [t(1, 'Late one', '2026-10-02'), t(2, 'Due now', '2026-10-07'), t(3, 'Tomorrow', '2026-10-08')],
+    subtasks: [{ id: 10, task_id: 2, name: 'Late sub', status: 'todo', due_date: '2026-10-06', pic: null }]
+  });
+}
+
+test('overdue and due-today items read "quá hạn N ngày" / "hôm nay", in bold dark red / orange; the header and subject count the overdue ones', () => {
+  const { sandbox, mails } = load({ props: PROPS, responses: [{ code: 200, body: overdueResponse() }] });
+  sandbox.sendReport();
+  const rows = rowsOf(mails[0].htmlBody);
+  const byName = (n) => rows.find((r) => r.cells[0].replace('↳ ', '') === n);
+
+  assert.deepEqual(byName('Late one').cells, ['Late one', 'An', 'In Dev', '02/10 · quá hạn 3 ngày'], 'Fri 02/10 → Wed 07/10 = Mon, Tue, Wed = 3 working days');
+  assert.deepEqual(byName('Due now').cells, ['Due now', 'An', 'In Dev', '07/10 · hôm nay']);
+  assert.deepEqual(byName('Late sub').cells, ['↳ Late sub', '—', 'TODO', '06/10 · quá hạn 1 ngày']);
+  assert.match(byName('Late one').html, /color:#a31515;font-weight:700[^>]*>02\/10 · quá hạn 3 ngày/);
+  assert.match(byName('Due now').html, /color:#d9480f;font-weight:700[^>]*>07\/10 · hôm nay/);
+  assert.match(byName('Tomorrow').html, /color:#c0392b[^>]*>08\/10 · còn 1 ngày/, 'still-to-come items look as before');
+
+  assert.equal(rows[0].cells[0], 'Việc đến hạn · Thứ Tư, 07/10/2026 · 4 việc (2 quá hạn) Quá hạn theo Done UAT', 'a static chip says what overdue is measured against');
+  assert.equal(mails[0].subject, '[TTT] Báo cáo việc đến hạn — 07/10/2026 (4 việc · 2 quá hạn)');
+  assert.ok(mails[0].body.startsWith('VIỆC ĐẾN HẠN — Thứ Tư, 07/10/2026 · 4 việc (2 quá hạn) · quá hạn theo Done UAT\n'));
+  assert.ok(mails[0].body.includes('- Late one  (An · In Dev · 02/10 · quá hạn 3 ngày)'));
+  assert.ok(mails[0].body.includes('- Due now  (An · In Dev · 07/10 · hôm nay)'));
+});
+
+test('within a category the most overdue comes first, then today, then what is still to come', () => {
+  const { sandbox, mails } = load({ props: PROPS, responses: [{ code: 200, body: overdueResponse() }] });
+  sandbox.sendReport();
+  const names = rowsOf(mails[0].htmlBody).map((r) => r.cells[0]).filter((n) => /Late one|Due now|Tomorrow/.test(n));
+  assert.deepEqual(names, ['Late one', 'Due now', 'Tomorrow']);
+});
+
+test('INCLUDE_TODAY / INCLUDE_OVERDUE are on by default and "false" turns each off in the request', () => {
+  const urlWith = (extra) => {
+    const { sandbox, fetched } = load({ props: { ...PROPS, ...extra }, responses: [{ code: 200, body: realResponse() }] });
+    sandbox.previewReport();
+    return fetched[0].url;
+  };
+  assert.ok(urlWith({}).endsWith('&due_today=1&overdue=1&overdue_by=done_uat'));
+  assert.ok(urlWith({ INCLUDE_OVERDUE: 'false' }).endsWith('&due_today=1&overdue=0&overdue_by=done_uat'));
+  assert.ok(urlWith({ INCLUDE_TODAY: 'false' }).endsWith('&due_today=0&overdue=1&overdue_by=done_uat'));
+  assert.ok(urlWith({ INCLUDE_TODAY: ' OFF ', INCLUDE_OVERDUE: '0' }).endsWith('&due_today=0&overdue=0&overdue_by=done_uat'));
+  assert.ok(urlWith({ INCLUDE_OVERDUE: 'true' }).endsWith('&due_today=1&overdue=1&overdue_by=done_uat'));
+});
+
+test('OVERDUE_BASIS picks what "overdue" is measured against (Done UAT by default, "done" for Done) and the email carries a static chip saying which', () => {
+  const urlWith = (extra) => {
+    const { sandbox, fetched } = load({ props: { ...PROPS, ...extra }, responses: [{ code: 200, body: realResponse() }] });
+    sandbox.previewReport();
+    return fetched[0].url;
+  };
+  assert.ok(urlWith({ OVERDUE_BASIS: 'done' }).endsWith('&overdue_by=done'));
+  assert.ok(urlWith({ OVERDUE_BASIS: ' Done ' }).endsWith('&overdue_by=done'));
+  assert.ok(urlWith({ OVERDUE_BASIS: 'done_uat' }).endsWith('&overdue_by=done_uat'));
+  assert.ok(urlWith({ OVERDUE_BASIS: 'nonsense' }).endsWith('&overdue_by=done_uat'), 'anything unrecognised falls back to the default');
+
+  const mailFor = (body) => {
+    const { sandbox, mails } = load({ props: PROPS, responses: [{ code: 200, body }] });
+    sandbox.sendReport();
+    return mails[0];
+  };
+  const withBasis = (basis) => ({ ...overdueResponse(), overdue_basis: basis });
+  assert.match(mailFor(withBasis('done_uat')).htmlBody, /Quá hạn theo <b[^>]*>Done UAT<\/b>/);
+  assert.match(mailFor(withBasis('done')).htmlBody, /Quá hạn theo <b[^>]*>Done<\/b>/);
+  assert.match(mailFor(withBasis('done')).body, /quá hạn theo Done\n/);
+  assert.doesNotMatch(mailFor(realResponse()).htmlBody, /Quá hạn theo/, 'no overdue section asked for → no chip');
+});
+
 test('the email also has a plain-text version in the same shape', () => {
   const { sandbox, mails } = load({ props: PROPS, responses: [{ code: 200, body: realResponse() }] });
   sandbox.sendReport();
   const text = mails[0].body;
-  assert.match(text, /^VIỆC SẮP ĐẾN HẠN — Thứ Tư, 07\/10\/2026 · 3 việc/);
+  assert.match(text, /^VIỆC ĐẾN HẠN — Thứ Tư, 07\/10\/2026 · 3 việc\n/);
   assert.ok(text.includes('== ANALYST (2 việc) ==\nS19 · 28/09 – 09/10\n  [TTT New - Internal Features]\n  - Owner-less task  (chưa có PIC · In Analyst · 08/10 · còn 1 ngày)'));
   assert.ok(text.includes('  [TTT New - Convert & Scale]\n  - Parent\n      ↳ Sub Monday  (Bình · subtask WIP · 12/10 · còn 3 ngày)'));
   assert.ok(text.includes('== DEVELOPMENT (1 việc) ==\nS19 · 28/09 – 09/10\n  [TTT New - Internal Features]\n  - Task <due> tomorrow  (An · In Dev · 08/10 · còn 1 ngày)'));
@@ -286,10 +360,12 @@ test('sendSampleReportToMeOnly mails the owner a clearly-fake report without cal
   assert.equal(fetched.length, 0, 'no network call');
   assert.equal(mails.length, 1);
   assert.equal(mails[0].to, 'me@corp.com');
-  assert.match(mails[0].subject, /^\[TTT\] Báo cáo việc sắp đến hạn — \d{2}\/\d{2}\/\d{4} \(5 việc\)$/);
+  assert.match(mails[0].subject, /^\[TTT\] Báo cáo việc đến hạn — \d{2}\/\d{2}\/\d{4} \(7 việc · 1 quá hạn\)$/);
   assert.ok(mails[0].htmlBody.includes('[Mẫu] Nạp tiền vào Túi qua ví liên kết'));
   const heads = rowsOf(mails[0].htmlBody).map((r) => r.cells[0]);
-  assert.ok(heads.includes('Analyst · 2 việc') && heads.includes('Development · 3 việc'), 'the sample shows both groups');
+  assert.ok(heads.includes('Analyst · 2 việc') && heads.includes('Development · 5 việc'), 'the sample shows both groups');
+  assert.match(mails[0].body, /quá hạn 3 ngày/, 'and shows what an overdue item looks like…');
+  assert.match(mails[0].body, /hôm nay/, '…and one due today');
   assert.ok(heads.some((h) => /^S19 · \d{2}\/\d{2} – \d{2}\/\d{2}$/.test(h)) && heads.some((h) => /^S20 · \d{2}\/\d{2} – \d{2}\/\d{2}$/.test(h)), 'two sprints, each with its dates');
   assert.ok(heads.includes('TTT New - Internal Features') && heads.includes('TTT New - Convert & Scale'), 'and two categories');
   assert.match(mails[0].body, /còn 1 ngày/);

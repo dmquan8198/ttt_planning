@@ -97,6 +97,62 @@ test('GET /api/reminders/due honours ?days= and validates its inputs', async () 
   });
 });
 
+test('GET /api/reminders/due adds what is due today and what is overdue only when asked (?due_today=1 / ?overdue=1)', async () => {
+  await withSecret(async () => {
+    const pool = makeTestPool();
+    await seed(pool);
+    await pool.query(
+      `INSERT INTO tasks (category, name, platform, status, start_date, due_date, date_overridden, pic)
+       VALUES ('Product Foundation', 'Due today', 'App', '3.in_test', '2026-10-01', '2026-10-07', true, 'An'),
+              ('Product Foundation', 'Late', 'App', '3.in_test', '2026-09-01', '2026-10-02', true, NULL),
+              ('Product Foundation', 'Late but done', 'App', '6.done', '2026-09-01', '2026-10-02', true, 'An')`
+    );
+    const app = createApp(pool);
+    const get = (q) => request(app).get('/api/reminders/due').query({ today: WED, ...q }).set('X-Reminder-Secret', SECRET);
+    const summary = (res) => res.body.items.map((i) => `${i.name}:${i.working_days_left}`);
+
+    assert.deepEqual(summary(await get({})), ['Due tomorrow:1', 'Sub due Monday:3'], 'unchanged without the flags');
+
+    const both = await get({ due_today: '1', overdue: '1' });
+    assert.equal(both.status, 200);
+    assert.deepEqual(summary(both), ['Late:-3', 'Due today:0', 'Due tomorrow:1', 'Sub due Monday:3']);
+    assert.equal(both.body.include_today, true);
+    assert.equal(both.body.include_overdue, true);
+    assert.equal(both.body.items[0].pic, null, 'an overdue item with nobody assigned still shows up (the report flags it)');
+
+    assert.deepEqual(summary(await get({ overdue: 'true' })), ['Late:-3', 'Due tomorrow:1', 'Sub due Monday:3']);
+    assert.deepEqual(summary(await get({ due_today: 'on', overdue: '0' })), ['Due today:0', 'Due tomorrow:1', 'Sub due Monday:3']);
+
+    assert.equal((await get({ overdue: 'maybe' })).status, 400);
+    assert.equal((await get({ due_today: '2' })).status, 400);
+  });
+});
+
+test('GET /api/reminders/due ?overdue_by= chooses what overdue is measured against (default done_uat)', async () => {
+  await withSecret(async () => {
+    const pool = makeTestPool();
+    await pool.query(
+      `INSERT INTO tasks (category, name, platform, status, start_date, due_date, date_overridden, pic)
+       VALUES ('Product Foundation', 'Late in dev', 'App', '3.in_test', '2026-09-01', '2026-10-02', true, 'An'),
+              ('Product Foundation', 'Late done UAT', 'App', '5.ready_for_staging', '2026-09-01', '2026-10-02', true, 'An')`
+    );
+    const app = createApp(pool);
+    const get = (q) => request(app).get('/api/reminders/due').query({ today: WED, overdue: '1', ...q }).set('X-Reminder-Secret', SECRET);
+    const names = (res) => res.body.items.map((i) => i.name);
+
+    const byDefault = await get({});
+    assert.deepEqual(names(byDefault), ['Late in dev']);
+    assert.equal(byDefault.body.overdue_basis, 'done_uat');
+    assert.deepEqual(names(await get({ overdue_by: 'done_uat' })), ['Late in dev']);
+
+    const byDone = await get({ overdue_by: 'done' });
+    assert.deepEqual(names(byDone).sort(), ['Late done UAT', 'Late in dev'], 'with basis "done" the Done UAT task is still overdue');
+    assert.equal(byDone.body.overdue_basis, 'done');
+
+    assert.equal((await get({ overdue_by: 'golive' })).status, 400);
+  });
+});
+
 test('GET /api/reminders/due is empty on a weekend', async () => {
   await withSecret(async () => {
     const pool = makeTestPool();

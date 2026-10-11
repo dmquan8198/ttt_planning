@@ -1,12 +1,12 @@
 /**
- * Túi Thần Tài — báo cáo việc sắp đến hạn, gửi qua email.
+ * Túi Thần Tài — báo cáo việc đến hạn, gửi qua email.
  *
  * Script này chạy TRONG Google Workspace của bạn (script.google.com), nên mail
  * được gửi từ chính hộp thư công ty của bạn — không cần SMTP, không cần để mật
  * khẩu mail ở đâu cả. Mỗi sáng nó hỏi app (GET /api/reminders/due) xem nghiệp vụ /
- * subtask nào còn đúng 1 và 3 ngày làm việc nữa là đến hạn, rồi gửi MỘT email báo
- * cáo duy nhất tới MỘT địa chỉ nhóm (group mail) — không gửi riêng cho từng
- * người, từng task hay subtask.
+ * subtask nào còn đúng 1 và 3 ngày làm việc nữa là đến hạn, đến hạn HÔM NAY, hoặc đã
+ * QUÁ HẠN, rồi gửi MỘT email báo cáo duy nhất tới MỘT địa chỉ nhóm (group mail) —
+ * không gửi riêng cho từng người, từng task hay subtask.
  *
  * Cài đặt từng bước: xem README.md cùng thư mục.
  *
@@ -17,6 +17,11 @@
  *                              (nhiều địa chỉ: cách nhau bằng dấu phẩy)
  *   SEND_AT          tùy chọn  giờ gửi tự động, dạng HH:mm, mặc định "09:30"
  *   DAYS             tùy chọn  mặc định "1,3" (số ngày làm việc trước hạn)
+ *   INCLUDE_TODAY    tùy chọn  mặc định bật: đưa việc đến hạn HÔM NAY vào báo cáo. Đặt "false" để tắt.
+ *   INCLUDE_OVERDUE  tùy chọn  mặc định bật: đưa việc đã QUÁ HẠN vào báo cáo. Đặt "false" để tắt.
+ *   OVERDUE_BASIS    tùy chọn  "done_uat" (mặc định) hoặc "done": quá hạn tính theo mốc nào.
+ *                              done_uat = nghiệp vụ tới Done UAT là coi như xong, không còn quá hạn;
+ *                              done = chỉ coi là xong khi Done hẳn. Email ghi rõ đang tính theo mốc nào.
  *   TODAY            chỉ để THỬ: YYYY-MM-DD (phải là ngày làm việc) — giả vờ hôm nay là
  *                              ngày đó. Nhớ xóa đi sau khi thử xong.
  */
@@ -60,8 +65,13 @@ function sendSampleReportToMeOnly() {
   var S20 = { sprint_code: 'S20', sprint_start: dayPlus_(4), sprint_end: dayPlus_(15) };
   var PARENT = '[Mẫu] Nạp tiền vào Túi qua ví liên kết';
   var data = {
-    today: dayPlus_(0), windows: [1, 3], weekend: false,
+    today: dayPlus_(0), windows: [1, 3], include_today: true, include_overdue: true, overdue_basis: 'done_uat', weekend: false,
     items: [
+      // quá hạn và đến hạn hôm nay
+      { kind: 'task', id: 5, task_id: 5, name: '[Mẫu] Đối soát giao dịch cuối tháng', task_name: '[Mẫu] Đối soát giao dịch cuối tháng', category: CAT_A, task_status: '3.in_test',
+        sprint_code: S19.sprint_code, sprint_start: S19.sprint_start, sprint_end: S19.sprint_end, status: '3.in_test', due_date: dayPlus_(-3), pic: 'An', working_days_left: -3 },
+      { kind: 'task', id: 6, task_id: 6, name: '[Mẫu] Màn hình lịch sử Túi', task_name: '[Mẫu] Màn hình lịch sử Túi', category: CAT_A, task_status: '3.in_test',
+        sprint_code: S19.sprint_code, sprint_start: S19.sprint_start, sprint_end: S19.sprint_end, status: '3.in_test', due_date: dayPlus_(0), pic: 'Bình', working_days_left: 0 },
       { kind: 'task', id: 1, task_id: 1, name: PARENT, task_name: PARENT, category: CAT_A, task_status: '3.in_test',
         sprint_code: S19.sprint_code, sprint_start: S19.sprint_start, sprint_end: S19.sprint_end, status: '3.in_test', due_date: dayPlus_(1), pic: 'An', working_days_left: 1 },
       { kind: 'subtask', id: 10, task_id: 1, name: '[Mẫu] QC test lại luồng nạp tiền', task_name: PARENT, category: CAT_A, task_status: '3.in_test',
@@ -141,6 +151,14 @@ function sendAt_(props) {
   var v = String(props.getProperty('SEND_AT') || '').trim();
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : '09:30';
 }
+/** Công tắc bật/tắt: bật trừ khi đặt "false" / "0" / "no" / "off" / "tat". */
+function flagOn_(props, name) {
+  return !/^(false|0|no|off|tat|tắt)$/i.test(String(props.getProperty(name) || '').trim());
+}
+/** Quá hạn tính theo mốc nào: 'done' hoặc 'done_uat' (mặc định, cả khi để trống / gõ sai). */
+function overdueBasis_(props) {
+  return /^done$/i.test(String(props.getProperty('OVERDUE_BASIS') || '').trim()) ? 'done' : 'done_uat';
+}
 function nowHhmm_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm'); }
 function todayKey_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'); }
 
@@ -152,9 +170,10 @@ function run_(opts) {
   var to = opts.onlyOwner ? Session.getEffectiveUser().getEmail() : (props.getProperty('REPORT_TO') || '').trim();
   if (!to) throw new Error('Thiếu REPORT_TO (địa chỉ group mail nhận báo cáo) trong Script properties.');
 
-  var data = fetchDue_(appUrl, secret, props.getProperty('DAYS') || '1,3', props.getProperty('TODAY'));
+  var data = fetchDue_(appUrl, secret, props.getProperty('DAYS') || '1,3', props.getProperty('TODAY'),
+    flagOn_(props, 'INCLUDE_TODAY'), flagOn_(props, 'INCLUDE_OVERDUE'), overdueBasis_(props));
   Logger.log('Hôm nay ' + data.today + (data.weekend ? ' (cuối tuần — không gửi)' : '') +
-    ': ' + data.items.length + ' việc sắp đến hạn.');
+    ': ' + data.items.length + ' việc đến hạn' + (countOverdue_(data.items) ? ' (' + countOverdue_(data.items) + ' quá hạn)' : '') + '.');
   if (data.items.length === 0) return; // không có gì để báo cáo thì không gửi
 
   deliver_(data, to, appUrl, opts.dryRun);
@@ -165,7 +184,8 @@ function deliver_(data, to, appUrl, dryRun) {
   if (data.items.length === 0) return;
   var mail = {
     to: to,
-    subject: '[TTT] Báo cáo việc sắp đến hạn — ' + formatDmy_(data.today) + ' (' + data.items.length + ' việc)',
+    subject: '[TTT] Báo cáo việc đến hạn — ' + formatDmy_(data.today) + ' (' + data.items.length + ' việc' +
+      (countOverdue_(data.items) ? ' · ' + countOverdue_(data.items) + ' quá hạn' : '') + ')',
     html: buildHtml_(data, appUrl),
     text: buildText_(data, appUrl)
   };
@@ -178,8 +198,10 @@ function deliver_(data, to, appUrl, dryRun) {
 }
 
 /** Gọi app; Render gói free ngủ khi rảnh nên lần đầu có thể mất ~1 phút → thử lại. */
-function fetchDue_(appUrl, secret, days, todayOverride) {
+function fetchDue_(appUrl, secret, days, todayOverride, includeToday, includeOverdue, overdueBasis) {
   var url = appUrl + '/api/reminders/due?days=' + encodeURIComponent(days) +
+    '&due_today=' + (includeToday ? 1 : 0) + '&overdue=' + (includeOverdue ? 1 : 0) +
+    '&overdue_by=' + (overdueBasis === 'done' ? 'done' : 'done_uat') +
     (todayOverride ? '&today=' + encodeURIComponent(todayOverride) : '');
   var lastError;
   for (var attempt = 1; attempt <= 4; attempt++) {
@@ -207,11 +229,13 @@ function fetchDue_(appUrl, secret, days, todayOverride) {
 // In Analyst, Ready for Dev; Development gồm In Dev, inTest UAT, Done UAT, Done — (2) Sprint tăng dần, (3) Category.
 // Sprint và category đã là tiêu đề nên bỏ cột Sprint khỏi từng dòng; mỗi việc đúng MỘT dòng: tên | PIC | status | hạn.
 // Subtask nằm ngay dưới nghiệp vụ cha (và theo nhóm/sprint/category của cha) nên không phải lặp tên cha.
-// Ít chữ lặp lại để dễ nhìn: thiếu PIC là "—"; hạn là ngày + số ngày làm việc còn lại, tô đỏ khi còn 1 ngày.
+// Ít chữ lặp lại để dễ nhìn: thiếu PIC là "—"; hạn là ngày + số ngày làm việc còn lại
+// ("còn 3 ngày", xám), còn 1 ngày tô đỏ, "hôm nay" cam đậm, "quá hạn N ngày" đỏ sẫm đậm.
 // Status của SUBTASK (TODO/WIP/Done) là một viên thuốc viền nhỏ, thụt vào — khác hẳn status của nghiệp vụ (chữ thường)
 // để không ai đọc nhầm hai thứ ngang hàng.
 
 var INK_ = '#1a1a1a', MUTED_ = '#8a8a8a', RULE_ = '#ececec', WARN_ = '#c0392b', URGENT_ = '#c0392b';
+var OVERDUE_ = '#a31515', TODAY_ = '#d9480f'; // quá hạn: đỏ sẫm đậm · đến hạn hôm nay: cam đậm
 
 var SECTIONS_ = [
   { key: 'analyst', label: 'Analyst', accent: '#3b6ea5' },
@@ -293,8 +317,31 @@ function sprintRange_(sp) {
 }
 /** '2026-10-09' → '09/10' */
 function dueShort_(it) { return formatDmy_(it.due_date).slice(0, 5); }
-/** '09/10 · còn 1 ngày' (ngày làm việc còn lại) — dùng cho bản chữ thường */
-function dueText_(it) { return dueShort_(it) + ' · còn ' + it.working_days_left + ' ngày'; }
+/**
+ * '09/10 · còn 1 ngày' (ngày làm việc còn lại) · '09/10 · hôm nay' · '02/10 · quá hạn 5 ngày'.
+ * working_days_left: dương = còn, 0 = đến hạn hôm nay, âm = đã quá hạn từng ấy ngày làm việc.
+ */
+function dueText_(it) {
+  var n = it.working_days_left;
+  if (n < 0) return dueShort_(it) + ' · quá hạn ' + (-n) + ' ngày';
+  if (n === 0) return dueShort_(it) + ' · hôm nay';
+  return dueShort_(it) + ' · còn ' + n + ' ngày';
+}
+/** Style của chữ hạn: quá hạn = đỏ đậm, hôm nay = cam đậm, còn 1 ngày = đỏ, còn lại = xám. */
+function dueStyle_(it) {
+  var n = it.working_days_left;
+  if (n < 0) return 'color:' + OVERDUE_ + ';font-weight:700';
+  if (n === 0) return 'color:' + TODAY_ + ';font-weight:700';
+  return 'color:' + (n <= 1 ? URGENT_ : MUTED_);
+}
+/** Nhãn mốc tính quá hạn khi báo cáo có phần quá hạn: 'Done UAT' hoặc 'Done'; '' khi không tính quá hạn. */
+function overdueBasisLabel_(data) {
+  if (!data.include_overdue) return '';
+  return data.overdue_basis === 'done' ? 'Done' : 'Done UAT';
+}
+function countOverdue_(items) {
+  return items.filter(function (i) { return i.working_days_left < 0; }).length;
+}
 function statusText_(it) { return STATUS_LABELS_[it.status] || it.status || ''; }
 
 /**
@@ -313,7 +360,7 @@ function buildHtml_(data, appUrl) {
   function row_(c) {
     var nameStyle = 'padding-left:' + c.indent + 'px;' + (c.bold ? 'font-weight:600;' : '') + (c.dim ? 'color:#666;' : '');
     var pic = c.blank ? '' : (c.pic ? esc_(c.pic) : '<span style="color:' + WARN_ + '">—</span>');
-    var due = c.dueIt ? '<span style="color:' + (c.dueIt.working_days_left <= 1 ? URGENT_ : MUTED_) + '">' + esc_(dueText_(c.dueIt)) + '</span>' : '';
+    var due = c.dueIt ? '<span style="' + dueStyle_(c.dueIt) + '">' + esc_(dueText_(c.dueIt)) + '</span>' : '';
     // status của nghiệp vụ: chữ thường. Của subtask: viên thuốc viền nhỏ + thụt vào, để không đọc ngang hàng với nghiệp vụ
     var status = c.sub
       ? '<span style="display:inline-block;margin-left:14px;padding:0 7px;border:1px solid #d3d8de;border-radius:9px;font-size:10.5px;line-height:1.55;color:#777;background:#fafbfc">' + esc_(c.status || '') + '</span>'
@@ -322,15 +369,20 @@ function buildHtml_(data, appUrl) {
       cell_(nameStyle, (c.sub ? '<span style="color:#b5b5b5">↳</span> ' : '') + esc_(c.name)) +
       cell_('width:104px;white-space:nowrap;color:#555', pic) +
       cell_('width:96px;white-space:nowrap;color:#555', status) +
-      cell_('width:112px;white-space:nowrap', due) +
+      cell_('width:148px;white-space:nowrap', due) +
       '</tr>';
   }
 
   var html = '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f4f7;font-family:' + FONT + ';color:' + INK_ + '">' +
     '<tr><td style="padding:10px">' +
     '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:900px;background:#ffffff;border:1px solid #dde1e6;border-collapse:separate;border-radius:6px;font-size:12px;line-height:1.35">' +
-    '<tr><td colspan="' + COLS + '" style="padding:10px 10px 8px"><span style="font-size:16px;font-weight:600">Việc sắp đến hạn</span>' +
-    '<span style="color:' + MUTED_ + '"> &nbsp;·&nbsp; ' + esc_(weekdayDmy_(data.today)) + ' &nbsp;·&nbsp; ' + data.items.length + ' việc</span></td></tr>';
+    '<tr><td colspan="' + COLS + '" style="padding:10px 10px 8px"><span style="font-size:16px;font-weight:600">Việc đến hạn</span>' +
+    '<span style="color:' + MUTED_ + '"> &nbsp;·&nbsp; ' + esc_(weekdayDmy_(data.today)) + ' &nbsp;·&nbsp; ' + data.items.length + ' việc' +
+    (countOverdue_(data.items) ? ' (<span style="color:' + OVERDUE_ + ';font-weight:700">' + countOverdue_(data.items) + ' quá hạn</span>)' : '') + '</span>' +
+    // nhãn tĩnh (mail không bấm được): cho người đọc biết "quá hạn" đang tính theo mốc nào
+    (overdueBasisLabel_(data)
+      ? ' <span style="display:inline-block;margin-left:6px;padding:0 8px;border:1px solid #d3d8de;border-radius:9px;font-size:10.5px;line-height:1.6;color:#777;background:#fafbfc;vertical-align:2px">Quá hạn theo <b style="color:#444">' + esc_(overdueBasisLabel_(data)) + '</b></span>'
+      : '') + '</td></tr>';
 
   groupReport_(data.items).forEach(function (sec) {
     html += '<tr><td colspan="' + COLS + '" style="background:#eef1f5;border-left:3px solid ' + sec.accent +
@@ -357,14 +409,16 @@ function buildHtml_(data, appUrl) {
   });
 
   html += '<tr><td colspan="' + COLS + '" style="padding:8px 10px;font-size:11px;color:' + MUTED_ + '">' +
-    '<a href="' + esc_(appUrl) + '" style="color:' + MUTED_ + '">Mở hệ thống</a> &nbsp;·&nbsp; Hạn: ngày hết hạn · số ngày làm việc còn lại (<span style="color:' + URGENT_ + '">đỏ</span> = còn 1 ngày)' +
+    '<a href="' + esc_(appUrl) + '" style="color:' + MUTED_ + '">Mở hệ thống</a> &nbsp;·&nbsp; Hạn: ngày hết hạn · số ngày làm việc còn lại hoặc đã quá (<span style="color:' + URGENT_ + '">đỏ</span> = còn 1 ngày)' +
     ' &nbsp;·&nbsp; <span style="color:' + WARN_ + '">—</span> = chưa có PIC</td></tr>' +
     '</table></td></tr></table>';
   return html;
 }
 
 function buildText_(data, appUrl) {
-  var lines = ['VIỆC SẮP ĐẾN HẠN — ' + weekdayDmy_(data.today) + ' · ' + data.items.length + ' việc', ''];
+  var lines = ['VIỆC ĐẾN HẠN — ' + weekdayDmy_(data.today) + ' · ' + data.items.length + ' việc' +
+    (countOverdue_(data.items) ? ' (' + countOverdue_(data.items) + ' quá hạn)' : '') +
+    (overdueBasisLabel_(data) ? ' · quá hạn theo ' + overdueBasisLabel_(data) : ''), ''];
   groupReport_(data.items).forEach(function (sec) {
     lines.push('== ' + sec.label.toUpperCase() + ' (' + countItems_(sec) + ' việc) ==');
     sec.sprints.forEach(function (sp) {
@@ -385,7 +439,7 @@ function buildText_(data, appUrl) {
     });
     lines.push('');
   });
-  lines.push('Hạn: ngày hết hạn · số ngày làm việc còn lại');
+  lines.push('Hạn: ngày hết hạn · số ngày làm việc còn lại hoặc đã quá');
   lines.push('Mở hệ thống: ' + appUrl);
   return lines.join('\n');
 }
